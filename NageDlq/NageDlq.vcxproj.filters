@@ -95,5 +95,20 @@
     <Image Include="res\NageDlq.ico">
       <Filter>资源文件</Filter>
     </Image>
+    <Image Include="res\bitmap1.bmp">
+      <Filter>资源文件</Filter>
+    </Image>
+    <Image Include="res\map06.bmp">
+      <Filter>资源文件</Filter>
+    </Image>
+    <Image Include="res\login_.bmp">
+      <Filter>资源文件</Filter>
+    </Image>
+    <Image Include="res\login_map.bmp">
+      <Filter>资源文件</Filter>
+    </Image>
+    <Image Include="res\map01.bmp">
+      <Filter>资源文件</Filter>
+    </Image>
   </ItemGroup>
 </Project>

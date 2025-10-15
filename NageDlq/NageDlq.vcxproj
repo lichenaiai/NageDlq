@@ -222,6 +222,11 @@
     <None Include="res\NageDlq.rc2" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="res\bitmap1.bmp" />
+    <Image Include="res\login_.bmp" />
+    <Image Include="res\login_map.bmp" />
+    <Image Include="res\map01.bmp" />
+    <Image Include="res\map06.bmp" />
     <Image Include="res\NageDlq.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
