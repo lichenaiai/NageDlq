@@ -1,7 +1,25 @@
-﻿//{{NO_DEPENDENCIES}}
+﻿
+
+
+//{{NO_DEPENDENCIES}}
 // Microsoft Visual C++ 生成的包含文件。
 // 供 NageDlq.rc 使用
 //
+
+cpp
+#ifdef _UNICODE
+// Unicode环境下的定义
+#ifndef SS_REALSIZECONTROL
+#define SS_REALSIZECONTROL 0x00000040
+#endif
+#else
+// 多字节环境下的定义  
+#ifndef SS_REALSIZECONTROL
+#define SS_REALSIZECONTROL 0x00000040
+#endif
+#endif
+
+
 #define IDM_ABOUTBOX                    0x0010
 #define IDD_ABOUTBOX                    100
 #define IDS_ABOUTBOX                    101
