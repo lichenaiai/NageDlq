@@ -5,6 +5,8 @@ VisualStudioVersion = 17.8.34316.72
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NageDlq", "NageDlq\NageDlq.vcxproj", "{7C4DAD9A-A32A-4083-A319-A548263C6627}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NageDlqServer", "NageDlqServer\NageDlqServer.vcxproj", "{3AD04AD4-3A81-800D-54E1-2524A5481CFE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -21,6 +23,14 @@ Global
 		{7C4DAD9A-A32A-4083-A319-A548263C6627}.Release|x64.Build.0 = Release|x64
 		{7C4DAD9A-A32A-4083-A319-A548263C6627}.Release|x86.ActiveCfg = Release|Win32
 		{7C4DAD9A-A32A-4083-A319-A548263C6627}.Release|x86.Build.0 = Release|Win32
+		{3AD04AD4-3A81-800D-54E1-2524A5481CFE}.Debug|x64.ActiveCfg = Debug|x64
+		{3AD04AD4-3A81-800D-54E1-2524A5481CFE}.Debug|x64.Build.0 = Debug|x64
+		{3AD04AD4-3A81-800D-54E1-2524A5481CFE}.Debug|x86.ActiveCfg = Debug|Win32
+		{3AD04AD4-3A81-800D-54E1-2524A5481CFE}.Debug|x86.Build.0 = Debug|Win32
+		{3AD04AD4-3A81-800D-54E1-2524A5481CFE}.Release|x64.ActiveCfg = Release|x64
+		{3AD04AD4-3A81-800D-54E1-2524A5481CFE}.Release|x64.Build.0 = Release|x64
+		{3AD04AD4-3A81-800D-54E1-2524A5481CFE}.Release|x86.ActiveCfg = Release|Win32
+		{3AD04AD4-3A81-800D-54E1-2524A5481CFE}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

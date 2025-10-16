@@ -54,6 +54,7 @@ BOOL CNageDlqDlg::OnInitDialog()
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
 
 	// TODO: 在此添加额外的初始化代码
+	//登录界面复选框设为默认勾选
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }

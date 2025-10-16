@@ -15,6 +15,7 @@ IMPLEMENT_DYNAMIC(登录页面类, CDialogEx)
 登录页面类::登录页面类(CWnd* pParent /*=nullptr*/)
 	: CDialogEx(IDD_PAGE_LOGIN, pParent)
 	, 已登录(false)
+	, 窗口1280选中状态(true)  // 默认选中
 {
 }
 
@@ -22,7 +23,7 @@ IMPLEMENT_DYNAMIC(登录页面类, CDialogEx)
 {
 }
 
-void 登录页面类::DoDataExchange(CDataExchange* pDX)
+void 登录页面类::DoDataExchange(CDataExchange* pDX)	//：：数据交换
 {
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_EDIT_USERNAME, 用户名编辑框);
@@ -34,38 +35,38 @@ void 登录页面类::DoDataExchange(CDataExchange* pDX)
 }
 
 BEGIN_MESSAGE_MAP(登录页面类, CDialogEx)
-	ON_BN_CLICKED(IDC_BUTTON_LOGIN, &登录页面类::OnBnClickedButtonLogin)
-	ON_BN_CLICKED(IDC_BUTTON_START, &登录页面类::OnBnClickedButtonStart)
+	ON_BN_CLICKED(IDC_BUTTON_LOGIN, &登录页面类::OnBnClickedButtonLogin)	//::点击登录按钮
+	ON_BN_CLICKED(IDC_BUTTON_START, &登录页面类::OnBnClickedButtonStart)	//::点击启动按钮
 END_MESSAGE_MAP()
 
 // 登录页面类 消息处理程序
 
-BOOL 登录页面类::OnInitDialog()
+BOOL 登录页面类::OnInitDialog()		//::初始化对话框
 {
 	CDialogEx::OnInitDialog();
 
-	// 设置控件字体
-	CFont* 字体 = GetFont();
-	if (字体 != nullptr)
-	{
-		用户名编辑框.SetFont(字体);
-		密码编辑框.SetFont(字体);
-		登录按钮.SetFont(字体);
-		窗口1280.SetFont(字体);
-		启动按钮.SetFont(字体);
-	}
+	//// 设置控件字体
+	//CFont* 字体 = GetFont();
+	//if (字体 != nullptr)
+	//{
+	//	用户名编辑框.SetFont(字体);
+	//	密码编辑框.SetFont(字体);
+	//	登录按钮.SetFont(字体);
+	//	窗口1280.SetFont(字体);
+	//	启动按钮.SetFont(字体);
+	//}
 
 	// 设置密码编辑框为密码模式
 	密码编辑框.SetPasswordChar('*');
 
 	// 默认选中窗口1280复选框
 	窗口1280.SetCheck(BST_CHECKED);
+	窗口1280选中状态 = true;
 
 	// 加载背景图片
-	// 假设图片资源ID为IDB_LOGIN_BG
 	HBITMAP 背景位图 = (HBITMAP)LoadImage(AfxGetInstanceHandle(),
 		MAKEINTRESOURCE(IDB_LOGIN_MAP),
-		IMAGE_BITMAP, 818, 490, LR_DEFAULTCOLOR);
+		IMAGE_BITMAP, 818, 600, LR_DEFAULTCOLOR);
 
 	if (背景位图 != NULL)
 	{
@@ -75,7 +76,7 @@ BOOL 登录页面类::OnInitDialog()
 	return TRUE;
 }
 
-void 登录页面类::OnBnClickedButtonLogin()
+void 登录页面类::OnBnClickedButtonLogin()		//::点击登录按钮
 {
 	// 获取用户名和密码
 	CString 用户名;
@@ -96,25 +97,39 @@ void 登录页面类::OnBnClickedButtonLogin()
 	// 模拟登录成功
 	MessageBox(_T("登录成功，功能权限已激活"), _T("提示"), MB_ICONINFORMATION);
 	已登录 = true;
-}
+}		
 
-void 登录页面类::OnBnClickedButtonStart()
+void 登录页面类::OnBnClickedButtonStart()		//::点击启动按钮
 {
-	// 启动游戏不需要登录验证
-	// 检查窗口1280复选框是否选中
-	bool 需要修改窗口大小 = (窗口1280.GetCheck() == BST_CHECKED);
+	// 更新成员变量状态
+	窗口1280选中状态 = (窗口1280.GetCheck() == BST_CHECKED);
 
-	// 启动注入线程
-	if (需要修改窗口大小)
+	if (!窗口1280选中状态)
 	{
-		// 创建线程注入窗口大小修改代码
 		std::thread 窗口大小线程(&登录页面类::注入窗口大小修改代码, this);
-		窗口大小线程.detach(); // 分离线程，让它在后台运行
+		窗口大小线程.detach();
 	}
+
+	// 始终注入IP修改（无论窗口大小如何）
+	std::thread IP注入线程(&登录页面类::注入IP修改代码, this);
+	IP注入线程.detach();
 
 	// 启动游戏
 	启动游戏进程();
+}
 
+// 注入IP修改代码
+void 登录页面类::注入IP修改代码()
+{
+	// 等待并安装IP钩子
+	等待并安装IP钩子(L"nage.bin");
+}
+
+// 注入窗口大小修改代码（只有在复选框未选中时才调用）
+void 登录页面类::注入窗口大小修改代码()
+{
+	// 等待并安装窗口大小钩子
+	等待并安装窗口大小钩子(L"nage.bin");
 }
 
 // 启动游戏进程
@@ -160,20 +175,6 @@ void 登录页面类::启动游戏进程()
 	}
 }
 
-// 注入窗口大小修改代码
-void 登录页面类::注入窗口大小修改代码()
-{
-	// 等待并安装窗口大小钩子
-	等待并安装窗口大小钩子(L"nage.bin");
-}
-
-// 注入游戏UI修改代码
-void 登录页面类::注入游戏UI修改代码()
-{
-	// 等待并安装UI钩子
-	等待并安装UI钩子(L"nage.bin");
-}
-
 // 获取进程ID
 DWORD 登录页面类::获取进程ID(const wchar_t* 进程名)
 {
@@ -198,7 +199,7 @@ DWORD 登录页面类::获取进程ID(const wchar_t* 进程名)
 	return pid;
 }
 
-// 等待并安装窗口大小钩子
+// 等待并安装窗口大小钩子（只有在复选框未选中时才调用）
 void 登录页面类::等待并安装窗口大小钩子(const wchar_t* 监控进程名)
 {
 	DWORD pid = 0;
@@ -220,17 +221,8 @@ void 登录页面类::等待并安装窗口大小钩子(const wchar_t* 监控进
 
 			// 修改窗口大小
 			// 地址：0x5AAB1E 和 0x5AAB23
-			BYTE 窗口宽度代码[] = { 0x68, 0x00, 0x05, 0x00, 0x00 }; // push 1280
-			BYTE 窗口高度代码[] = { 0x68, 0x00, 0x03, 0x00, 0x00 }; // push 768
-
-			// 如果窗口1280复选框未选中，则使用默认大小
-			if (窗口1280.GetCheck() != BST_CHECKED)
-			{
-				窗口宽度代码[1] = 0x11;
-				窗口宽度代码[2] = 0x01; // push 273
-				窗口高度代码[1] = 0x48;
-				窗口高度代码[2] = 0x01; // push 328
-			}
+			BYTE 窗口高度代码[] = { 0x68, 0x28, 0x03, 0x00, 0x00 }; // push 328
+			BYTE 窗口宽度代码[] = { 0x68, 0x73, 0x02, 0x00, 0x00 }; // push 273
 
 			// 写入内存
 			SIZE_T 写入字节数;
@@ -240,7 +232,82 @@ void 登录页面类::等待并安装窗口大小钩子(const wchar_t* 监控进
 			CloseHandle(目标进程句柄);
 			break;
 		}
-		Sleep(1000); // 每秒检测一次
+		Sleep(1000);
+	}
+}
+
+// 等待并安装IP钩子
+void 登录页面类::等待并安装IP钩子(const wchar_t* 监控进程名)
+{
+	DWORD pid = 0;
+	HANDLE 目标进程句柄 = NULL;
+
+	// 等待进程启动
+	while (true)
+	{
+		pid = 获取进程ID(监控进程名);
+		if (pid)
+		{
+			// 打开目标进程
+			目标进程句柄 = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+			if (目标进程句柄 == NULL)
+			{
+				Sleep(1000);
+				continue;
+			}
+
+			BYTE* 远程内存 = (BYTE*)VirtualAllocEx(目标进程句柄, NULL, 1024, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+			// 分配远程内存用于钩子代码
+			if (远程内存 == NULL)
+			{
+				CloseHandle(目标进程句柄);
+				Sleep(1000);
+				continue;
+			}
+
+			SIZE_T 写入字节数;
+
+			// 1. 首先写入钩子代码到远程内存
+			BYTE IP钩子代码[] = {
+				0xB8, 0x2F, 0x74, 0xA7, 0x63,	// mov eax,63A7742F
+				0x89, 0x45, 0xE8,				// mov dword ptr ss:[ebp-18],eax
+				0x8B, 0x4D, 0xE8,				// mov ecx,dword ptr ss:[ebp-18]
+				0xE9, 0xD2, 0xBB, 0x50, 0x00,	// jmp 6ABBE2
+				0x90							// nop
+			};
+
+			if (!WriteProcessMemory(目标进程句柄, 远程内存, IP钩子代码, sizeof(IP钩子代码), &写入字节数))
+			{
+				VirtualFreeEx(目标进程句柄, 远程内存, 0, MEM_RELEASE);
+				CloseHandle(目标进程句柄);
+				Sleep(1000);
+				continue;
+			}
+
+			// 2. 计算跳转偏移：远程内存 - (0x006ABBDC + 5)
+			DWORD 跳转偏移 = (DWORD)(远程内存 - (0x006ABBDC + 5));
+
+			// 3. 修改 006ABBDC 地址的跳转指令
+			BYTE 修改代码1[] = { 0xE9, 0x00, 0x00, 0x00, 0x00 }; // jmp 远程内存
+			*(DWORD*)(修改代码1 + 1) = 跳转偏移;
+
+			// 4. 修改 006ABBE1 地址为nop
+			BYTE 修改代码2[] = { 0x90 }; // nop
+
+			// 5. 写入修改到目标地址
+			if (!WriteProcessMemory(目标进程句柄, (LPVOID)0x006ABBDC, 修改代码1, sizeof(修改代码1), &写入字节数) ||
+				!WriteProcessMemory(目标进程句柄, (LPVOID)0x006ABBE1, 修改代码2, sizeof(修改代码2), &写入字节数))
+			{
+				VirtualFreeEx(目标进程句柄, 远程内存, 0, MEM_RELEASE);
+				CloseHandle(目标进程句柄);
+				Sleep(1000);
+				continue;
+			}
+
+			CloseHandle(目标进程句柄);
+			break;
+		}
+		Sleep(1000);
 	}
 }
 
@@ -252,8 +319,9 @@ void 登录页面类::等待并安装UI钩子(const wchar_t* 监控进程名)
 
 	// 钩子机器码
 	BYTE 钩子机器码[] = {
-		0x60, 0x9C, 0xB8, 0xC4, 0x04, 0x00, 0x00, 0xB9, 0x5C,0xAF, 0xEF, 0x02, 0x89, 0x01, 0xB9, 0x30, 0xB3, 0xEF
+		0x60, 0x9C, 0xB8, 0xC4, 0x04, 0x00, 0x00, 0xB9, 0x5C, 0xAF, 0xEF, 0x02, 0x89, 0x01, 0xB9, 0x30, 0xB3, 0xEF
 	};
+
 	const int 钩子代码长度 = sizeof(钩子机器码);
 	BYTE 原始字节[7];
 	DWORD pid = 0;
