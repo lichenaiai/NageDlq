@@ -6,6 +6,7 @@
 #include "设置对话框类.h"
 
 // 添加ODBC头文件
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <sql.h>
 #include <sqlext.h>
@@ -509,7 +510,10 @@ BOOL CNageDlqServerDlg::加载Hook功能()
 		文件.Close();
 	}
 
-	添加信息显示(CString(_T("加载了 ")) + CString(Hook功能列表.size()) + _T(" 个Hook功能"));
+	CString 信息;
+	信息.Format(_T("加载了 %d 个Hook功能"), Hook功能列表.size());
+	添加信息显示(信息);
+
 	return !Hook功能列表.empty();
 }
 

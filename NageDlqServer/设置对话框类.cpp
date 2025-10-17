@@ -3,7 +3,7 @@
 #include "NageDlqServer.h"
 #include "设置对话框类.h"
 #include "afxdialogex.h"
-
+#include "resource.h" 
 // 添加ODBC头文件
 #include <windows.h>
 #include <sql.h>
@@ -39,6 +39,7 @@ void 设置对话框类::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_EDIT_DB_PASSWORD, 数据库密码编辑框);
 	DDX_Control(pDX, IDC_EDIT_DB_NAME, 数据库名称编辑框);
 	DDX_Control(pDX, IDC_BUTTON_TEST_CONNECTION, 测试连接按钮);
+	DDX_Control(pDX, IDC_STATIC_CONNECTION_STATUS, 连接状态标签);
 }
 
 BEGIN_MESSAGE_MAP(设置对话框类, CDialogEx)
@@ -51,6 +52,9 @@ BOOL 设置对话框类::OnInitDialog()
 
 	// 设置密码编辑框为密码模式
 	数据库密码编辑框.SetPasswordChar('*');
+
+	// 初始化连接状态标签
+	连接状态标签.SetWindowText(_T(""));
 
 	return TRUE;
 }

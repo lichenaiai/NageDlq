@@ -32,4 +32,5 @@ private:
 	CEdit 数据库密码编辑框;
 	CEdit 数据库名称编辑框;
 	CButton 测试连接按钮;
+	CStatic 连接状态标签;  
 };

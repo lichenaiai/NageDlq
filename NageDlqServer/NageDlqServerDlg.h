@@ -7,6 +7,12 @@
 #include "设置对话框类.h" 
 #include <map>
 #include <vector> 
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <sql.h>
+#include <sqlext.h>
+#include <sqltypes.h>
+
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
