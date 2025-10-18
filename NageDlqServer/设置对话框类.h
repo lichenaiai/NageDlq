@@ -25,6 +25,7 @@ protected:
 
 public:
 	afx_msg void OnBnClickedButtonTestConnection();  // 测试连接按钮点击事件
+	void 更新连接状态(const CString& 状态信息);
 
 private:
 	// 控件变量 - 使用中文

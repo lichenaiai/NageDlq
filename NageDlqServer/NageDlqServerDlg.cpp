@@ -90,6 +90,9 @@ BOOL CNageDlqServerDlg::OnInitDialog()
 		return FALSE;
 	}
 
+	// 加载配置
+	加载配置();
+
 	// 连接数据库
 	if (!连接数据库())
 	{
@@ -122,6 +125,9 @@ void CNageDlqServerDlg::OnBnClickedButtonStart()
 			推送登录器更新按钮.EnableWindow(TRUE);
 			推送HOOK更新按钮.EnableWindow(TRUE);
 			添加信息显示(_T("服务器启动成功"));
+
+			// 启动后立即更新状态显示
+			更新服务器信息();
 		}
 	}
 }
@@ -218,7 +224,7 @@ UINT CNageDlqServerDlg::服务器线程函数(LPVOID pParam)
 	// 绑定地址
 	sockaddr_in 服务器地址;
 	服务器地址.sin_family = AF_INET;
-	服务器地址.sin_port = htons(8888);
+	服务器地址.sin_port = htons(9896);
 	服务器地址.sin_addr.s_addr = INADDR_ANY;
 
 	if (bind(对话框指针->监听套接字, (sockaddr*)&服务器地址, sizeof(服务器地址)) == SOCKET_ERROR)
@@ -236,7 +242,7 @@ UINT CNageDlqServerDlg::服务器线程函数(LPVOID pParam)
 		return 1;
 	}
 
-	对话框指针->添加信息显示(_T("开始监听端口 8888"));
+	对话框指针->添加信息显示(_T("开始监听端口 9896"));
 
 	// 接受客户端连接
 	while (对话框指针->服务器运行状态)
@@ -409,61 +415,81 @@ BOOL CNageDlqServerDlg::停止服务器()
 BOOL CNageDlqServerDlg::连接数据库()
 {
 	SQLRETURN retcode;
-	
+
+	// 如果已经连接，先释放资源
+	if (SQL语句句柄) {
+		SQLFreeHandle(SQL_HANDLE_STMT, SQL语句句柄);
+		SQL语句句柄 = NULL;
+	}
+	if (SQL连接句柄) {
+		SQLDisconnect(SQL连接句柄);
+		SQLFreeHandle(SQL_HANDLE_DBC, SQL连接句柄);
+		SQL连接句柄 = NULL;
+	}
+	if (SQL环境句柄) {
+		SQLFreeHandle(SQL_HANDLE_ENV, SQL环境句柄);
+		SQL环境句柄 = NULL;
+	}
+
 	// 分配环境句柄
 	retcode = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &SQL环境句柄);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
 		添加信息显示(_T("分配环境句柄失败"));
+		数据库连接状态 = FALSE;
 		return FALSE;
 	}
-	
+
 	// 设置ODBC版本
 	retcode = SQLSetEnvAttr(SQL环境句柄, SQL_ATTR_ODBC_VERSION, (SQLPOINTER)SQL_OV_ODBC3, 0);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
 		添加信息显示(_T("设置ODBC版本失败"));
+		数据库连接状态 = FALSE;
 		return FALSE;
 	}
-	
+
 	// 分配连接句柄
 	retcode = SQLAllocHandle(SQL_HANDLE_DBC, SQL环境句柄, &SQL连接句柄);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
 		添加信息显示(_T("分配连接句柄失败"));
+		数据库连接状态 = FALSE;
 		return FALSE;
 	}
-	
+
 	// 连接字符串
 	CString 连接字符串;
-	连接字符串.Format(_T("DRIVER={SQL Server};SERVER=127.0.0.1;DATABASE=%s;UID=%s;PWD=%s;"),
+	连接字符串.Format(_T("DRIVER={SQL Server};SERVER=47.116.167.99;DATABASE=%s;UID=%s;PWD=%s;"),
 		数据库名称, 数据库用户名, 数据库密码);
-	
+
 	SQLWCHAR* wszConnStr = (SQLWCHAR*)连接字符串.GetBuffer();
 	SQLSMALLINT cbConnStrOut;
-	
+
 	// 连接到数据库
-	retcode = SQLDriverConnect(SQL连接句柄, NULL, wszConnStr, SQL_NTS, 
+	retcode = SQLDriverConnect(SQL连接句柄, NULL, wszConnStr, SQL_NTS,
 		NULL, 0, &cbConnStrOut, SQL_DRIVER_NOPROMPT);
-	
+
 	连接字符串.ReleaseBuffer();
-	
+
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
 		SQLWCHAR sqlState[6], message[SQL_MAX_MESSAGE_LENGTH];
 		SQLINTEGER nativeError;
 		SQLSMALLINT msgLen;
-		
-		SQLGetDiagRec(SQL_HANDLE_DBC, SQL连接句柄, 1, sqlState, &nativeError, 
+
+		SQLGetDiagRec(SQL_HANDLE_DBC, SQL连接句柄, 1, sqlState, &nativeError,
 			message, SQL_MAX_MESSAGE_LENGTH, &msgLen);
-		
+
 		添加信息显示(_T("数据库连接失败: ") + CString(message));
+		数据库连接状态 = FALSE;
 		return FALSE;
 	}
-	
+
 	// 分配语句句柄
 	retcode = SQLAllocHandle(SQL_HANDLE_STMT, SQL连接句柄, &SQL语句句柄);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
 		添加信息显示(_T("分配语句句柄失败"));
+		数据库连接状态 = FALSE;
 		return FALSE;
 	}
-	
+
 	数据库连接状态 = TRUE;
 	添加信息显示(_T("数据库连接成功"));
 	return TRUE;
@@ -583,27 +609,48 @@ CString CNageDlqServerDlg::获取最新版本号()
 // 更新服务器信息
 void CNageDlqServerDlg::更新服务器信息()
 {
+	if (!数据库连接状态)
+	{
+		// 如果数据库未连接，先尝试连接
+		if (!连接数据库())
+		{
+			当前密钥 = _T("未连接");
+			当前版本号 = _T("未知");
+			更新状态显示();
+			return;
+		}
+	}
+
 	SQLRETURN retcode;
-	CString 查询语句 = _T("SELECT pw, v FROM my ORDER BY id DESC LIMIT 1");
-	
+	CString 查询语句 = _T("SELECT TOP 1 pw, v FROM my ORDER BY id DESC");
+
 	// 执行SQL查询
 	retcode = SQLExecDirect(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
+		当前密钥 = _T("查询失败");
+		当前版本号 = _T("查询失败");
+		更新状态显示();
 		return;
 	}
-	
+
 	// 获取结果
 	retcode = SQLFetch(SQL语句句柄);
 	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) {
 		SQLWCHAR 用户密钥[256], 版本号[256];
 		SQLLEN 密钥长度, 版本长度;
-		
+
 		SQLGetData(SQL语句句柄, 1, SQL_C_WCHAR, 用户密钥, sizeof(用户密钥), &密钥长度);
 		SQLGetData(SQL语句句柄, 2, SQL_C_WCHAR, 版本号, sizeof(版本号), &版本长度);
-		
+
 		当前密钥 = CString(用户密钥);
 		当前版本号 = CString(版本号);
-		
+
+		SQLCloseCursor(SQL语句句柄);
+	}
+	else
+	{
+		当前密钥 = _T("无数据");
+		当前版本号 = _T("无数据");
 		SQLCloseCursor(SQL语句句柄);
 	}
 
@@ -655,9 +702,11 @@ BOOL CNageDlqServerDlg::保存配置()
 		RegSetValueEx(hKey, _T("DBPassword"), 0, REG_SZ, (const BYTE*)(LPCTSTR)数据库密码, (数据库密码.GetLength() + 1) * sizeof(TCHAR));
 		RegSetValueEx(hKey, _T("DBName"), 0, REG_SZ, (const BYTE*)(LPCTSTR)数据库名称, (数据库名称.GetLength() + 1) * sizeof(TCHAR));
 		RegCloseKey(hKey);
+		添加信息显示(_T("已保存配置"));
+		return TRUE;
 	}
-	
-	return TRUE;
+	添加信息显示(_T("保存配置失败"));
+	return FALSE;
 }
 
 // 添加客户端连接
@@ -704,6 +753,9 @@ void CNageDlqServerDlg::添加信息显示(const CString& 信息)
 	int 文本长度 = 信息显示编辑框.GetWindowTextLength();
 	信息显示编辑框.SetSel(文本长度, 文本长度);
 	信息显示编辑框.ReplaceSel(完整信息);
+
+	// 自动向下滚动到底部
+	信息显示编辑框.PostMessage(WM_VSCROLL, SB_BOTTOM, 0);
 }
 
 // 更新状态显示
@@ -711,14 +763,17 @@ void CNageDlqServerDlg::更新状态显示()
 {
 	// 更新权限状态标签
 	CString 密钥信息;
-	密钥信息.Format(_T("权限状态: %s"), 当前密钥);
+	if (当前密钥.IsEmpty())
+		密钥信息 = _T("权限状态: 未获取");
+	else
+		密钥信息.Format(_T("权限状态: %s"), 当前密钥);
 	权限状态标签.SetWindowText(密钥信息);
-	
+
 	// 更新版本号标签
 	CString 版本信息;
 	版本信息.Format(_T("当前版本号: %s"), 当前版本号);
 	当前版本号标签.SetWindowText(版本信息);
-	
+
 	// 更新连接数量标签
 	CString 连接信息;
 	连接信息.Format(_T("连接数量: %d"), 客户端连接数量);
