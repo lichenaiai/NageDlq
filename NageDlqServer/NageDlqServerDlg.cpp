@@ -464,7 +464,7 @@ BOOL CNageDlqServerDlg::连接数据库()
 	SQLSMALLINT cbConnStrOut;
 
 	// 连接到数据库
-	retcode = SQLDriverConnect(SQL连接句柄, NULL, wszConnStr, SQL_NTS,
+	retcode = SQLDriverConnectW(SQL连接句柄, NULL, wszConnStr, SQL_NTS,
 		NULL, 0, &cbConnStrOut, SQL_DRIVER_NOPROMPT);
 
 	连接字符串.ReleaseBuffer();
@@ -474,7 +474,7 @@ BOOL CNageDlqServerDlg::连接数据库()
 		SQLINTEGER nativeError;
 		SQLSMALLINT msgLen;
 
-		SQLGetDiagRec(SQL_HANDLE_DBC, SQL连接句柄, 1, sqlState, &nativeError,
+		SQLGetDiagRecW(SQL_HANDLE_DBC, SQL连接句柄, 1, sqlState, &nativeError,
 			message, SQL_MAX_MESSAGE_LENGTH, &msgLen);
 
 		添加信息显示(_T("数据库连接失败: ") + CString(message));
@@ -552,7 +552,7 @@ CString CNageDlqServerDlg::获取用户密钥(const CString& 用户名, const CS
 		用户名, 密码);
 	
 	// 执行SQL查询
-	retcode = SQLExecDirect(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
+	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
 		return _T("");
 	}
@@ -585,7 +585,7 @@ CString CNageDlqServerDlg::获取最新版本号()
 	CString 查询语句 = _T("SELECT v FROM my ORDER BY id DESC LIMIT 1");
 	
 	// 执行SQL查询
-	retcode = SQLExecDirect(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
+	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
 		return _T("1.0.0");
 	}
@@ -625,7 +625,7 @@ void CNageDlqServerDlg::更新服务器信息()
 	CString 查询语句 = _T("SELECT TOP 1 pw, v FROM my ORDER BY id DESC");
 
 	// 执行SQL查询
-	retcode = SQLExecDirect(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
+	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
 		当前密钥 = _T("查询失败");
 		当前版本号 = _T("查询失败");
