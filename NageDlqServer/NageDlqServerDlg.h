@@ -19,15 +19,16 @@
 #endif
 
 // CNageDlqServerDlg 对话框
-class CNageDlqServerDlg : public CDialogEx
+class NageDlqServerDlg : public CDialogEx
 {
-	DECLARE_DYNAMIC(CNageDlqServerDlg)
+	DECLARE_DYNAMIC(NageDlqServerDlg)
 
 public:
-	CNageDlqServerDlg(CWnd* pParent = nullptr);
-	virtual ~CNageDlqServerDlg();
+	NageDlqServerDlg(CWnd* pParent = nullptr);
+	virtual ~NageDlqServerDlg();
 
 	enum { IDD = IDD_NAGEDLQSERVER_DIALOG };
+	BOOL 已初始化显示;
 
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);
@@ -51,7 +52,7 @@ private:
 	CButton 推送登录器更新按钮;
 	CButton 推送HOOK更新按钮;
 	CButton 设置按钮;
-	CEdit 信息显示编辑框;
+	CListBox 信息显示编辑框;
 	CStatic 权限状态标签;
 	CStatic 当前版本号标签;
 	CStatic 连接数量标签;
@@ -103,7 +104,7 @@ public:
 	BOOL 加载Hook功能();
 
 	// 数据库操作
-	CString 获取用户密钥(const CString& 用户名, const CString& 密码);
+	CString 获取客户端密钥();
 	CString 获取最新版本号();
 	void 更新服务器信息();
 

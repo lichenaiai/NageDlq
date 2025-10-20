@@ -16,10 +16,10 @@
 #define new DEBUG_NEW
 #endif
 
-// CNageDlqServerDlg 对话框
-IMPLEMENT_DYNAMIC(CNageDlqServerDlg, CDialogEx)
+// NageDlqServerDlg 对话框
+IMPLEMENT_DYNAMIC(NageDlqServerDlg, CDialogEx)
 
-CNageDlqServerDlg::CNageDlqServerDlg(CWnd* pParent /*=nullptr*/)
+NageDlqServerDlg::NageDlqServerDlg(CWnd* pParent /*=nullptr*/)
 	: CDialogEx(IDD_NAGEDLQSERVER_DIALOG, pParent)
 	, 服务器运行状态(FALSE)
 	, 监听套接字(INVALID_SOCKET)
@@ -31,6 +31,7 @@ CNageDlqServerDlg::CNageDlqServerDlg(CWnd* pParent /*=nullptr*/)
 	, 当前密钥(_T(""))
 	, 当前版本号(_T("1.0.0"))
 	, 客户端连接数量(0)
+	, 已初始化显示(FALSE)		// 添加初始化标志
 {
 	// 数据库配置 - 使用SQL Server默认设置
 	数据库用户名 = _T("sa");           // SQL Server默认管理员
@@ -40,7 +41,7 @@ CNageDlqServerDlg::CNageDlqServerDlg(CWnd* pParent /*=nullptr*/)
 	InitializeCriticalSection(&客户端列表锁);
 }
 
-CNageDlqServerDlg::~CNageDlqServerDlg()
+NageDlqServerDlg::~NageDlqServerDlg()
 {
 	// 释放ODBC资源
 	if (SQL语句句柄) SQLFreeHandle(SQL_HANDLE_STMT, SQL语句句柄);
@@ -51,7 +52,7 @@ CNageDlqServerDlg::~CNageDlqServerDlg()
 	DeleteCriticalSection(&客户端列表锁);
 }
 
-void CNageDlqServerDlg::DoDataExchange(CDataExchange* pDX)
+void NageDlqServerDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_BUTTON_START, 启动服务器按钮);
@@ -65,15 +66,15 @@ void CNageDlqServerDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_STATIC_CONNECTIONS, 连接数量标签);
 }
 
-BEGIN_MESSAGE_MAP(CNageDlqServerDlg, CDialogEx)
-	ON_BN_CLICKED(IDC_BUTTON_START, &CNageDlqServerDlg::OnBnClickedButtonStart)
-	ON_BN_CLICKED(IDC_BUTTON_STOP, &CNageDlqServerDlg::OnBnClickedButtonStop)
-	ON_BN_CLICKED(IDC_BUTTON_UPDATE_CLIENT, &CNageDlqServerDlg::OnBnClickedButtonUpdateClient)
-	ON_BN_CLICKED(IDC_BUTTON_UPDATE_HOOK, &CNageDlqServerDlg::OnBnClickedButtonUpdateHook)
-	ON_BN_CLICKED(IDC_BUTTON_SETTINGS, &CNageDlqServerDlg::OnBnClickedButtonSettings)
+BEGIN_MESSAGE_MAP(NageDlqServerDlg, CDialogEx)
+	ON_BN_CLICKED(IDC_BUTTON_START, &NageDlqServerDlg::OnBnClickedButtonStart)
+	ON_BN_CLICKED(IDC_BUTTON_STOP, &NageDlqServerDlg::OnBnClickedButtonStop)
+	ON_BN_CLICKED(IDC_BUTTON_UPDATE_CLIENT, &NageDlqServerDlg::OnBnClickedButtonUpdateClient)
+	ON_BN_CLICKED(IDC_BUTTON_UPDATE_HOOK, &NageDlqServerDlg::OnBnClickedButtonUpdateHook)
+	ON_BN_CLICKED(IDC_BUTTON_SETTINGS, &NageDlqServerDlg::OnBnClickedButtonSettings)
 END_MESSAGE_MAP()
 
-BOOL CNageDlqServerDlg::OnInitDialog()
+BOOL NageDlqServerDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
 
@@ -81,6 +82,7 @@ BOOL CNageDlqServerDlg::OnInitDialog()
 	停止服务器按钮.EnableWindow(FALSE);
 	推送登录器更新按钮.EnableWindow(FALSE);
 	推送HOOK更新按钮.EnableWindow(FALSE);
+
 
 	// 初始化Winsock
 	WSADATA wsaData;
@@ -93,30 +95,47 @@ BOOL CNageDlqServerDlg::OnInitDialog()
 	// 加载配置
 	加载配置();
 
-	// 连接数据库
-	if (!连接数据库())
-	{
-		添加信息显示(_T("数据库连接失败"));
-	}
-
-	// 加载Hook功能
-	if (!加载Hook功能())
-	{
-		添加信息显示(_T("加载Hook功能失败"));
-	}
-
-	// 更新服务器信息
-	更新服务器信息();
-
-	添加信息显示(_T("服务器已就绪"));
+	添加信息显示(_T("程序已初始化"));
 	return TRUE;
 }
 
 // 启动服务器按钮
-void CNageDlqServerDlg::OnBnClickedButtonStart()
+void NageDlqServerDlg::OnBnClickedButtonStart()
 {
 	if (!服务器运行状态)
 	{
+		// 标记为已初始化
+		已初始化显示 = TRUE;
+
+		// 连接数据库
+		if (连接数据库())
+		{
+			添加信息显示(_T("数据库连接成功"));
+			权限状态标签.SetWindowText(_T("权限状态: 查询中..."));
+			当前版本号标签.SetWindowText(_T("当前版本号: 查询中..."));
+			// 查询数据库
+			更新服务器信息();
+		}
+		else
+		{
+			添加信息显示(_T("数据库连接失败"));
+			权限状态标签.SetWindowText(_T("权限状态: 数据库未连接"));
+			当前版本号标签.SetWindowText(_T("当前版本号: 数据库未连接"));
+			return;  // 如果数据库连接失败，不启动服务器
+		}
+
+		// 加载Hook功能
+		if (加载Hook功能())
+		{
+			CString 信息;
+			信息.Format(_T("加载了 %d 个Hook功能"), Hook功能列表.size());
+			添加信息显示(信息);
+		}
+		else
+		{
+			添加信息显示(_T("加载Hook功能失败或未找到Hook文件"));
+		}
+
 		if (启动服务器())
 		{
 			服务器运行状态 = TRUE;
@@ -125,15 +144,12 @@ void CNageDlqServerDlg::OnBnClickedButtonStart()
 			推送登录器更新按钮.EnableWindow(TRUE);
 			推送HOOK更新按钮.EnableWindow(TRUE);
 			添加信息显示(_T("服务器启动成功"));
-
-			// 启动后立即更新状态显示
-			更新服务器信息();
 		}
 	}
 }
 
 // 停止服务器按钮
-void CNageDlqServerDlg::OnBnClickedButtonStop()
+void NageDlqServerDlg::OnBnClickedButtonStop()
 {
 	if (服务器运行状态)
 	{
@@ -144,11 +160,16 @@ void CNageDlqServerDlg::OnBnClickedButtonStop()
 		推送登录器更新按钮.EnableWindow(FALSE);
 		推送HOOK更新按钮.EnableWindow(FALSE);
 		添加信息显示(_T("服务器已停止"));
+
+		// 停止时清空显示
+		权限状态标签.SetWindowText(_T("权限状态："));
+		当前版本号标签.SetWindowText(_T("当前版本号："));
+		连接数量标签.SetWindowText(_T("连接数量："));
 	}
 }
 
 // 推送登录器更新按钮
-void CNageDlqServerDlg::OnBnClickedButtonUpdateClient()
+void NageDlqServerDlg::OnBnClickedButtonUpdateClient()
 {
 	添加信息显示(_T("开始推送登录器更新..."));
 
@@ -164,7 +185,7 @@ void CNageDlqServerDlg::OnBnClickedButtonUpdateClient()
 }
 
 // 推送HOOK更新按钮
-void CNageDlqServerDlg::OnBnClickedButtonUpdateHook()
+void NageDlqServerDlg::OnBnClickedButtonUpdateHook()
 {
 	添加信息显示(_T("开始推送HOOK更新..."));
 
@@ -180,7 +201,7 @@ void CNageDlqServerDlg::OnBnClickedButtonUpdateHook()
 }
 
 // 设置按钮
-void CNageDlqServerDlg::OnBnClickedButtonSettings()
+void NageDlqServerDlg::OnBnClickedButtonSettings()
 {
 	设置对话框类 设置对话框;
 	设置对话框.数据库用户名 = 数据库用户名;
@@ -209,9 +230,9 @@ void CNageDlqServerDlg::OnBnClickedButtonSettings()
 }
 
 // 服务器线程函数
-UINT CNageDlqServerDlg::服务器线程函数(LPVOID pParam)
+UINT NageDlqServerDlg::服务器线程函数(LPVOID pParam)
 {
-	CNageDlqServerDlg* 对话框指针 = (CNageDlqServerDlg*)pParam;
+	NageDlqServerDlg* 对话框指针 = (NageDlqServerDlg*)pParam;
 
 	// 创建监听socket
 	对话框指针->监听套接字 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -279,10 +300,10 @@ UINT CNageDlqServerDlg::服务器线程函数(LPVOID pParam)
 }
 
 // 客户端线程函数
-UINT CNageDlqServerDlg::客户端线程函数(LPVOID pParam)
+UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 {
 	SOCKET 客户端套接字 = (SOCKET)pParam;
-	CNageDlqServerDlg* 对话框指针 = (CNageDlqServerDlg*)AfxGetApp()->GetMainWnd();
+	NageDlqServerDlg* 对话框指针 = (NageDlqServerDlg*)AfxGetApp()->GetMainWnd();
 
 	// 接收客户端请求
 	CString 客户端请求 = 对话框指针->从客户端接收(客户端套接字);
@@ -317,18 +338,16 @@ UINT CNageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		int 分隔符位置 = 请求数据.Find(':');
 		if (分隔符位置 != -1)
 		{
-			CString 用户名 = 请求数据.Left(分隔符位置);
-			CString 密码 = 请求数据.Mid(分隔符位置 + 1);
 
 			// 查询数据库
-			CString 用户密钥 = 对话框指针->获取用户密钥(用户名, 密码);
+			CString 客户端密钥 = 对话框指针->获取客户端密钥();
 			CString 最新版本号 = 对话框指针->获取最新版本号();
 
 			// 发送响应
 			CString 响应数据;
-			if (!用户密钥.IsEmpty())
+			if (!客户端密钥.IsEmpty())
 			{
-				响应数据.Format(_T("SUCCESS:%s:%s"), 用户密钥, 最新版本号);
+				响应数据.Format(_T("SUCCESS:%s:%s"), 客户端密钥, 最新版本号);
 				对话框指针->添加信息显示(客户端IP + _T(" 登录成功"));
 			}
 			else
@@ -379,7 +398,7 @@ UINT CNageDlqServerDlg::客户端线程函数(LPVOID pParam)
 	}
 }
 // 启动服务器
-BOOL CNageDlqServerDlg::启动服务器()
+BOOL NageDlqServerDlg::启动服务器()
 {
 	服务器线程句柄 = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)服务器线程函数,
 		(LPVOID)this, 0, NULL);
@@ -387,7 +406,7 @@ BOOL CNageDlqServerDlg::启动服务器()
 }
 
 // 停止服务器
-BOOL CNageDlqServerDlg::停止服务器()
+BOOL NageDlqServerDlg::停止服务器()
 {
 	服务器运行状态 = FALSE;
 	if (服务器线程句柄)
@@ -412,7 +431,7 @@ BOOL CNageDlqServerDlg::停止服务器()
 }
 
 // 连接数据库 (ODBC方式连接SQL Server)
-BOOL CNageDlqServerDlg::连接数据库()
+BOOL NageDlqServerDlg::连接数据库()
 {
 	SQLRETURN retcode;
 
@@ -434,7 +453,6 @@ BOOL CNageDlqServerDlg::连接数据库()
 	// 分配环境句柄
 	retcode = SQLAllocHandle(SQL_HANDLE_ENV, SQL_NULL_HANDLE, &SQL环境句柄);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
-		添加信息显示(_T("分配环境句柄失败"));
 		数据库连接状态 = FALSE;
 		return FALSE;
 	}
@@ -442,7 +460,6 @@ BOOL CNageDlqServerDlg::连接数据库()
 	// 设置ODBC版本
 	retcode = SQLSetEnvAttr(SQL环境句柄, SQL_ATTR_ODBC_VERSION, (SQLPOINTER)SQL_OV_ODBC3, 0);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
-		添加信息显示(_T("设置ODBC版本失败"));
 		数据库连接状态 = FALSE;
 		return FALSE;
 	}
@@ -450,7 +467,6 @@ BOOL CNageDlqServerDlg::连接数据库()
 	// 分配连接句柄
 	retcode = SQLAllocHandle(SQL_HANDLE_DBC, SQL环境句柄, &SQL连接句柄);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
-		添加信息显示(_T("分配连接句柄失败"));
 		数据库连接状态 = FALSE;
 		return FALSE;
 	}
@@ -470,14 +486,6 @@ BOOL CNageDlqServerDlg::连接数据库()
 	连接字符串.ReleaseBuffer();
 
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
-		SQLWCHAR sqlState[6], message[SQL_MAX_MESSAGE_LENGTH];
-		SQLINTEGER nativeError;
-		SQLSMALLINT msgLen;
-
-		SQLGetDiagRecW(SQL_HANDLE_DBC, SQL连接句柄, 1, sqlState, &nativeError,
-			message, SQL_MAX_MESSAGE_LENGTH, &msgLen);
-
-		添加信息显示(_T("数据库连接失败: ") + CString(message));
 		数据库连接状态 = FALSE;
 		return FALSE;
 	}
@@ -485,19 +493,18 @@ BOOL CNageDlqServerDlg::连接数据库()
 	// 分配语句句柄
 	retcode = SQLAllocHandle(SQL_HANDLE_STMT, SQL连接句柄, &SQL语句句柄);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
-		添加信息显示(_T("分配语句句柄失败"));
 		数据库连接状态 = FALSE;
 		return FALSE;
 	}
 
 	数据库连接状态 = TRUE;
-	添加信息显示(_T("数据库连接成功"));
 	return TRUE;
 }
 
 // 加载Hook功能
-BOOL CNageDlqServerDlg::加载Hook功能()
+BOOL NageDlqServerDlg::加载Hook功能()
 {
+	Hook功能列表.clear();  // 清空列表
 	CString Hook目录 = _T("C:\\nagehook\\");
 	CString 说明文件 = Hook目录 + _T("ps.txt");
 
@@ -543,90 +550,118 @@ BOOL CNageDlqServerDlg::加载Hook功能()
 	return !Hook功能列表.empty();
 }
 
-// 获取用户密钥
-CString CNageDlqServerDlg::获取用户密钥(const CString& 用户名, const CString& 密码)
+// 获取客户端密钥
+CString NageDlqServerDlg::获取客户端密钥()
 {
 	SQLRETURN retcode;
-	CString 查询语句;
-	查询语句.Format(_T("SELECT pw, v FROM my WHERE username='%s' AND password='%s'"), 
-		用户名, 密码);
+	CString 查询语句 = _T("SELECT TOP 1 pw FROM my ORDER BY [index] DESC");
 	
 	// 执行SQL查询
 	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
+		// 获取错误信息
+		SQLWCHAR sqlState[6], message[SQL_MAX_MESSAGE_LENGTH];
+		SQLINTEGER nativeError;
+		SQLSMALLINT msgLen;
+
+		SQLGetDiagRecW(SQL_HANDLE_STMT, SQL语句句柄, 1, sqlState, &nativeError,
+			message, SQL_MAX_MESSAGE_LENGTH, &msgLen);
+
+		CString 错误信息;
+		错误信息.Format(_T("查询用户密钥失败: %s"), CString(message));
+		添加信息显示(错误信息);
+
 		return _T("");
 	}
 	
 	// 获取结果
 	retcode = SQLFetch(SQL语句句柄);
 	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) {
-		SQLWCHAR 用户密钥[256], 版本号[256];
+		SQLWCHAR 客户端密钥[256], 版本号[256];
 		SQLLEN 密钥长度, 版本长度;
-		
-		SQLGetData(SQL语句句柄, 1, SQL_C_WCHAR, 用户密钥, sizeof(用户密钥), &密钥长度);
-		SQLGetData(SQL语句句柄, 2, SQL_C_WCHAR, 版本号, sizeof(版本号), &版本长度);
-		
-		当前密钥 = CString(用户密钥);
-		当前版本号 = CString(版本号);
-		更新状态显示();
-		
+
+		SQLGetData(SQL语句句柄, 1, SQL_C_WCHAR, 客户端密钥, sizeof(客户端密钥), &密钥长度);
+
 		SQLCloseCursor(SQL语句句柄);
-		return 当前密钥;
+		return CString(客户端密钥);
 	}
-	
+	else if (retcode == SQL_NO_DATA) {
+		添加信息显示(_T("未找到客户端密钥"));
+	}
+	else {
+		// 获取错误信息
+		SQLWCHAR sqlState[6], message[SQL_MAX_MESSAGE_LENGTH];
+		SQLINTEGER nativeError;
+		SQLSMALLINT msgLen;
+
+		SQLGetDiagRecW(SQL_HANDLE_STMT, SQL语句句柄, 1, sqlState, &nativeError,
+			message, SQL_MAX_MESSAGE_LENGTH, &msgLen);
+
+		CString 错误信息;
+		错误信息.Format(_T("获取客户端密钥失败: %s"), CString(message));
+		添加信息显示(错误信息);
+	}
+
 	SQLCloseCursor(SQL语句句柄);
 	return _T("");
 }
 
 // 获取最新版本号
-CString CNageDlqServerDlg::获取最新版本号()
+CString NageDlqServerDlg::获取最新版本号()
 {
 	SQLRETURN retcode;
-	CString 查询语句 = _T("SELECT v FROM my ORDER BY id DESC LIMIT 1");
-	
+	CString 查询语句 = _T("SELECT TOP 1 v FROM my ORDER BY [index] DESC");  
+
 	// 执行SQL查询
 	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
 		return _T("1.0.0");
 	}
-	
+
 	// 获取结果
 	retcode = SQLFetch(SQL语句句柄);
 	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) {
 		SQLWCHAR 版本号[256];
 		SQLLEN 版本长度;
-		
+
 		SQLGetData(SQL语句句柄, 1, SQL_C_WCHAR, 版本号, sizeof(版本号), &版本长度);
-		
+
 		SQLCloseCursor(SQL语句句柄);
 		return CString(版本号);
 	}
-	
+
 	SQLCloseCursor(SQL语句句柄);
 	return _T("1.0.0");
 }
 
 // 更新服务器信息
-void CNageDlqServerDlg::更新服务器信息()
+void NageDlqServerDlg::更新服务器信息()
 {
 	if (!数据库连接状态)
 	{
-		// 如果数据库未连接，先尝试连接
-		if (!连接数据库())
-		{
-			当前密钥 = _T("未连接");
-			当前版本号 = _T("未知");
-			更新状态显示();
-			return;
-		}
+		添加信息显示(_T("数据库未连接，无法更新信息"));
+		return;
 	}
 
 	SQLRETURN retcode;
-	CString 查询语句 = _T("SELECT TOP 1 pw, v FROM my ORDER BY id DESC");
+	// 修改：一次性查询密钥和版本号
+	CString 查询语句 = _T("SELECT TOP 1 pw, v FROM my ORDER BY [index] DESC");
 
 	// 执行SQL查询
 	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
+		// 获取详细的错误信息
+		SQLWCHAR sqlState[6], message[SQL_MAX_MESSAGE_LENGTH];
+		SQLINTEGER nativeError;
+		SQLSMALLINT msgLen;
+
+		SQLGetDiagRecW(SQL_HANDLE_STMT, SQL语句句柄, 1, sqlState, &nativeError,
+			message, SQL_MAX_MESSAGE_LENGTH, &msgLen);
+
+		CString 错误信息;
+		错误信息.Format(_T("查询失败: %s (错误代码: %s)"), CString(message), CString(sqlState));
+		添加信息显示(错误信息);
+
 		当前密钥 = _T("查询失败");
 		当前版本号 = _T("查询失败");
 		更新状态显示();
@@ -636,21 +671,42 @@ void CNageDlqServerDlg::更新服务器信息()
 	// 获取结果
 	retcode = SQLFetch(SQL语句句柄);
 	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) {
-		SQLWCHAR 用户密钥[256], 版本号[256];
-		SQLLEN 密钥长度, 版本长度;
+		SQLWCHAR 客户端密钥[256] = { 0 };
+		SQLWCHAR 版本号[256] = { 0 };
+		SQLLEN 密钥长度 = 0, 版本长度 = 0;
 
-		SQLGetData(SQL语句句柄, 1, SQL_C_WCHAR, 用户密钥, sizeof(用户密钥), &密钥长度);
+		// 清空缓冲区
+		memset(客户端密钥, 0, sizeof(客户端密钥));
+		memset(版本号, 0, sizeof(版本号));
+
+		SQLGetData(SQL语句句柄, 1, SQL_C_WCHAR, 客户端密钥, sizeof(客户端密钥), &密钥长度);
 		SQLGetData(SQL语句句柄, 2, SQL_C_WCHAR, 版本号, sizeof(版本号), &版本长度);
 
-		当前密钥 = CString(用户密钥);
+		当前密钥 = CString(客户端密钥);
 		当前版本号 = CString(版本号);
 
 		SQLCloseCursor(SQL语句句柄);
+
+		// 添加成功信息
+		CString 成功信息;
+		成功信息.Format(_T("成功查询到密钥和版本号"));
+		添加信息显示(成功信息);
 	}
-	else
-	{
-		当前密钥 = _T("无数据");
-		当前版本号 = _T("无数据");
+	else {
+		// 获取具体的错误信息
+		SQLWCHAR sqlState[6], message[SQL_MAX_MESSAGE_LENGTH];
+		SQLINTEGER nativeError;
+		SQLSMALLINT msgLen;
+
+		SQLGetDiagRecW(SQL_HANDLE_STMT, SQL语句句柄, 1, sqlState, &nativeError,
+			message, SQL_MAX_MESSAGE_LENGTH, &msgLen);
+
+		CString 错误信息;
+		错误信息.Format(_T("获取数据失败: %s (错误代码: %s)"), CString(message), CString(sqlState));
+		添加信息显示(错误信息);
+
+		当前密钥 = _T("获取失败");
+		当前版本号 = _T("获取失败");
 		SQLCloseCursor(SQL语句句柄);
 	}
 
@@ -658,7 +714,7 @@ void CNageDlqServerDlg::更新服务器信息()
 }
 
 // 加载配置
-BOOL CNageDlqServerDlg::加载配置()
+BOOL NageDlqServerDlg::加载配置()
 {
 	// 从注册表读取配置
 	HKEY hKey;
@@ -692,7 +748,7 @@ BOOL CNageDlqServerDlg::加载配置()
 }
 
 // 保存配置
-BOOL CNageDlqServerDlg::保存配置()
+BOOL NageDlqServerDlg::保存配置()
 {
 	// 保存配置到注册表
 	HKEY hKey;
@@ -710,7 +766,7 @@ BOOL CNageDlqServerDlg::保存配置()
 }
 
 // 添加客户端连接
-void CNageDlqServerDlg::添加客户端连接(SOCKET 客户端套接字, const CString& 客户端IP)
+void NageDlqServerDlg::添加客户端连接(SOCKET 客户端套接字, const CString& 客户端IP)
 {
 	EnterCriticalSection(&客户端列表锁);
 	客户端连接列表[客户端套接字] = 客户端IP;
@@ -721,7 +777,7 @@ void CNageDlqServerDlg::添加客户端连接(SOCKET 客户端套接字, const C
 }
 
 // 移除客户端连接
-void CNageDlqServerDlg::移除客户端连接(SOCKET 客户端套接字)
+void NageDlqServerDlg::移除客户端连接(SOCKET 客户端套接字)
 {
 	EnterCriticalSection(&客户端列表锁);
 	auto it = 客户端连接列表.find(客户端套接字);
@@ -738,40 +794,53 @@ void CNageDlqServerDlg::移除客户端连接(SOCKET 客户端套接字)
 }
 
 // 获取连接数量
-int CNageDlqServerDlg::获取连接数量()
+int NageDlqServerDlg::获取连接数量()
 {
 	return 客户端连接数量;
 }
 
 // 添加信息显示
-void CNageDlqServerDlg::添加信息显示(const CString& 信息)
+void NageDlqServerDlg::添加信息显示(const CString& 信息)
 {
 	CString 时间信息 = CTime::GetCurrentTime().Format(_T("%H:%M:%S"));
-	CString 完整信息 = 时间信息 + _T(" - ") + 信息 + _T("\r\n");
+	CString 完整信息 = 时间信息 + _T(" - ") + 信息;
 	
-	// 添加到编辑框
-	int 文本长度 = 信息显示编辑框.GetWindowTextLength();
-	信息显示编辑框.SetSel(文本长度, 文本长度);
-	信息显示编辑框.ReplaceSel(完整信息);
-
-	// 自动向下滚动到底部
-	信息显示编辑框.PostMessage(WM_VSCROLL, SB_BOTTOM, 0);
+	// 添加到List Box
+	CListBox* pListBox = (CListBox*)GetDlgItem(IDC_EDIT_INFO);
+	if (pListBox)
+	{
+		pListBox->AddString(完整信息);
+		pListBox->SetCurSel(pListBox->GetCount() - 1); // 滚动到最后
+	}
 }
 
 // 更新状态显示
-void CNageDlqServerDlg::更新状态显示()
+void NageDlqServerDlg::更新状态显示()
 {
 	// 更新权限状态标签
 	CString 密钥信息;
 	if (当前密钥.IsEmpty())
-		密钥信息 = _T("权限状态: 未获取");
+		密钥信息 = _T("权限状态: 未查询");
+	else if (当前密钥 == _T("查询失败") || 当前密钥 == _T("获取失败"))
+		密钥信息 = _T("权限状态: 查询失败");
+	else if (当前密钥 == _T("无数据"))
+		密钥信息 = _T("权限状态: 无数据");
 	else
 		密钥信息.Format(_T("权限状态: %s"), 当前密钥);
+
 	权限状态标签.SetWindowText(密钥信息);
 
 	// 更新版本号标签
 	CString 版本信息;
-	版本信息.Format(_T("当前版本号: %s"), 当前版本号);
+	if (当前版本号.IsEmpty())
+		版本信息 = _T("当前版本号: 未查询");
+	else if (当前版本号 == _T("查询失败") || 当前版本号 == _T("获取失败"))
+		版本信息 = _T("当前版本号: 查询失败");
+	else if (当前版本号 == _T("无数据"))
+		版本信息 = _T("当前版本号: 无数据");
+	else
+		版本信息.Format(_T("当前版本号: %s"), 当前版本号);
+
 	当前版本号标签.SetWindowText(版本信息);
 
 	// 更新连接数量标签
@@ -781,14 +850,14 @@ void CNageDlqServerDlg::更新状态显示()
 }
 
 // 发送到客户端
-BOOL CNageDlqServerDlg::发送到客户端(SOCKET 客户端套接字, const CString& 数据)
+BOOL NageDlqServerDlg::发送到客户端(SOCKET 客户端套接字, const CString& 数据)
 {
 	int 数据长度 = 数据.GetLength() * sizeof(TCHAR);
 	return send(客户端套接字, (const char*)数据.GetString(), 数据长度, 0) != SOCKET_ERROR;
 }
 
 // 从客户端接收
-CString CNageDlqServerDlg::从客户端接收(SOCKET 客户端套接字)
+CString NageDlqServerDlg::从客户端接收(SOCKET 客户端套接字)
 {
 	char 缓冲区[1024];
 	int 接收长度 = recv(客户端套接字, 缓冲区, sizeof(缓冲区) - 1, 0);
