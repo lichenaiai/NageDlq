@@ -53,8 +53,11 @@ BOOL CNageDlqDlg::OnInitDialog()
 	SetIcon(m_hIcon, TRUE);			// 设置大图标
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
 
-	// TODO: 在此添加额外的初始化代码
-	//登录界面复选框设为默认勾选
+	// 初始化网络通信
+	if (!初始化网络通信())
+	{
+		MessageBox(_T("网络初始化失败，部分功能可能无法使用"), _T("警告"), MB_ICONWARNING);
+	}
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -159,3 +162,119 @@ HCURSOR CNageDlqDlg::OnQueryDragIcon()
 	return static_cast<HCURSOR>(m_hIcon);
 }
 
+// 初始化网络通信
+BOOL NageDlqDlg::初始化网络通信()
+{
+	// 初始化Socket库
+	if (!AfxSocketInit())
+	{
+		MessageBox(_T("初始化网络失败"), _T("错误"), MB_ICONERROR);
+		return FALSE;
+	}
+
+	// 设置消息回调
+	网络通信.设置消息回调函数(&NageDlqDlg::处理网络消息, this);
+
+	// 连接到服务端（这里使用默认地址和端口）
+	CString 服务端地址 = _T("127.0.0.1");  // 默认本地地址
+	UINT 服务端端口 = 8888;                 // 默认端口
+
+	if (!网络通信.连接服务端(服务端地址, 服务端端口))
+	{
+		MessageBox(_T("连接服务端失败"), _T("错误"), MB_ICONERROR);
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+// 处理网络消息
+void NageDlqDlg::处理网络消息(const CString& 消息)
+{
+	if (消息 == _T("CONNECT_SUCCESS"))
+	{
+		添加信息显示(_T("成功连接到服务端"));
+	}
+	else if (消息 == _T("CONNECT_FAILED"))
+	{
+		添加信息显示(_T("连接服务端失败"));
+	}
+	else if (消息 == _T("CONNECTION_CLOSED"))
+	{
+		添加信息显示(_T("与服务端的连接已断开"));
+	}
+	else
+	{
+		// 处理服务端响应
+		处理服务端响应(消息);
+	}
+}
+
+// 发送请求到服务端
+BOOL NageDlqDlg::发送请求到服务端(const CString& 请求数据)
+{
+	if (!网络通信.是否已连接())
+	{
+		if (!初始化网络通信())
+		{
+			return FALSE;
+		}
+	}
+
+	return 网络通信.发送数据(请求数据);
+}
+
+// 处理服务端响应
+void NageDlqDlg::处理服务端响应(const CString& 响应数据)
+{
+	// 根据响应类型分发处理
+	if (响应数据.Find(_T("REGISTER_")) == 0)
+	{
+		处理注册响应(响应数据);
+	}
+	else if (响应数据.Find(_T("LOGIN_")) == 0)
+	{
+		// 处理登录响应
+	}
+	else if (响应数据.Find(_T("CONNECT_")) == 0)
+	{
+		// 处理连接响应
+	}
+	// 其他响应类型...
+}
+
+// 显示注册页面
+void NageDlqDlg::显示注册页面()
+{
+	if (!注册页面指针)
+	{
+		注册页面指针 = new 注册页面类(this);
+	}
+
+	if (注册页面指针->Create(IDD_REGISTER_DIALOG, this))
+	{
+		注册页面指针->ShowWindow(SW_SHOW);
+	}
+}
+
+// 处理注册响应
+void NageDlqDlg::处理注册响应(const CString& 响应数据)
+{
+	if (响应数据.Find(_T("REGISTER_SUCCESS")) == 0)
+	{
+		MessageBox(_T("注册成功"), _T("成功"), MB_ICONINFORMATION);
+
+		// 关闭注册页面
+		if (注册页面指针)
+		{
+			注册页面指针->DestroyWindow();
+			delete 注册页面指针;
+			注册页面指针 = nullptr;
+		}
+	}
+	else if (响应数据.Find(_T("REGISTER_FAILED")) == 0)
+	{
+		CString 错误信息 = 响应数据.Mid(16); // 去掉"REGISTER_FAILED:"
+		MessageBox(错误信息, _T("注册失败"), MB_ICONERROR);
+	}
+}

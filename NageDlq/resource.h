@@ -2,20 +2,8 @@
 // Microsoft Visual C++ 生成的包含文件。
 // 供 NageDlq.rc 使用
 //
-
-#ifdef _UNICODE
-// Unicode环境下的定义
-#ifndef SS_REALSIZECONTROL
-#define SS_REALSIZECONTROL 0x00000040
-#endif
-#else
-// 多字节环境下的定义  
-#ifndef SS_REALSIZECONTROL
-#define SS_REALSIZECONTROL 0x00000040
-#endif
-#endif
-
 #define IDM_ABOUTBOX                    0x0010
+#define SS_REALSIZECONTROL              0x00000040
 #define IDD_ABOUTBOX                    100
 #define IDS_ABOUTBOX                    101
 #define IDD_NAGEDLQ_DIALOG              102
@@ -37,6 +25,11 @@
 #define IDC_BUTTON_LOGIN                1008
 #define IDC_BUTTON_START                1009
 #define IDC_CHECK_1280                  1010
+#define IDC_BUTTON1                     1012
+#define IDC_EDIT1                       1013
+#define IDC_EDIT2                       1014
+#define IDC_EDIT3                       1015
+#define IDC_EDIT4                       1016
 
 // Next default values for new objects
 // 
@@ -44,7 +37,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        150
 #define _APS_NEXT_COMMAND_VALUE         32771
-#define _APS_NEXT_CONTROL_VALUE         1012
+#define _APS_NEXT_CONTROL_VALUE         1014
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

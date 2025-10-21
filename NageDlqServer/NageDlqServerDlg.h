@@ -120,4 +120,17 @@ public:
 	// 信息显示
 	void 添加信息显示(const CString& 信息);
 	void 更新状态显示();
+
+	// 验证用户登录
+	BOOL 验证用户登录(const CString& 用户名, const CString& 密码);
+
+	// 注册处理函数
+	BOOL 处理用户注册(const CString& 用户名, const CString& 密码, const CString& 邮箱);
+
+	// 转生和加点相关函数
+	BOOL 处理角色转生(const CString& 用户名, const CString& 角色名);
+	BOOL 处理角色加点(const CString& 用户名, const CString& 角色名, int 力量, int 敏捷, int 意念, int 灵力);
+	BOOL 检测账号是否在线(const CString& 用户名);
+	void 获取职业初始属性(int 职业代码, int 累计等级, int& Lv, int& Exp, int& HP, int& SP, int& STM,
+		int& Str, int& Dex, int& Esp, int& Spt, int& cmap, int& lvpoint, int& relvC);
 };

@@ -4,6 +4,7 @@
 #include "加点页面类.h"
 #include "排行榜页面类.h"
 #include "注入页面类.h"
+#include "网络通信类.h"
 
 class CNageDlqDlg : public CDialogEx
 {
@@ -32,6 +33,16 @@ protected:
 public:
     CTabCtrl 分页控件;  // 分页控件变量
 
+    // 网络通信相关
+    BOOL 初始化网络通信();
+    void 处理网络消息(const CString& 消息);
+    BOOL 发送请求到服务端(const CString& 请求数据);
+    void 处理服务端响应(const CString& 响应数据);
+
+    //注册功能
+    void 显示注册页面();
+    BOOL 发送请求到服务端(const CString& 请求数据);
+    void 处理注册响应(const CString& 响应数据);
 private:
     // 各个页面对象
     登录页面类 登录页面;
@@ -40,6 +51,9 @@ private:
     加点页面类 加点页面;
     排行榜页面类 排行榜页面;
     注入页面类 注入页面;
+
+    网络通信类 网络通信;          // 网络通信对象
+    注册页面类* 注册页面指针;     // 注册页面指针
 
     // 页面初始化函数
     void 初始化分页控件();

@@ -333,13 +333,15 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 	// 解析请求
 	if (客户端请求.Find(_T("LOGIN:")) == 0)
 	{
-		// 处理登录请求
-		CString 请求数据 = 客户端请求.Mid(6);
-		int 分隔符位置 = 请求数据.Find(':');
+		// 处理连接验证请求 - 格式: CONNECT:客户端版本号:客户端IP
+		CString 连接数据 = 客户端请求.Mid(8); // 去掉"CONNECT:"
+		int 分隔符位置 = 连接数据.Find(':');
 		if (分隔符位置 != -1)
 		{
+			CString 客户端版本号 = 连接数据.Left(分隔符位置);
+			CString 客户端IP = 连接数据.Mid(分隔符位置 + 1);
 
-			// 查询数据库
+			// 查询数据库获取密钥和最新版本号
 			CString 客户端密钥 = 对话框指针->获取客户端密钥();
 			CString 最新版本号 = 对话框指针->获取最新版本号();
 
@@ -348,15 +350,88 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			if (!客户端密钥.IsEmpty())
 			{
 				响应数据.Format(_T("SUCCESS:%s:%s"), 客户端密钥, 最新版本号);
-				对话框指针->添加信息显示(客户端IP + _T(" 登录成功"));
+				对话框指针->添加信息显示(客户端IP + _T(" 连接验证成功，版本: ") + 客户端版本号);
 			}
 			else
 			{
-				响应数据 = _T("FAILED:用户名或密码错误");
-				对话框指针->添加信息显示(客户端IP + _T(" 登录失败"));
+				响应数据 = _T("CONNECT_FAILED:服务端配置错误");
+				对话框指针->添加信息显示(客户端IP + _T(" 连接验证失败"));
 			}
 
 			对话框指针->发送到客户端(客户端套接字, 响应数据);
+		}
+		else
+		{
+			对话框指针->发送到客户端(客户端套接字, _T("CONNECT_FAILED:无效的连接数据格式"));
+			对话框指针->添加信息显示(客户端IP + _T(" 连接数据格式错误"));
+		}
+	}
+	else if (客户端请求.Find(_T("LOGIN:")) == 0)
+	{
+		// 处理真正的登录请求 - 格式: LOGIN:username:password
+		CString 登录数据 = 客户端请求.Mid(6);
+		int 分隔符位置 = 登录数据.Find(':');
+
+		if (分隔符位置 != -1)
+		{
+			CString 用户名 = 登录数据.Left(分隔符位置);
+			CString 密码 = 登录数据.Mid(分隔符位置 + 1);
+
+			// 验证用户名和密码
+			BOOL 登录结果 = 对话框指针->验证用户登录(用户名, 密码);
+
+			if (登录结果)
+			{
+				对话框指针->发送到客户端(客户端套接字, _T("LOGIN_SUCCESS:登录成功"));
+				对话框指针->添加信息显示(客户端IP + _T(" 登录成功 - 用户名: ") + 用户名);
+			}
+			else
+			{
+				对话框指针->发送到客户端(客户端套接字, _T("LOGIN_FAILED:用户名或密码错误"));
+				对话框指针->添加信息显示(客户端IP + _T(" 登录失败 - 用户名: ") + 用户名);
+			}
+		}
+	}
+	else if (客户端请求.Find(_T("REGISTER:")) == 0)
+	{
+		// 处理注册请求 - 格式: REGISTER:username:password:email
+		CString 注册数据 = 客户端请求.Mid(9); // 去掉"REGISTER:"
+		CString 用户名, 密码, 邮箱;
+
+		// 解析注册数据
+		int 分隔符1 = 注册数据.Find(':');
+		int 分隔符2 = -1;
+
+		if (分隔符1 != -1)
+		{
+			用户名 = 注册数据.Left(分隔符1);
+			分隔符2 = 注册数据.Find(':', 分隔符1 + 1);
+
+			if (分隔符2 != -1)
+			{
+				密码 = 注册数据.Mid(分隔符1 + 1, 分隔符2 - 分隔符1 - 1);
+				邮箱 = 注册数据.Mid(分隔符2 + 1);
+
+				// 处理注册
+				BOOL 注册结果 = 对话框指针->处理用户注册(用户名, 密码, 邮箱);
+
+				if (注册结果)
+				{
+					对话框指针->发送到客户端(客户端套接字, _T("REGISTER_SUCCESS:注册成功"));
+					对话框指针->添加信息显示(客户端IP + _T(" 注册成功 - 用户名: ") + 用户名);
+				}
+				else
+				{
+					对话框指针->发送到客户端(客户端套接字, _T("REGISTER_FAILED:注册失败"));
+					对话框指针->添加信息显示(客户端IP + _T(" 注册失败 - 用户名: ") + 用户名);
+				}
+			}
+		}
+
+		if (用户名.IsEmpty() || 密码.IsEmpty())
+		{
+			对话框指针->发送到客户端(客户端套接字, _T("REGISTER_FAILED:无效的注册数据格式"));
+			对话框指针->添加信息显示(客户端IP + _T(" 注册数据格式错误"));
 		}
 	}
 	else if (客户端请求 == _T("GET_HOOKS"))
@@ -396,7 +471,138 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			对话框指针->添加信息显示(客户端IP + _T(" 请求的HOOK不存在: ") + Hook名称);
 		}
 	}
+	else if (客户端请求.Find(_T("REBORN:")) == 0)
+	{
+		// 处理转生请求 - 格式: REBORN:username:charname
+		CString 转生数据 = 客户端请求.Mid(7); // 去掉"REBORN:"
+		int 分隔符 = 转生数据.Find(':');
+
+		if (分隔符 != -1)
+		{
+			CString 用户名 = 转生数据.Left(分隔符);
+			CString 角色名 = 转生数据.Mid(分隔符 + 1);
+
+			BOOL 转生结果 = 对话框指针->处理角色转生(用户名, 角色名);
+
+			if (转生结果)
+			{
+				对话框指针->发送到客户端(客户端套接字, _T("REBORN_SUCCESS:转生成功"));
+				对话框指针->添加信息显示(客户端IP + _T(" 角色转生成功: ") + 角色名);
+			}
+			else
+			{
+				对话框指针->发送到客户端(客户端套接字, _T("REBORN_FAILED:转生失败"));
+				对话框指针->添加信息显示(客户端IP + _T(" 角色转生失败: ") + 角色名);
+			}
+		}
+		else
+		{
+			对话框指针->发送到客户端(客户端套接字, _T("REBORN_FAILED:无效的转生数据格式"));
+			对话框指针->添加信息显示(客户端IP + _T(" 转生数据格式错误"));
+		}
+		}
+	else if (客户端请求.Find(_T("ADD_POINTS:")) == 0)
+	{
+		// 处理加点请求 - 格式: ADD_POINTS:username:charname:str:dex:esp:spt
+		CString 加点数据 = 客户端请求.Mid(11); // 去掉"ADD_POINTS:"
+
+		CStringArray 参数数组;
+		int 起始位置 = 0;
+		CString 临时字符串 = 加点数据.Tokenize(_T(":"), 起始位置);
+		while (!临时字符串.IsEmpty())
+		{
+			参数数组.Add(临时字符串);
+			临时字符串 = 加点数据.Tokenize(_T(":"), 起始位置);
+		}
+
+		if (参数数组.GetSize() == 6)
+		{
+			CString 用户名 = 参数数组[0];
+			CString 角色名 = 参数数组[1];
+			int 力量 = _ttoi(参数数组[2]);
+			int 敏捷 = _ttoi(参数数组[3]);
+			int 意念 = _ttoi(参数数组[4]);
+			int 灵力 = _ttoi(参数数组[5]);
+
+			BOOL 加点结果 = 对话框指针->处理角色加点(用户名, 角色名, 力量, 敏捷, 意念, 灵力);
+
+			if (加点结果)
+			{
+				对话框指针->发送到客户端(客户端套接字, _T("ADD_POINTS_SUCCESS:加点成功"));
+				对话框指针->添加信息显示(客户端IP + _T(" 角色加点成功: ") + 角色名);
+			}
+			else
+			{
+				对话框指针->发送到客户端(客户端套接字, _T("ADD_POINTS_FAILED:加点失败"));
+				对话框指针->添加信息显示(客户端IP + _T(" 角色加点失败: ") + 角色名);
+			}
+		}
+		else
+		{
+			对话框指针->发送到客户端(客户端套接字, _T("ADD_POINTS_FAILED:无效的加点数据格式"));
+			对话框指针->添加信息显示(客户端IP + _T(" 加点数据格式错误"));
+		}
+		}
+	else if (客户端请求.Find(_T("GET_CHAR_INFO:")) == 0)
+	{
+		// 获取角色信息 - 格式: GET_CHAR_INFO:username:charname
+		CString 查询数据 = 客户端请求.Mid(14); // 去掉"GET_CHAR_INFO:"
+		int 分隔符 = 查询数据.Find(':');
+
+		if (分隔符 != -1)
+		{
+			CString 用户名 = 查询数据.Left(分隔符);
+			CString 角色名 = 查询数据.Mid(分隔符 + 1);
+
+			// 查询角色信息
+			CString 查询语句;
+			查询语句.Format(_T("SELECT baseskill, Lv, lv + relvC AS total_lv, lvpoint, Str, Dex, Esp, Spt FROM CharInfo WHERE charname = '%s'"), 角色名);
+
+			SQLRETURN retcode = SQLExecDirectW(对话框指针->SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
+			if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+			{
+				retcode = SQLFetch(对话框指针->SQL语句句柄);
+				if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+				{
+					SQLINTEGER 职业代码, 战斗等级, 累计等级, 剩余点数, 力量, 敏捷, 意念, 灵力;
+
+					SQLGetData(对话框指针->SQL语句句柄, 1, SQL_C_LONG, &职业代码, sizeof(职业代码), NULL);
+					SQLGetData(对话框指针->SQL语句句柄, 2, SQL_C_LONG, &战斗等级, sizeof(战斗等级), NULL);
+					SQLGetData(对话框指针->SQL语句句柄, 3, SQL_C_LONG, &累计等级, sizeof(累计等级), NULL);
+					SQLGetData(对话框指针->SQL语句句柄, 4, SQL_C_LONG, &剩余点数, sizeof(剩余点数), NULL);
+					SQLGetData(对话框指针->SQL语句句柄, 5, SQL_C_LONG, &力量, sizeof(力量), NULL);
+					SQLGetData(对话框指针->SQL语句句柄, 6, SQL_C_LONG, &敏捷, sizeof(敏捷), NULL);
+					SQLGetData(对话框指针->SQL语句句柄, 7, SQL_C_LONG, &意念, sizeof(意念), NULL);
+					SQLGetData(对话框指针->SQL语句句柄, 8, SQL_C_LONG, &灵力, sizeof(灵力), NULL);
+
+					CString 响应数据;
+					响应数据.Format(_T("CHAR_INFO:%d:%d:%d:%d:%d:%d:%d:%d"),
+						职业代码, 战斗等级, 累计等级, 剩余点数, 力量, 敏捷, 意念, 灵力);
+
+					对话框指针->发送到客户端(客户端套接字, 响应数据);
+					对话框指针->添加信息显示(客户端IP + _T(" 查询角色信息: ") + 角色名);
+				}
+				else
+				{
+					对话框指针->发送到客户端(客户端套接字, _T("CHAR_INFO_FAILED:角色不存在"));
+				}
+				SQLCloseCursor(对话框指针->SQL语句句柄);
+			}
+			else
+			{
+				对话框指针->发送到客户端(客户端套接字, _T("CHAR_INFO_FAILED:查询失败"));
+			}
+		}
+	}
+	
+
+	// 关闭连接
+	对话框指针->移除客户端连接(客户端套接字);
+	closesocket(客户端套接字);
+
+	return 0;
 }
+
 // 启动服务器
 BOOL NageDlqServerDlg::启动服务器()
 {
@@ -559,51 +765,23 @@ CString NageDlqServerDlg::获取客户端密钥()
 	// 执行SQL查询
 	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
-		// 获取错误信息
-		SQLWCHAR sqlState[6], message[SQL_MAX_MESSAGE_LENGTH];
-		SQLINTEGER nativeError;
-		SQLSMALLINT msgLen;
-
-		SQLGetDiagRecW(SQL_HANDLE_STMT, SQL语句句柄, 1, sqlState, &nativeError,
-			message, SQL_MAX_MESSAGE_LENGTH, &msgLen);
-
-		CString 错误信息;
-		错误信息.Format(_T("查询用户密钥失败: %s"), CString(message));
-		添加信息显示(错误信息);
-
-		return _T("");
+		return _T(""); // 返回空字符串表示失败
 	}
 	
 	// 获取结果
 	retcode = SQLFetch(SQL语句句柄);
 	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO) {
-		SQLWCHAR 客户端密钥[256], 版本号[256];
-		SQLLEN 密钥长度, 版本长度;
+		SQLWCHAR 客户端密钥[256];
+		SQLLEN 密钥长度;
 
 		SQLGetData(SQL语句句柄, 1, SQL_C_WCHAR, 客户端密钥, sizeof(客户端密钥), &密钥长度);
 
 		SQLCloseCursor(SQL语句句柄);
-		return CString(客户端密钥);
-	}
-	else if (retcode == SQL_NO_DATA) {
-		添加信息显示(_T("未找到客户端密钥"));
-	}
-	else {
-		// 获取错误信息
-		SQLWCHAR sqlState[6], message[SQL_MAX_MESSAGE_LENGTH];
-		SQLINTEGER nativeError;
-		SQLSMALLINT msgLen;
-
-		SQLGetDiagRecW(SQL_HANDLE_STMT, SQL语句句柄, 1, sqlState, &nativeError,
-			message, SQL_MAX_MESSAGE_LENGTH, &msgLen);
-
-		CString 错误信息;
-		错误信息.Format(_T("获取客户端密钥失败: %s"), CString(message));
-		添加信息显示(错误信息);
+		return CString(客户端密钥); // 返回实际的密钥值，如"chenge"
 	}
 
 	SQLCloseCursor(SQL语句句柄);
-	return _T("");
+	return _T(""); // 返回空字符串表示失败
 }
 
 // 获取最新版本号
@@ -867,4 +1045,444 @@ CString NageDlqServerDlg::从客户端接收(SOCKET 客户端套接字)
 		return CString(缓冲区);
 	}
 	return _T("");
+}
+
+// 注册处理函数
+BOOL NageDlqServerDlg::处理用户注册(const CString& 用户名, const CString& 密码, const CString& 邮箱)
+{
+	// 验证用户名规则：只能包含字母和数字，最长12位
+	if (用户名.GetLength() > 12 || 用户名.IsEmpty())
+	{
+		添加信息显示(_T("注册失败: 用户名长度不符合要求"));
+		return FALSE;
+	}
+
+	for (int i = 0; i < 用户名.GetLength(); i++)
+	{
+		TCHAR c = 用户名[i];
+		if (!((c >= _T('a') && c <= _T('z')) ||
+			(c >= _T('A') && c <= _T('Z')) ||
+			(c >= _T('0') && c <= _T('9'))))
+		{
+			添加信息显示(_T("注册失败: 用户名包含非法字符"));
+			return FALSE;
+		}
+	}
+
+	// 验证密码长度
+	if (密码.GetLength() > 12 || 密码.IsEmpty())
+	{
+		添加信息显示(_T("注册失败: 密码长度不符合要求"));
+		return FALSE;
+	}
+
+	SQLRETURN retcode;
+
+	try
+	{
+		// 检查账号是否已存在
+		CString 检查语句;
+		检查语句.Format(_T("SELECT COUNT(*) FROM Chr_Log_Info WHERE id_loginid = '%s'"), 用户名);
+
+		retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)检查语句.GetString(), SQL_NTS);
+		if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO)
+		{
+			添加信息显示(_T("注册失败: 数据库查询错误"));
+			SQLCloseCursor(SQL语句句柄);
+			return FALSE;
+		}
+
+		retcode = SQLFetch(SQL语句句柄);
+		if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+		{
+			SQLINTEGER 数量;
+			SQLGetData(SQL语句句柄, 1, SQL_C_LONG, &数量, sizeof(数量), NULL);
+
+			if (数量 > 0)
+			{
+				添加信息显示(_T("注册失败: 用户名已存在 - ") + 用户名);
+				SQLCloseCursor(SQL语句句柄);
+				return FALSE;
+			}
+		}
+		SQLCloseCursor(SQL语句句柄);
+
+		// 获取最大的id_idx
+		CString 最大ID语句 = _T("SELECT MAX(id_idx) FROM Chr_Log_Info");
+		retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)最大ID语句.GetString(), SQL_NTS);
+
+		int 最大ID = 0;
+		if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+		{
+			retcode = SQLFetch(SQL语句句柄);
+			if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+			{
+				SQLINTEGER 当前最大ID;
+				SQLGetData(SQL语句句柄, 1, SQL_C_LONG, &当前最大ID, sizeof(当前最大ID), NULL);
+				最大ID = 当前最大ID;
+			}
+		}
+		SQLCloseCursor(SQL语句句柄);
+
+		// 计算新的propid
+		int 新的propid = 1000 + 最大ID + 1;
+
+		// 插入新用户
+		CString 插入语句;
+		插入语句.Format(_T("INSERT INTO Chr_Log_Info (id_loginid, id_passwd, propid, id_mail) VALUES ('%s', '%s', %d, '%s')"),
+			用户名, 密码, 新的propid, 邮箱);
+
+		retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)插入语句.GetString(), SQL_NTS);
+		if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+		{
+			// 提交事务
+			SQLEndTran(SQL_HANDLE_DBC, SQL连接句柄, SQL_COMMIT);
+			添加信息显示(_T("注册成功: ") + 用户名);
+			return TRUE;
+		}
+		else
+		{
+			// 获取错误信息
+			SQLWCHAR sqlState[6], message[SQL_MAX_MESSAGE_LENGTH];
+			SQLINTEGER nativeError;
+			SQLSMALLINT msgLen;
+
+			SQLGetDiagRecW(SQL_HANDLE_STMT, SQL语句句柄, 1, sqlState, &nativeError,
+				message, SQL_MAX_MESSAGE_LENGTH, &msgLen);
+
+			CString 错误信息;
+			错误信息.Format(_T("注册失败: %s"), CString(message));
+			添加信息显示(错误信息);
+
+			// 回滚事务
+			SQLEndTran(SQL_HANDLE_DBC, SQL连接句柄, SQL_ROLLBACK);
+			return FALSE;
+		}
+	}
+	catch (...)
+	{
+		添加信息显示(_T("注册失败: 发生未知错误"));
+		return FALSE;
+	}
+}
+
+// 检测账号是否在线
+BOOL NageDlqServerDlg::检测账号是否在线(const CString& 用户名)
+{
+	SQLRETURN retcode;
+	CString 查询语句;
+	查询语句.Format(_T("SELECT COUNT(*) FROM Chr_Log_Info WHERE id_loginid = '%s' AND online = 1"), 用户名);
+
+	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
+	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+	{
+		retcode = SQLFetch(SQL语句句柄);
+		if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+		{
+			SQLINTEGER 在线数量;
+			SQLGetData(SQL语句句柄, 1, SQL_C_LONG, &在线数量, sizeof(在线数量), NULL);
+			SQLCloseCursor(SQL语句句柄);
+			return 在线数量 > 0;
+		}
+		SQLCloseCursor(SQL语句句柄);
+	}
+
+	return FALSE;
+}
+
+// 获取职业初始属性
+void NageDlqServerDlg::获取职业初始属性(int 职业代码, int 累计等级, int& Lv, int& Exp, int& HP, int& SP, int& STM,
+	int& Str, int& Dex, int& Esp, int& Spt, int& cmap, int& lvpoint, int& relvC)
+{
+	// 设置默认值
+	Lv = 1;
+	Exp = 100;
+	cmap = 1;
+	Str = 0;
+	Dex = 0;
+	Esp = 0;
+	Spt = 0;
+
+	// 根据职业设置初始属性
+	switch (职业代码)
+	{
+	case 6:  // 超能
+		HP = 33;
+		SP = 88;
+		STM = 33;
+		Esp = 23;
+		Spt = 22;
+		break;
+	case 7:  // 枪手
+		HP = 44;
+		SP = 44;
+		STM = 33;
+		Esp = 23;
+		Spt = 22;
+		break;
+	case 0:  // 格斗
+	case 2:  // 舞械
+		HP = 46;
+		SP = 33;
+		STM = 51;
+		Str = 23;
+		Dex = 22;
+		break;
+	default:
+		HP = 0;
+		SP = 0;
+		STM = 0;
+		break;
+	}
+
+	// 计算点数
+	lvpoint = 累计等级 * 3 - 3;
+	relvC = 累计等级;
+}
+
+// 处理角色转生
+BOOL NageDlqServerDlg::处理角色转生(const CString& 用户名, const CString& 角色名)
+{
+	// 检测账号是否在线
+	if (检测账号是否在线(用户名))
+	{
+		添加信息显示(_T("转生失败: 账号在线 - ") + 用户名);
+		return FALSE;
+	}
+
+	SQLRETURN retcode;
+
+	try
+	{
+		// 查询角色信息
+		CString 查询语句;
+		查询语句.Format(_T("SELECT Lv, baseskill, relvCtime, lv + relvC AS total_lv, recount FROM CharInfo WHERE charname = '%s'"), 角色名);
+
+		retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
+		if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO)
+		{
+			添加信息显示(_T("转生失败: 查询角色信息错误"));
+			SQLCloseCursor(SQL语句句柄);
+			return FALSE;
+		}
+
+		retcode = SQLFetch(SQL语句句柄);
+		if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+		{
+			SQLINTEGER 当前等级, 职业代码, 累计等级, 转生次数;
+			TIMESTAMP_STRUCT 上次转生时间;
+			SQLLEN 时间指示器;
+
+			SQLGetData(SQL语句句柄, 1, SQL_C_LONG, &当前等级, sizeof(当前等级), NULL);
+			SQLGetData(SQL语句句柄, 2, SQL_C_LONG, &职业代码, sizeof(职业代码), NULL);
+			SQLGetData(SQL语句句柄, 3, SQL_C_TYPE_TIMESTAMP, &上次转生时间, sizeof(上次转生时间), &时间指示器);
+			SQLGetData(SQL语句句柄, 4, SQL_C_LONG, &累计等级, sizeof(累计等级), NULL);
+			SQLGetData(SQL语句句柄, 5, SQL_C_LONG, &转生次数, sizeof(转生次数), NULL);
+
+			SQLCloseCursor(SQL语句句柄);
+
+			// 检查等级
+			if (当前等级 < 130)
+			{
+				添加信息显示(_T("转生失败: 等级不足130"));
+				return FALSE;
+			}
+
+			// 检查转生时间（7天限制）
+			if (时间指示器 != SQL_NULL_DATA)
+			{
+				SYSTEMTIME 系统时间;
+				GetLocalTime(&系统时间);
+
+				// 计算天数差
+				FILETIME 当前文件时间, 上次文件时间;
+				SystemTimeToFileTime(&系统时间, &当前文件时间);
+
+				SYSTEMTIME 上次系统时间 = { 0 };
+				上次系统时间.wYear = 上次转生时间.year;
+				上次系统时间.wMonth = 上次转生时间.month;
+				上次系统时间.wDay = 上次转生时间.day;
+				上次系统时间.wHour = 上次转生时间.hour;
+				上次系统时间.wMinute = 上次转生时间.minute;
+				上次系统时间.wSecond = 上次转生时间.second;
+
+				SystemTimeToFileTime(&上次系统时间, &上次文件时间);
+
+				ULARGE_INTEGER 当前时间值, 上次时间值;
+				当前时间值.LowPart = 当前文件时间.dwLowDateTime;
+				当前时间值.HighPart = 当前文件时间.dwHighDateTime;
+				上次时间值.LowPart = 上次文件时间.dwLowDateTime;
+				上次时间值.HighPart = 上次文件时间.dwHighDateTime;
+
+				ULONGLONG 时间差 = 当前时间值.QuadPart - 上次时间值.QuadPart;
+				int 天数差 = (int)(时间差 / 10000000 / 60 / 60 / 24);
+
+				if (天数差 < 7)
+				{
+					添加信息显示(_T("转生失败: 距离上次转生不足7天"));
+					return FALSE;
+				}
+			}
+
+			// 获取初始属性
+			int Lv, Exp, HP, SP, STM, Str, Dex, Esp, Spt, cmap, lvpoint, relvC;
+			获取职业初始属性(职业代码, 累计等级, Lv, Exp, HP, SP, STM, Str, Dex, Esp, Spt, cmap, lvpoint, relvC);
+
+			// 更新角色数据
+			CString 更新语句;
+			更新语句.Format(_T("UPDATE CharInfo SET Lv = %d, Exp = %d, HP = %d, SP = %d, STM = %d, ")
+				_T("Str = %d, Dex = %d, Esp = %d, Spt = %d, cmap = %d, lvpoint = %d, ")
+				_T("relvC = %d, relvCtime = GETDATE(), recount = %d WHERE charname = '%s'"),
+				Lv, Exp, HP, SP, STM, Str, Dex, Esp, Spt, cmap, lvpoint, relvC, 转生次数 + 1, 角色名);
+
+			retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)更新语句.GetString(), SQL_NTS);
+			if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+			{
+				SQLEndTran(SQL_HANDLE_DBC, SQL连接句柄, SQL_COMMIT);
+				添加信息显示(_T("转生成功: ") + 角色名);
+				return TRUE;
+			}
+			else
+			{
+				SQLEndTran(SQL_HANDLE_DBC, SQL连接句柄, SQL_ROLLBACK);
+				添加信息显示(_T("转生失败: 更新数据库错误"));
+				return FALSE;
+			}
+		}
+		else
+		{
+			SQLCloseCursor(SQL语句句柄);
+			添加信息显示(_T("转生失败: 角色不存在"));
+			return FALSE;
+		}
+	}
+	catch (...)
+	{
+		添加信息显示(_T("转生失败: 发生未知错误"));
+		return FALSE;
+	}
+}
+
+// 处理角色加点
+BOOL NageDlqServerDlg::处理角色加点(const CString& 用户名, const CString& 角色名, int 力量, int 敏捷, int 意念, int 灵力)
+{
+	// 检测账号是否在线
+	if (检测账号是否在线(用户名))
+	{
+		添加信息显示(_T("加点失败: 账号在线 - ") + 用户名);
+		return FALSE;
+	}
+
+	SQLRETURN retcode;
+
+	try
+	{
+		// 查询角色的剩余点数
+		CString 查询语句;
+		查询语句.Format(_T("SELECT lvpoint, baseskill FROM CharInfo WHERE charname = '%s'"), 角色名);
+
+		retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
+		if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO)
+		{
+			添加信息显示(_T("加点失败: 查询角色信息错误"));
+			SQLCloseCursor(SQL语句句柄);
+			return FALSE;
+		}
+
+		retcode = SQLFetch(SQL语句句柄);
+		if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+		{
+			SQLINTEGER 剩余点数, 职业代码;
+			SQLGetData(SQL语句句柄, 1, SQL_C_LONG, &剩余点数, sizeof(剩余点数), NULL);
+			SQLGetData(SQL语句句柄, 2, SQL_C_LONG, &职业代码, sizeof(职业代码), NULL);
+			SQLCloseCursor(SQL语句句柄);
+
+			// 计算总加点数
+			int 总点数 = 力量 + 敏捷 + 意念 + 灵力;
+
+			if (总点数 > 剩余点数)
+			{
+				添加信息显示(_T("加点失败: 点数不足"));
+				return FALSE;
+			}
+
+			// 根据职业验证加点合法性
+			if (职业代码 == 0 || 职业代码 == 2)  // 格斗和舞械
+			{
+				if (意念 != 0 || 灵力 != 0)
+				{
+					添加信息显示(_T("加点失败: 该职业不能加意念和灵力"));
+					return FALSE;
+				}
+			}
+			else if (职业代码 == 6 || 职业代码 == 7)  // 超能和枪手
+			{
+				if (力量 != 0)
+				{
+					添加信息显示(_T("加点失败: 该职业不能加力量"));
+					return FALSE;
+				}
+			}
+
+			// 更新角色属性
+			CString 更新语句;
+			更新语句.Format(_T("UPDATE CharInfo SET Str = Str + %d, Dex = Dex + %d, Esp = Esp + %d, Spt = Spt + %d, lvpoint = lvpoint - %d WHERE charname = '%s'"),
+				力量, 敏捷, 意念, 灵力, 总点数, 角色名);
+
+			retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)更新语句.GetString(), SQL_NTS);
+			if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+			{
+				SQLEndTran(SQL_HANDLE_DBC, SQL连接句柄, SQL_COMMIT);
+				添加信息显示(_T("加点成功: ") + 角色名);
+				return TRUE;
+			}
+			else
+			{
+				SQLEndTran(SQL_HANDLE_DBC, SQL连接句柄, SQL_ROLLBACK);
+				添加信息显示(_T("加点失败: 更新数据库错误"));
+				return FALSE;
+			}
+		}
+		else
+		{
+			SQLCloseCursor(SQL语句句柄);
+			添加信息显示(_T("加点失败: 角色不存在"));
+			return FALSE;
+		}
+	}
+	catch (...)
+	{
+		添加信息显示(_T("加点失败: 发生未知错误"));
+		return FALSE;
+	}
+}
+
+// 验证用户登录
+BOOL NageDlqServerDlg::验证用户登录(const CString& 用户名, const CString& 密码)
+{
+	SQLRETURN retcode;
+	CString 查询语句;
+	查询语句.Format(_T("SELECT COUNT(*) FROM Chr_Log_Info WHERE id_loginid = '%s' AND id_passwd = '%s'"),
+		用户名, 密码);
+
+	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
+	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO)
+	{
+		添加信息显示(_T("登录验证失败: 数据库查询错误"));
+		SQLCloseCursor(SQL语句句柄);
+		return FALSE;
+	}
+
+	retcode = SQLFetch(SQL语句句柄);
+	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+	{
+		SQLINTEGER 数量;
+		SQLGetData(SQL语句句柄, 1, SQL_C_LONG, &数量, sizeof(数量), NULL);
+		SQLCloseCursor(SQL语句句柄);
+
+		return 数量 > 0;
+	}
+
+	SQLCloseCursor(SQL语句句柄);
+	return FALSE;
 }

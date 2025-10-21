@@ -197,6 +197,7 @@
     <ClInclude Include="注入页面类.h" />
     <ClInclude Include="注册页面类.h" />
     <ClInclude Include="登录页面类.h" />
+    <ClInclude Include="网络通信类.h" />
     <ClInclude Include="转生页面类.h" />
   </ItemGroup>
   <ItemGroup>
@@ -213,6 +214,7 @@
     <ClCompile Include="注入页面类.cpp" />
     <ClCompile Include="注册页面类.cpp" />
     <ClCompile Include="登录页面类.cpp" />
+    <ClCompile Include="网络通信类.cpp" />
     <ClCompile Include="转生页面类.cpp" />
   </ItemGroup>
   <ItemGroup>
