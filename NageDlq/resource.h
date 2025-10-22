@@ -25,11 +25,17 @@
 #define IDC_BUTTON_LOGIN                1008
 #define IDC_BUTTON_START                1009
 #define IDC_CHECK_1280                  1010
-#define IDC_BUTTON1                     1012
+#define IDC_BUTTON_REGISTER             1012
 #define IDC_EDIT1                       1013
+#define IDC_EDIT_USERNAME_REG           1013
 #define IDC_EDIT2                       1014
+#define EDIT_CONFIRM_PASSWOR_REG        1014
 #define IDC_EDIT3                       1015
+#define IDC_EDIT_CONFIRM_PASSWORD       1015
 #define IDC_EDIT4                       1016
+#define IDC_EDIT_EMAIL                  1016
+#define IDC_BUTTON_REGISTER_DLG         1017
+#define IDC_EDIT_PASSWORD_REG           1018
 
 // Next default values for new objects
 // 
@@ -37,7 +43,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        150
 #define _APS_NEXT_COMMAND_VALUE         32771
-#define _APS_NEXT_CONTROL_VALUE         1014
+#define _APS_NEXT_CONTROL_VALUE         1019
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

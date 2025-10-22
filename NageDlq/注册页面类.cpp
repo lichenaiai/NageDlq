@@ -5,6 +5,7 @@
 #include "afxdialogex.h"
 #include "NageDlqDlg.h"
 
+
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
@@ -13,7 +14,7 @@
 IMPLEMENT_DYNAMIC(注册页面类, CDialogEx)
 
 注册页面类::注册页面类(CWnd* pParent /*=nullptr*/)
-    : CDialogEx(IDD_REGISTER_DIALOG, pParent)
+    : CDialogEx(IDD_PAGE_REGISTER, pParent)
     , 主对话框指针(nullptr)
 {
     // 获取主对话框指针
@@ -27,17 +28,15 @@ IMPLEMENT_DYNAMIC(注册页面类, CDialogEx)
 void 注册页面类::DoDataExchange(CDataExchange* pDX)
 {
     CDialogEx::DoDataExchange(pDX);
-    DDX_Control(pDX, IDC_EDIT_USERNAME, 账号编辑框);
-    DDX_Control(pDX, IDC_EDIT_PASSWORD, 密码编辑框);
-    DDX_Control(pDX, IDC_EDIT_CONFIRM_PASSWORD, 确认密码编辑框);
+    DDX_Control(pDX, IDC_EDIT_USERNAME_REG, 账号编辑框);
+    DDX_Control(pDX, IDC_EDIT_PASSWORD_REG, 密码编辑框);
+    DDX_Control(pDX, IDC_EDIT_CONFIRM_PASSWORD_REG, 确认密码编辑框);
     DDX_Control(pDX, IDC_EDIT_EMAIL, 邮箱编辑框);
-    DDX_Control(pDX, IDC_BUTTON_REGISTER, 注册按钮);
-    DDX_Control(pDX, IDC_BUTTON_CANCEL, 取消按钮);
+    DDX_Control(pDX, IDC_BUTTON_REGISTER_REG, 注册按钮);
 }
 
 BEGIN_MESSAGE_MAP(注册页面类, CDialogEx)
     ON_BN_CLICKED(IDC_BUTTON_REGISTER, &注册页面类::OnBnClickedButtonRegister)
-    ON_BN_CLICKED(IDC_BUTTON_CANCEL, &注册页面类::OnBnClickedButtonCancel)
 END_MESSAGE_MAP()
 
 BOOL 注册页面类::OnInitDialog()

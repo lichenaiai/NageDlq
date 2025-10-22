@@ -2,6 +2,7 @@
 #include "pch.h"
 #include "afxdialogex.h"
 #include "NageDlqDlg.h"  // 包含主对话框头文件
+#include "resource.h"
 
 // 注册页面类
 class 注册页面类 : public CDialogEx
@@ -13,7 +14,7 @@ public:
     virtual ~注册页面类();
 
     // 对话框数据
-    enum { IDD = IDD_REGISTER_DIALOG };
+    enum { IDD = IDD_PAGE_REGISTER };
 
 protected:
     virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV 支持
@@ -28,7 +29,6 @@ public:
     CEdit 确认密码编辑框;
     CEdit 邮箱编辑框;
     CButton 注册按钮;
-    CButton 取消按钮;
 
     // 最后注册时间记录
     CTime 最后注册时间;
@@ -38,7 +38,6 @@ public:
 
     // 消息处理函数
     afx_msg void OnBnClickedButtonRegister();   // 注册按钮点击
-    afx_msg void OnBnClickedButtonCancel();     // 取消按钮点击
 
     // 验证函数
     BOOL 验证输入();

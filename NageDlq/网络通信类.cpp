@@ -64,11 +64,8 @@ BOOL 网络通信类::发送数据(const CString& 数据)
     // 添加换行符作为结束标记
     CString 发送数据 = 数据 + _T("\n");
 
-    // 转换为多字节格式发送
-    int 长度 = 发送数据.GetLength() * sizeof(TCHAR);
-
     // 发送数据
-    int 发送结果 = Send((LPCTSTR)发送数据, 长度);
+    int 发送结果 = Send((LPCTSTR)发送数据, 发送数据.GetLength() * sizeof(TCHAR));
 
     if (发送结果 == SOCKET_ERROR)
     {
@@ -95,11 +92,11 @@ void 网络通信类::关闭连接()
 // 检查连接状态
 BOOL 网络通信类::是否已连接() const
 {
-    return 连接状态;
+    return 连接状态 && (m_hSocket != INVALID_SOCKET);
 }
 
 // 设置消息回调函数
-void 网络通信类::设置消息回调函数(void (CWnd::* 回调函数)(const CString&), CWnd* 窗口指针)
+void 网络通信类::设置消息回调函数(void (CWnd::* 回调函数)(CString), CWnd* 窗口指针)
 {
     消息回调函数 = 回调函数;
     回调窗口指针 = 窗口指针;
@@ -125,7 +122,7 @@ void 网络通信类::OnConnect(int 错误代码)
 
         if (回调窗口指针 && 消息回调函数)
         {
-            (回调窗口指针->*消息回调函数)(_T("CONNECT_FAILED"));
+            (回调窗口指针->*消息回调函数)(CString(_T("CONNECT_FAILED")));
         }
     }
 
@@ -210,7 +207,7 @@ void 网络通信类::OnClose(int 错误代码)
 
     if (回调窗口指针 && 消息回调函数)
     {
-        (回调窗口指针->*消息回调函数)(_T("CONNECTION_CLOSED"));
+        (回调窗口指针->*消息回调函数)(CString(_T("CONNECTION_CLOSED")));
     }
 
     CAsyncSocket::OnClose(错误代码);

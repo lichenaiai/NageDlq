@@ -1,4 +1,7 @@
-﻿#include "登录页面类.h"
+﻿#pragma once
+#include "pch.h"
+#include "afxdialogex.h"
+#include "登录页面类.h"
 #include "注册页面类.h"
 #include "转生页面类.h"
 #include "加点页面类.h"
@@ -6,16 +9,16 @@
 #include "注入页面类.h"
 #include "网络通信类.h"
 
-class CNageDlqDlg : public CDialogEx
+
+// NageDlqDlg 对话框
+class NageDlqDlg : public CDialogEx
 {
     // 构造
 public:
-    CNageDlqDlg(CWnd* pParent = nullptr);	// 标准构造函数
+    NageDlqDlg(CWnd* pParent = nullptr);	// 标准构造函数
 
     // 对话框数据
-#ifdef AFX_DESIGN_TIME
-    enum { IDD = IDD_NAGEDLQDLG_DIALOG };
-#endif
+    enum { IDD = IDD_PAGE_REGISTER };
 
 protected:
     virtual void DoDataExchange(CDataExchange* pDX);	// DDX/DDV 支持
@@ -26,11 +29,15 @@ protected:
 
     // 生成的消息映射函数
     virtual BOOL OnInitDialog();
+    afx_msg void OnSysCommand(UINT nID, LPARAM lParam);
     afx_msg void OnPaint();
     afx_msg HCURSOR OnQueryDragIcon();
     DECLARE_MESSAGE_MAP()
 
 public:
+    // 控件变量
+    CListCtrl 信息显示列表;
+
     CTabCtrl 分页控件;  // 分页控件变量
 
     // 网络通信相关
@@ -41,8 +48,11 @@ public:
 
     //注册功能
     void 显示注册页面();
-    BOOL 发送请求到服务端(const CString& 请求数据);
     void 处理注册响应(const CString& 响应数据);
+
+    // 添加信息显示
+    void 添加信息显示(const CString& 信息);
+
 private:
     // 各个页面对象
     登录页面类 登录页面;

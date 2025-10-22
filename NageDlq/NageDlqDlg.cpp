@@ -1,12 +1,10 @@
-﻿
-// NageDlqDlg.cpp: 实现文件
-//
-
-#include "pch.h"
+﻿#include "pch.h"
 #include "framework.h"
 #include "NageDlq.h"
 #include "NageDlqDlg.h"
 #include "afxdialogex.h"
+#include "注册页面类.h"
+#include "网络通信类.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -14,42 +12,37 @@
 
 // CNageDlqDlg 对话框
 
-CNageDlqDlg::CNageDlqDlg(CWnd* pParent /*=nullptr*/)
+NageDlqDlg::NageDlqDlg(CWnd* pParent /*=nullptr*/)
 	: CDialogEx(IDD_NAGEDLQ_DIALOG, pParent)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
 
-void CNageDlqDlg::DoDataExchange(CDataExchange* pDX)
+void NageDlqDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_TAB_MAIN, 分页控件);
 }
 
 //消息映射
-BEGIN_MESSAGE_MAP(CNageDlqDlg, CDialogEx)
+BEGIN_MESSAGE_MAP(NageDlqDlg, CDialogEx)
+	ON_WM_SYSCOMMAND()
 	ON_WM_PAINT()
 	ON_WM_QUERYDRAGICON()
-	ON_NOTIFY(TCN_SELCHANGE, IDC_TAB_MAIN, &CNageDlqDlg::OnTcnSelchangeTabMain)
 END_MESSAGE_MAP()
 
 
 // CNageDlqDlg 消息处理程序
 // 初始化函数
-BOOL CNageDlqDlg::OnInitDialog()
+BOOL NageDlqDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
 
-	// 将“关于...”菜单项添加到系统菜单中。
-
 	// 设置窗口大小 850x600
 	MoveWindow(0, 0, 862, 622);
-	// 或者使用 SetWindowPos
-	//SetWindowPos(NULL, 0, 0, 850, 600, SWP_NOMOVE | SWP_NOZORDER);
 
 	初始化分页控件();
-	// 设置此对话框的图标。  当应用程序主窗口不是对话框时，框架将自动
-	//  执行此操作
+
 	SetIcon(m_hIcon, TRUE);			// 设置大图标
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
 
@@ -62,7 +55,7 @@ BOOL CNageDlqDlg::OnInitDialog()
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
 
-void CNageDlqDlg::初始化分页控件()
+void NageDlqDlg::初始化分页控件()
 {
 	// 添加分页标签
 	分页控件.InsertItem(0, _T("登录"));
@@ -100,7 +93,7 @@ void CNageDlqDlg::初始化分页控件()
 	分页控件.SetCurSel(0);
 }
 
-void CNageDlqDlg::OnTcnSelchangeTabMain(NMHDR* pNMHDR, LRESULT* pResult)
+void NageDlqDlg::OnTcnSelchangeTabMain(NMHDR* pNMHDR, LRESULT* pResult)
 {
 	// 隐藏所有页面
 	登录页面.ShowWindow(SW_HIDE);
@@ -125,12 +118,7 @@ void CNageDlqDlg::OnTcnSelchangeTabMain(NMHDR* pNMHDR, LRESULT* pResult)
 	*pResult = 0;
 }
 
-
-// 如果向对话框添加最小化按钮，则需要下面的代码
-//  来绘制该图标。  对于使用文档/视图模型的 MFC 应用程序，
-//  这将由框架自动完成。
-
-void CNageDlqDlg::OnPaint()
+void NageDlqDlg::OnPaint()
 {
 	if (IsIconic())
 	{
@@ -155,9 +143,8 @@ void CNageDlqDlg::OnPaint()
 	}
 }
 
-//当用户拖动最小化窗口时系统调用此函数取得光标
-//显示。
-HCURSOR CNageDlqDlg::OnQueryDragIcon()
+//当用户拖动最小化窗口时系统调用此函数取得光标显示。
+HCURSOR NageDlqDlg::OnQueryDragIcon()
 {
 	return static_cast<HCURSOR>(m_hIcon);
 }
@@ -177,7 +164,7 @@ BOOL NageDlqDlg::初始化网络通信()
 
 	// 连接到服务端（这里使用默认地址和端口）
 	CString 服务端地址 = _T("127.0.0.1");  // 默认本地地址
-	UINT 服务端端口 = 8888;                 // 默认端口
+	UINT 服务端端口 = 9896;                 // 默认端口
 
 	if (!网络通信.连接服务端(服务端地址, 服务端端口))
 	{
@@ -251,7 +238,7 @@ void NageDlqDlg::显示注册页面()
 		注册页面指针 = new 注册页面类(this);
 	}
 
-	if (注册页面指针->Create(IDD_REGISTER_DIALOG, this))
+	if (注册页面指针->Create(IDD_PAGE_REGISTER, this))
 	{
 		注册页面指针->ShowWindow(SW_SHOW);
 	}
