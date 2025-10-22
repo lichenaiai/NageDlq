@@ -3,13 +3,13 @@
 #include "NageDlq.h"
 #include "登录页面类.h"
 #include "afxdialogex.h"
+#include "NageDlqDlg.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
 // 登录页面类 对话框
-
 IMPLEMENT_DYNAMIC(登录页面类, CDialogEx)
 
 登录页面类::登录页面类(CWnd* pParent /*=nullptr*/)
@@ -23,44 +23,34 @@ IMPLEMENT_DYNAMIC(登录页面类, CDialogEx)
 {
 }
 
-void 登录页面类::DoDataExchange(CDataExchange* pDX)	//：：数据交换
+// 数据交换
+void 登录页面类::DoDataExchange(CDataExchange* pDX)	
 {
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_EDIT_USERNAME, 用户名编辑框);
 	DDX_Control(pDX, IDC_EDIT_PASSWORD, 密码编辑框);
 	DDX_Control(pDX, IDC_BUTTON_LOGIN, 登录按钮);
-	DDX_Control(pDX, IDC_CHECK_1280, 窗口1280);
+	DDX_Control(pDX, IDC_CHECK_1280, 窗口1280复选框);
 	DDX_Control(pDX, IDC_BUTTON_START, 启动按钮);
 	DDX_Control(pDX, IDC_STATIC_BG, 背景图片);
 }
 
+// 登录页面类 消息处理程序
 BEGIN_MESSAGE_MAP(登录页面类, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_LOGIN, &登录页面类::OnBnClickedButtonLogin)	//::点击登录按钮
 	ON_BN_CLICKED(IDC_BUTTON_START, &登录页面类::OnBnClickedButtonStart)	//::点击启动按钮
 END_MESSAGE_MAP()
 
-// 登录页面类 消息处理程序
-
-BOOL 登录页面类::OnInitDialog()		//::初始化对话框
+// 初始化对话框
+BOOL 登录页面类::OnInitDialog()		
 {
 	CDialogEx::OnInitDialog();
-
-	//// 设置控件字体
-	//CFont* 字体 = GetFont();
-	//if (字体 != nullptr)
-	//{
-	//	用户名编辑框.SetFont(字体);
-	//	密码编辑框.SetFont(字体);
-	//	登录按钮.SetFont(字体);
-	//	窗口1280.SetFont(字体);
-	//	启动按钮.SetFont(字体);
-	//}
 
 	// 设置密码编辑框为密码模式
 	密码编辑框.SetPasswordChar('*');
 
 	// 默认选中窗口1280复选框
-	窗口1280.SetCheck(BST_CHECKED);
+	窗口1280复选框.SetCheck(BST_CHECKED);
 	窗口1280选中状态 = true;
 
 	// 加载背景图片
@@ -76,7 +66,8 @@ BOOL 登录页面类::OnInitDialog()		//::初始化对话框
 	return TRUE;
 }
 
-void 登录页面类::OnBnClickedButtonLogin()		//::点击登录按钮
+// 点击登录按钮
+void 登录页面类::OnBnClickedButtonLogin()		
 {
 	// 获取用户名和密码
 	CString 用户名;
@@ -91,18 +82,31 @@ void 登录页面类::OnBnClickedButtonLogin()		//::点击登录按钮
 		return;
 	}
 
-	// TODO: 这里添加实际的登录验证逻辑
-	// 用于转生、加点、排行榜等功能权限验证
+	// 构建登录请求
+	CString 登录请求;
+	登录请求.Format(_T("LOGIN:%s:%s"), 用户名, 密码);
 
-	// 模拟登录成功
-	MessageBox(_T("登录成功，功能权限已激活"), _T("提示"), MB_ICONINFORMATION);
-	已登录 = true;
-}		
+	/// 通过主对话框发送请求
+	CWnd* 主窗口 = AfxGetMainWnd();
+	if (主窗口)
+	{
+		NageDlqDlg* 主对话框 = dynamic_cast<NageDlqDlg*>(主窗口);
+		if (主对话框 && 主对话框->发送请求到服务端(登录请求))
+		{
+			MessageBox(_T("登录请求已发送，请等待验证"), _T("提示"), MB_ICONINFORMATION);
+		}
+		else
+		{
+			MessageBox(_T("发送登录请求失败"), _T("错误"), MB_ICONERROR);
+		}
+	}
+}
 
-void 登录页面类::OnBnClickedButtonStart()		//::点击启动按钮
+// 点击启动按钮
+void 登录页面类::OnBnClickedButtonStart()		
 {
 	// 更新成员变量状态
-	窗口1280选中状态 = (窗口1280.GetCheck() == BST_CHECKED);
+	窗口1280选中状态 = (窗口1280复选框.GetCheck() == BST_CHECKED);
 
 	if (!窗口1280选中状态)
 	{
@@ -116,6 +120,22 @@ void 登录页面类::OnBnClickedButtonStart()		//::点击启动按钮
 
 	// 启动游戏
 	启动游戏进程();
+}
+
+// 处理登录响应
+void 登录页面类::处理登录响应(const CString& 响应数据)
+{
+	if (响应数据.Find(_T("LOGIN_SUCCESS")) == 0)
+	{
+		MessageBox(_T("登录成功，功能权限已激活"), _T("提示"), MB_ICONINFORMATION);
+		已登录 = true;
+	}
+	else if (响应数据.Find(_T("LOGIN_FAILED")) == 0)
+	{
+		CString 错误信息 = 响应数据.Mid(12); // 去掉"LOGIN_FAILED:"
+		MessageBox(错误信息, _T("登录失败"), MB_ICONERROR);
+		已登录 = false;
+	}
 }
 
 // 注入IP修改代码

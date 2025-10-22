@@ -5,7 +5,6 @@
 #include "afxdialogex.h"
 #include "NageDlqDlg.h"
 
-
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
@@ -15,10 +14,7 @@ IMPLEMENT_DYNAMIC(注册页面类, CDialogEx)
 
 注册页面类::注册页面类(CWnd* pParent /*=nullptr*/)
     : CDialogEx(IDD_PAGE_REGISTER, pParent)
-    , 主对话框指针(nullptr)
 {
-    // 获取主对话框指针
-    主对话框指针 = dynamic_cast<NageDlqDlg*>(AfxGetApp()->GetMainWnd());
 }
 
 注册页面类::~注册页面类()
@@ -28,15 +24,17 @@ IMPLEMENT_DYNAMIC(注册页面类, CDialogEx)
 void 注册页面类::DoDataExchange(CDataExchange* pDX)
 {
     CDialogEx::DoDataExchange(pDX);
-    DDX_Control(pDX, IDC_EDIT_USERNAME_REG, 账号编辑框);
-    DDX_Control(pDX, IDC_EDIT_PASSWORD_REG, 密码编辑框);
-    DDX_Control(pDX, IDC_EDIT_CONFIRM_PASSWORD_REG, 确认密码编辑框);
+    DDX_Control(pDX, IDC_EDIT_REG_USERNAME, 账号编辑框);
+    DDX_Control(pDX, IDC_EDIT_REG_PASSWORD, 密码编辑框);
+    DDX_Control(pDX, IDC_EDIT_CONFIRM_PASSWORD, 确认密码编辑框);
     DDX_Control(pDX, IDC_EDIT_EMAIL, 邮箱编辑框);
-    DDX_Control(pDX, IDC_BUTTON_REGISTER_REG, 注册按钮);
+    DDX_Control(pDX, IDC_BUTTON_REG_CONFIRM, 注册按钮);
+    DDX_Control(pDX, IDC_BUTTON_REG_CANCEL, 取消按钮);
 }
 
 BEGIN_MESSAGE_MAP(注册页面类, CDialogEx)
-    ON_BN_CLICKED(IDC_BUTTON_REGISTER, &注册页面类::OnBnClickedButtonRegister)
+    ON_BN_CLICKED(IDC_BUTTON_REG_CONFIRM, &注册页面类::OnBnClickedButtonRegConfirm)
+    ON_BN_CLICKED(IDC_BUTTON_REG_CANCEL, &注册页面类::OnBnClickedButtonRegCancel)
 END_MESSAGE_MAP()
 
 BOOL 注册页面类::OnInitDialog()
@@ -60,7 +58,7 @@ BOOL 注册页面类::OnInitDialog()
 }
 
 // 注册按钮点击事件
-void 注册页面类::OnBnClickedButtonRegister()
+void 注册页面类::OnBnClickedButtonRegConfirm()
 {
     CString 账号, 密码, 确认密码, 邮箱;
 
@@ -86,13 +84,15 @@ void 注册页面类::OnBnClickedButtonRegister()
         return;
 
     // 发送注册请求
-    发送注册请求(账号, 密码, 邮箱);
+    发送注册请求();
 }
 
 // 取消按钮点击事件
-void 注册页面类::OnBnClickedButtonCancel()
+void 注册页面类::OnBnClickedButtonRegCancel()
 {
-    CDialogEx::OnCancel();  // 关闭对话框
+    // 清空输入框并关闭对话框
+    清空输入框();
+    GetParent()->SendMessage(WM_COMMAND, IDCANCEL);
 }
 
 // 验证输入内容
@@ -228,7 +228,7 @@ BOOL 注册页面类::检查注册时间限制()
     if (时间差.GetTotalMinutes() < 1)  // 1分钟内只能注册一次
     {
         CString 提示信息;
-        提示信息.Format(_T("1分钟内只能注册一次，请等待 %d 秒"), 60 - 时间差.GetTotalSeconds());
+        提示信息.Format(_T("1分钟内只能注册一次，请等待 %d 秒"), 60 - (int)时间差.GetTotalSeconds());
         MessageBox(提示信息, _T("提示"), MB_ICONINFORMATION);
         return FALSE;
     }
@@ -238,20 +238,20 @@ BOOL 注册页面类::检查注册时间限制()
 }
 
 // 发送注册请求到服务端
-void 注册页面类::发送注册请求(const CString& 账号, const CString& 密码, const CString& 邮箱)
+void 注册页面类::发送注册请求()
 {
-    if (!主对话框指针)
-    {
-        MessageBox(_T("无法连接到主程序"), _T("错误"), MB_ICONERROR);
-        return;
-    }
+    CString 账号, 密码, 邮箱;
+    账号编辑框.GetWindowText(账号);
+    密码编辑框.GetWindowText(密码);
+    邮箱编辑框.GetWindowText(邮箱);
 
     // 构建注册请求字符串
     CString 注册请求;
     注册请求.Format(_T("REGISTER:%s:%s:%s"), 账号, 密码, 邮箱);
 
-    // 通过主对话框发送请求
-    if (主对话框指针->发送请求到服务端(注册请求))
+    // 获取主对话框并发送请求
+    NageDlqDlg* 主对话框 = dynamic_cast<NageDlqDlg*>(AfxGetMainWnd());
+    if (主对话框 && 主对话框->发送请求到服务端(注册请求))
     {
         MessageBox(_T("注册请求已发送，请等待结果"), _T("提示"), MB_ICONINFORMATION);
     }
@@ -259,4 +259,14 @@ void 注册页面类::发送注册请求(const CString& 账号, const CString& �
     {
         MessageBox(_T("发送注册请求失败，请检查网络连接"), _T("错误"), MB_ICONERROR);
     }
+}
+
+// 清空输入框
+void 注册页面类::清空输入框()
+{
+    账号编辑框.SetWindowText(_T(""));
+    密码编辑框.SetWindowText(_T(""));
+    确认密码编辑框.SetWindowText(_T(""));
+    邮箱编辑框.SetWindowText(_T(""));
+    账号编辑框.SetFocus();
 }

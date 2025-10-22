@@ -30,11 +30,14 @@ public:
 	afx_msg void OnBnClickedButtonLogin();		//点击登录按钮
 	afx_msg void OnBnClickedButtonStart();		//点击启动按钮
 
+	// 处理登录响应
+	void 处理登录响应(const CString& 响应数据);
+
 public:
 	CEdit 用户名编辑框;
 	CEdit 密码编辑框;
 	CButton 登录按钮;
-	CButton 窗口1280;
+	CButton 窗口1280复选框;
 	CButton 启动按钮;
 	CStatic 背景图片;
 

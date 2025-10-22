@@ -3,6 +3,8 @@
 #include "pch.h"
 #include <afxsock.h>  // MFC socket 支持
 
+typedef void (CWnd::* 消息回调函数类型)(CString);
+
 // 网络通信类 - 负责客户端与服务端的通信
 class 网络通信类 : public CAsyncSocket
 {
@@ -25,13 +27,13 @@ public:
     BOOL 是否已连接() const;
 
     // 设置回调函数指针
-    void 设置消息回调函数(void (CWnd::* 回调函数)(CString), CWnd* 窗口指针);
+    void 设置消息回调函数(消息回调函数类型 回调函数, CWnd* 窗口指针);
 
     // Socket事件重写
-    virtual void OnConnect(int nErrorCode);
-    virtual void OnReceive(int nErrorCode);
-    virtual void OnClose(int nErrorCode);
-    virtual void OnSend(int nErrorCode);
+    virtual void OnConnect(int 错误代码);
+    virtual void OnReceive(int 错误代码);
+    virtual void OnClose(int 错误代码);
+    virtual void OnSend(int 错误代码);
 
 private:
     // 服务端地址和端口
@@ -45,7 +47,7 @@ private:
     CString 接收缓冲区;
 
     // 消息回调函数
-    void (CWnd::* 消息回调函数)(CString);
+    消息回调函数类型 消息回调函数;
     CWnd* 回调窗口指针;
 
     // 解析接收到的数据

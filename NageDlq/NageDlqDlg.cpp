@@ -5,12 +5,14 @@
 #include "afxdialogex.h"
 #include "注册页面类.h"
 #include "网络通信类.h"
+#include "登录页面类.h"
+
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
-// CNageDlqDlg 对话框
+// NageDlqDlg 对话框
 
 NageDlqDlg::NageDlqDlg(CWnd* pParent /*=nullptr*/)
 	: CDialogEx(IDD_NAGEDLQ_DIALOG, pParent)
@@ -24,20 +26,19 @@ void NageDlqDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_TAB_MAIN, 分页控件);
 }
 
-//消息映射
+// 消息映射
 BEGIN_MESSAGE_MAP(NageDlqDlg, CDialogEx)
-	ON_WM_SYSCOMMAND()
+	//ON_WM_SYSCOMMAND()
 	ON_WM_PAINT()
 	ON_WM_QUERYDRAGICON()
+	//ON_NOTIFY(TCN_SELCHANGE, IDC_TAB_MAIN, &NageDlqDlg::OnTcnSelchangeTabMain)
 END_MESSAGE_MAP()
 
-
-// CNageDlqDlg 消息处理程序
 // 初始化函数
 BOOL NageDlqDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
-
+	
 	// 设置窗口大小 850x600
 	MoveWindow(0, 0, 862, 622);
 
@@ -143,7 +144,7 @@ void NageDlqDlg::OnPaint()
 	}
 }
 
-//当用户拖动最小化窗口时系统调用此函数取得光标显示。
+// 当用户拖动最小化窗口时系统调用此函数取得光标显示。
 HCURSOR NageDlqDlg::OnQueryDragIcon()
 {
 	return static_cast<HCURSOR>(m_hIcon);
@@ -160,7 +161,7 @@ BOOL NageDlqDlg::初始化网络通信()
 	}
 
 	// 设置消息回调
-	网络通信.设置消息回调函数(&NageDlqDlg::处理网络消息, this);
+	网络通信.设置消息回调函数(static_cast<void (CWnd::*)(CString)>(&NageDlqDlg::处理网络消息), this);
 
 	// 连接到服务端（这里使用默认地址和端口）
 	CString 服务端地址 = _T("127.0.0.1");  // 默认本地地址
@@ -176,7 +177,7 @@ BOOL NageDlqDlg::初始化网络通信()
 }
 
 // 处理网络消息
-void NageDlqDlg::处理网络消息(const CString& 消息)
+void NageDlqDlg::处理网络消息(CString 消息)
 {
 	if (消息 == _T("CONNECT_SUCCESS"))
 	{
@@ -222,25 +223,17 @@ void NageDlqDlg::处理服务端响应(const CString& 响应数据)
 	else if (响应数据.Find(_T("LOGIN_")) == 0)
 	{
 		// 处理登录响应
+		登录页面.处理登录响应(响应数据);
 	}
 	else if (响应数据.Find(_T("CONNECT_")) == 0)
 	{
 		// 处理连接响应
+		添加信息显示(响应数据);
 	}
 	// 其他响应类型...
-}
-
-// 显示注册页面
-void NageDlqDlg::显示注册页面()
-{
-	if (!注册页面指针)
+	else
 	{
-		注册页面指针 = new 注册页面类(this);
-	}
-
-	if (注册页面指针->Create(IDD_PAGE_REGISTER, this))
-	{
-		注册页面指针->ShowWindow(SW_SHOW);
+		添加信息显示(CString(_T("收到未知响应: ")) + 响应数据);
 	}
 }
 
@@ -250,18 +243,19 @@ void NageDlqDlg::处理注册响应(const CString& 响应数据)
 	if (响应数据.Find(_T("REGISTER_SUCCESS")) == 0)
 	{
 		MessageBox(_T("注册成功"), _T("成功"), MB_ICONINFORMATION);
-
-		// 关闭注册页面
-		if (注册页面指针)
-		{
-			注册页面指针->DestroyWindow();
-			delete 注册页面指针;
-			注册页面指针 = nullptr;
-		}
+		// 可以在这里清空注册页面的输入框
+		注册页面.清空输入框();
 	}
 	else if (响应数据.Find(_T("REGISTER_FAILED")) == 0)
 	{
 		CString 错误信息 = 响应数据.Mid(16); // 去掉"REGISTER_FAILED:"
 		MessageBox(错误信息, _T("注册失败"), MB_ICONERROR);
 	}
+}
+
+// 添加信息显示
+void NageDlqDlg::添加信息显示(const CString& 信息)
+{
+	// 这里可以添加信息到日志或状态栏
+	TRACE(_T("信息: %s\n"), 信息);
 }
