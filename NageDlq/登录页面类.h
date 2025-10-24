@@ -57,4 +57,7 @@ private:
 	void 等待并安装窗口大小钩子(const wchar_t* 监控进程名);
 	void 等待并安装IP钩子(const wchar_t* 监控进程名);
 	void 等待并安装UI钩子(const wchar_t* 监控进程名);
+public:
+	// 登录页面显示密钥权限状态
+	CStatic 权限状态;
 };

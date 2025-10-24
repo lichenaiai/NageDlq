@@ -29,14 +29,12 @@ public:
     CEdit 确认密码编辑框;
     CEdit 邮箱编辑框;
     CButton 注册按钮;
-    CButton 取消按钮;
 
     // 最后注册时间记录
     CTime 最后注册时间;
 
     // 消息处理函数
     afx_msg void OnBnClickedButtonRegConfirm();   // 注册按钮点击
-    afx_msg void OnBnClickedButtonRegCancel();     // 取消按钮点击
 
     // 验证函数
     BOOL 验证输入();

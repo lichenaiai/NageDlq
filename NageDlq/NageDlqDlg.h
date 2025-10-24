@@ -12,9 +12,12 @@
 // NageDlqDlg 对话框
 class NageDlqDlg : public CDialogEx
 {
+    DECLARE_DYNAMIC(NageDlqDlg)
+
     // 构造
 public:
     NageDlqDlg(CWnd* pParent = nullptr);	// 标准构造函数
+    virtual ~NageDlqDlg();
 
     // 对话框数据
 #ifdef AFX_DESIGN_TIME
@@ -35,8 +38,7 @@ protected:
     afx_msg HCURSOR OnQueryDragIcon();
     DECLARE_MESSAGE_MAP()
 public:
-    // 控件变量
-    CListCtrl 信息显示列表;
+    // 分页控件变量
     CTabCtrl 分页控件;  // 分页控件变量
 
     // 网络通信相关
@@ -66,6 +68,6 @@ private:
     网络通信类 网络通信;          // 网络通信对象
 
     // 页面初始化函数
-    void 初始化分页控件();
+    BOOL 初始化分页控件();
     afx_msg void OnTcnSelchangeTabMain(NMHDR* pNMHDR, LRESULT* pResult);
 };

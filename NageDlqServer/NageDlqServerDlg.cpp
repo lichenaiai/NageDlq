@@ -242,6 +242,10 @@ UINT NageDlqServerDlg::服务器线程函数(LPVOID pParam)
 		return 1;
 	}
 
+	// 设置socket为非阻塞模式
+	u_long 非阻塞模式 = 1;
+	ioctlsocket(对话框指针->监听套接字, FIONBIO, &非阻塞模式);
+
 	// 绑定地址
 	sockaddr_in 服务器地址;
 	服务器地址.sin_family = AF_INET;
@@ -264,6 +268,8 @@ UINT NageDlqServerDlg::服务器线程函数(LPVOID pParam)
 	}
 
 	对话框指针->添加信息显示(_T("开始监听端口 9896"));
+
+
 
 	// 接受客户端连接
 	while (对话框指针->服务器运行状态)
@@ -291,6 +297,7 @@ UINT NageDlqServerDlg::服务器线程函数(LPVOID pParam)
 		}
 		else
 		{
+			// 非阻塞模式下，如果没有连接会立即返回，需要适当延迟
 			Sleep(100);
 		}
 	}
@@ -310,6 +317,15 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 	if (客户端请求.IsEmpty())
 	{
 		CString 客户端IP;
+		EnterCriticalSection(&对话框指针->客户端列表锁);
+		auto it = 对话框指针->客户端连接列表.find(客户端套接字);
+		if (it != 对话框指针->客户端连接列表.end())
+		{
+			客户端IP = it->second;
+		}
+		LeaveCriticalSection(&对话框指针->客户端列表锁);
+
+		对话框指针->添加信息显示(客户端IP + _T(" 接收数据为空或出错"));
 		对话框指针->移除客户端连接(客户端套接字);
 		closesocket(客户端套接字);
 		return 1;
@@ -327,11 +343,13 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 
 	if (!客户端IP.IsEmpty())
 	{
-		对话框指针->添加信息显示(客户端IP + _T(" 请求: ") + 客户端请求);
+		CString 完整请求信息;
+		完整请求信息.Format(_T(" 请求: [%s], 长度: %d"), 客户端请求, 客户端请求.GetLength());
+		对话框指针->添加信息显示(客户端IP + 完整请求信息);
 	}
 
 	// 解析请求
-	if (客户端请求.Find(_T("LOGIN:")) == 0)
+	if (客户端请求.Find(_T("CONNECT:")) == 0)
 	{
 		// 处理连接验证请求 - 格式: CONNECT:客户端版本号:客户端IP
 		CString 连接数据 = 客户端请求.Mid(8); // 去掉"CONNECT:"
@@ -349,7 +367,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			CString 响应数据;
 			if (!客户端密钥.IsEmpty())
 			{
-				响应数据.Format(_T("SUCCESS:%s:%s"), 客户端密钥, 最新版本号);
+				响应数据.Format(_T("CONNECT_SUCCESS:%s:%s"), 客户端密钥, 最新版本号);
 				对话框指针->添加信息显示(客户端IP + _T(" 连接验证成功，版本: ") + 客户端版本号);
 			}
 			else
@@ -370,6 +388,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 	{
 		// 处理真正的登录请求 - 格式: LOGIN:username:password
 		CString 登录数据 = 客户端请求.Mid(6);
+		/*
 		int 分隔符位置 = 登录数据.Find(':');
 
 		if (分隔符位置 != -1)
@@ -390,6 +409,40 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				对话框指针->发送到客户端(客户端套接字, _T("LOGIN_FAILED:用户名或密码错误"));
 				对话框指针->添加信息显示(客户端IP + _T(" 登录失败 - 用户名: ") + 用户名);
 			}
+		*/
+		CStringArray 参数数组;
+		int 起始位置 = 0;
+		CString 参数 = 登录数据.Tokenize(_T(":"), 起始位置);
+
+		while (!参数.IsEmpty())
+		{
+			参数数组.Add(参数);
+			参数 = 登录数据.Tokenize(_T(":"), 起始位置);
+		}
+
+		if (参数数组.GetSize() == 2)
+		{
+			CString 用户名 = 参数数组[0];
+			CString 密码 = 参数数组[1];
+
+			// 验证用户名和密码
+			BOOL 登录结果 = 对话框指针->验证用户登录(用户名, 密码);
+
+			if (登录结果)
+			{
+				对话框指针->发送到客户端(客户端套接字, _T("LOGIN_SUCCESS:登录成功"));
+				对话框指针->添加信息显示(客户端IP + _T(" 登录成功 - 用户名: ") + 用户名);
+			}
+			else
+			{
+				对话框指针->发送到客户端(客户端套接字, _T("LOGIN_FAILED:用户名或密码错误"));
+				对话框指针->添加信息显示(客户端IP + _T(" 登录失败 - 用户名: ") + 用户名);
+			}
+		}
+		else
+		{
+			对话框指针->发送到客户端(客户端套接字, _T("LOGIN_FAILED:无效的登录数据格式"));
+			对话框指针->添加信息显示(客户端IP + _T(" 登录数据格式错误"));
 		}
 	}
 	else if (客户端请求.Find(_T("REGISTER:")) == 0)
@@ -397,8 +450,9 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		// 处理注册请求 - 格式: REGISTER:username:password:email
 		CString 注册数据 = 客户端请求.Mid(9); // 去掉"REGISTER:"
 		CString 用户名, 密码, 邮箱;
-
+		
 		// 解析注册数据
+		/*
 		int 分隔符1 = 注册数据.Find(':');
 		int 分隔符2 = -1;
 
@@ -432,6 +486,46 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		{
 			对话框指针->发送到客户端(客户端套接字, _T("REGISTER_FAILED:无效的注册数据格式"));
 			对话框指针->添加信息显示(客户端IP + _T(" 注册数据格式错误"));
+		}
+		*/
+		// 使用更可靠的解析方法
+		CStringArray 参数数组;
+		int 起始位置 = 0;
+		CString 参数 = 注册数据.Tokenize(_T(":"), 起始位置);
+
+		while (!参数.IsEmpty())
+		{
+			参数数组.Add(参数);
+			参数 = 注册数据.Tokenize(_T(":"), 起始位置);
+		}
+
+		if (参数数组.GetSize() >= 3) // 至少需要用户名、密码、邮箱
+		{
+			CString 用户名 = 参数数组[0];
+			CString 密码 = 参数数组[1];
+			CString 邮箱 = 参数数组[2];
+
+			// 处理注册
+			BOOL 注册结果 = 对话框指针->处理用户注册(用户名, 密码, 邮箱);
+
+			if (注册结果)
+			{
+				对话框指针->发送到客户端(客户端套接字, _T("REGISTER_SUCCESS:注册成功"));
+				对话框指针->添加信息显示(客户端IP + _T(" 注册成功 - 用户名: ") + 用户名);
+			}
+			else
+			{
+				对话框指针->发送到客户端(客户端套接字, _T("REGISTER_FAILED:注册失败"));
+				对话框指针->添加信息显示(客户端IP + _T(" 注册失败 - 用户名: ") + 用户名);
+			}
+		}
+		else
+		{
+			对话框指针->发送到客户端(客户端套接字, _T("REGISTER_FAILED:无效的注册数据格式"));
+			//对话框指针->添加信息显示(客户端IP + _T(" 注册数据格式错误，参数数量: ") + CString(参数数组.GetSize()));
+			CString 参数数量信息;
+			参数数量信息.Format(_T("%d"), (int)参数数组.GetSize());
+			对话框指针->添加信息显示(客户端IP + _T(" 注册数据格式错误，参数数量: ") + 参数数量信息);
 		}
 	}
 	else if (客户端请求 == _T("GET_HOOKS"))
@@ -640,6 +734,8 @@ BOOL NageDlqServerDlg::停止服务器()
 BOOL NageDlqServerDlg::连接数据库()
 {
 	SQLRETURN retcode;
+	SQLWCHAR sqlState[6];
+	SQLWCHAR message[SQL_MAX_MESSAGE_LENGTH];
 
 	// 如果已经连接，先释放资源
 	if (SQL语句句柄) {
@@ -692,6 +788,16 @@ BOOL NageDlqServerDlg::连接数据库()
 	连接字符串.ReleaseBuffer();
 
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
+		// 错误处理代码应该在这里
+		SQLINTEGER nativeError;
+		SQLSMALLINT msgLen;
+		SQLGetDiagRecW(SQL_HANDLE_DBC, SQL连接句柄, 1, sqlState, &nativeError,
+			message, SQL_MAX_MESSAGE_LENGTH, &msgLen);
+
+		CString 错误信息;
+		错误信息.Format(_T("数据库连接失败: %s (错误代码: %s)"), CString(message), CString(sqlState));
+		添加信息显示(错误信息);
+
 		数据库连接状态 = FALSE;
 		return FALSE;
 	}
@@ -1030,19 +1136,75 @@ void NageDlqServerDlg::更新状态显示()
 // 发送到客户端
 BOOL NageDlqServerDlg::发送到客户端(SOCKET 客户端套接字, const CString& 数据)
 {
-	int 数据长度 = 数据.GetLength() * sizeof(TCHAR);
-	return send(客户端套接字, (const char*)数据.GetString(), 数据长度, 0) != SOCKET_ERROR;
+	// 转换为UTF-8
+	int 字节长度 = WideCharToMultiByte(CP_UTF8, 0, 数据, -1, NULL, 0, NULL, NULL);
+	if (字节长度 > 0)
+	{
+		char* 字节缓冲区 = new char[字节长度];
+		WideCharToMultiByte(CP_UTF8, 0, 数据, -1, 字节缓冲区, 字节长度, NULL, NULL);
+
+		int 发送结果 = send(客户端套接字, 字节缓冲区, 字节长度 - 1, 0);  // -1 去掉null终止符
+
+		delete[] 字节缓冲区;
+		return 发送结果 != SOCKET_ERROR;
+	}
+	return FALSE;
 }
 
 // 从客户端接收
 CString NageDlqServerDlg::从客户端接收(SOCKET 客户端套接字)
 {
+	/*
 	char 缓冲区[1024];
 	int 接收长度 = recv(客户端套接字, 缓冲区, sizeof(缓冲区) - 1, 0);
 	if (接收长度 > 0)
 	{
 		缓冲区[接收长度] = '\0';
 		return CString(缓冲区);
+		
+		// 添加调试信息
+		CString 调试信息;
+		调试信息.Format(_T("接收到数据长度: %d, 内容: %s"), 接收长度, 结果);
+		添加信息显示(调试信息);
+		return 结果;
+	}
+	else if (接收长度 == 0)
+	{
+		添加信息显示(_T("客户端正常断开连接"));
+	}
+	else
+	{
+		添加信息显示(_T("接收数据错误"));
+	}
+	return _T("");
+	*/
+	char 缓冲区[4096];  // 增大缓冲区
+	memset(缓冲区, 0, sizeof(缓冲区));
+
+	int 接收长度 = recv(客户端套接字, 缓冲区, sizeof(缓冲区) - 1, 0);
+	if (接收长度 > 0)
+	{
+		缓冲区[接收长度] = '\0';
+
+		// 调试信息
+		TRACE(_T("接收到的原始数据: %hs\n"), 缓冲区);
+
+		// 转换为宽字符
+		int 宽字符长度 = MultiByteToWideChar(CP_UTF8, 0, 缓冲区, 接收长度, NULL, 0);
+		if (宽字符长度 > 0)
+		{
+			wchar_t* 宽字符缓冲区 = new wchar_t[宽字符长度 + 1];
+			MultiByteToWideChar(CP_UTF8, 0, 缓冲区, 接收长度, 宽字符缓冲区, 宽字符长度);
+			宽字符缓冲区[宽字符长度] = L'\0';
+
+			CString 结果(宽字符缓冲区);
+			delete[] 宽字符缓冲区;
+
+			TRACE(_T("转换后的数据: %s\n"), 结果);
+			return 结果;
+		}
+
+		return CString(缓冲区);  // 如果转换失败，返回原始ANSI字符串
 	}
 	return _T("");
 }
@@ -1050,6 +1212,9 @@ CString NageDlqServerDlg::从客户端接收(SOCKET 客户端套接字)
 // 注册处理函数
 BOOL NageDlqServerDlg::处理用户注册(const CString& 用户名, const CString& 密码, const CString& 邮箱)
 {
+	// 添加调试信息
+	添加信息显示(_T("开始处理注册: 用户名=") + 用户名 + _T(", 密码=") + 密码 + _T(", 邮箱=") + 邮箱);
+
 	// 验证用户名规则：只能包含字母和数字，最长12位
 	if (用户名.GetLength() > 12 || 用户名.IsEmpty())
 	{

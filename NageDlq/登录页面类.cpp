@@ -33,6 +33,7 @@ void 登录页面类::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_CHECK_1280, 窗口1280复选框);
 	DDX_Control(pDX, IDC_BUTTON_START, 启动按钮);
 	DDX_Control(pDX, IDC_STATIC_BG, 背景图片);
+	DDX_Control(pDX, IDC_STATIC_AU, 权限状态);
 }
 
 // 登录页面类 消息处理程序
@@ -62,6 +63,7 @@ BOOL 登录页面类::OnInitDialog()
 	{
 		背景图片.SetBitmap(背景位图);
 	}
+	
 
 	return TRUE;
 }
@@ -127,14 +129,40 @@ void 登录页面类::处理登录响应(const CString& 响应数据)
 {
 	if (响应数据.Find(_T("LOGIN_SUCCESS")) == 0)
 	{
+		// 解析密钥信息
+		
+		int 冒号位置 = 响应数据.Find(':', 12); // 跳过"LOGIN_SUCCESS:"
+		if (冒号位置 != -1)
+		{
+			CString 密钥信息 = 响应数据.Mid(冒号位置 + 1);
+
+			if (密钥信息.Find(_T("chenge")) == 0)
+			{
+				权限状态.SetWindowText(_T("状态：权限全开"));
+			}
+			else if (密钥信息.Find(_T("alucard")) == 0)
+			{
+				权限状态.SetWindowText(_T("状态：限制权限"));
+			}
+			else if (密钥信息.Find(_T("feier")) == 0)
+			{
+				权限状态.SetWindowText(_T("状态：未授权"));
+			}
+			else
+			{
+				权限状态.SetWindowText(_T("状态：未知权限"));
+			}
+		}
+		
 		MessageBox(_T("登录成功，功能权限已激活"), _T("提示"), MB_ICONINFORMATION);
 		已登录 = true;
 	}
 	else if (响应数据.Find(_T("LOGIN_FAILED")) == 0)
 	{
-		CString 错误信息 = 响应数据.Mid(12); // 去掉"LOGIN_FAILED:"
+		CString 错误信息 = 响应数据.Mid(12);
 		MessageBox(错误信息, _T("登录失败"), MB_ICONERROR);
 		已登录 = false;
+		权限状态.SetWindowText(_T("状态：未登录"));
 	}
 }
 

@@ -6,7 +6,10 @@
 #include "注册页面类.h"
 #include "网络通信类.h"
 #include "登录页面类.h"
-
+#include "转生页面类.h"
+#include "加点页面类.h"
+#include "排行榜页面类.h"
+#include "注入页面类.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -19,6 +22,9 @@ NageDlqDlg::NageDlqDlg(CWnd* pParent /*=nullptr*/)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
+NageDlqDlg::~NageDlqDlg()
+{
+}
 
 void NageDlqDlg::DoDataExchange(CDataExchange* pDX)
 {
@@ -28,25 +34,31 @@ void NageDlqDlg::DoDataExchange(CDataExchange* pDX)
 
 // 消息映射
 BEGIN_MESSAGE_MAP(NageDlqDlg, CDialogEx)
-	//ON_WM_SYSCOMMAND()
 	ON_WM_PAINT()
 	ON_WM_QUERYDRAGICON()
-	//ON_NOTIFY(TCN_SELCHANGE, IDC_TAB_MAIN, &NageDlqDlg::OnTcnSelchangeTabMain)
+	ON_NOTIFY(TCN_SELCHANGE, IDC_TAB_MAIN, &NageDlqDlg::OnTcnSelchangeTabMain)
 END_MESSAGE_MAP()
-
+IMPLEMENT_DYNAMIC(NageDlqDlg, CDialogEx)
 // 初始化函数
 BOOL NageDlqDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
 	
+	SetIcon(m_hIcon, TRUE);			// 设置大图标
+	SetIcon(m_hIcon, FALSE);		// 设置小图标
 	// 设置窗口大小 850x600
 	MoveWindow(0, 0, 862, 622);
 
-	初始化分页控件();
+	//初始化分页控件();
+	// 初始化分页控件
+	if (!初始化分页控件())
+	{
+		MessageBox(_T("初始化分页控件失败"), _T("错误"), MB_ICONERROR);
+		EndDialog(-1);
+		return FALSE;
+	}
 
-	SetIcon(m_hIcon, TRUE);			// 设置大图标
-	SetIcon(m_hIcon, FALSE);		// 设置小图标
-
+	/*
 	// 初始化网络通信
 	if (!初始化网络通信())
 	{
@@ -54,9 +66,18 @@ BOOL NageDlqDlg::OnInitDialog()
 	}
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
+	*/
+	// 同步初始化网络（在主线程中）
+	if (!初始化网络通信())
+	{
+		// 使用TRACE而不是弹窗，避免阻塞
+		TRACE(_T("网络初始化失败，使用本地功能\n"));
+	}
+	
+	return TRUE;
 }
 
-void NageDlqDlg::初始化分页控件()
+BOOL NageDlqDlg::初始化分页控件()
 {
 	// 添加分页标签
 	分页控件.InsertItem(0, _T("登录"));
@@ -92,6 +113,7 @@ void NageDlqDlg::初始化分页控件()
 	// 显示登录页面
 	登录页面.ShowWindow(SW_SHOW);
 	分页控件.SetCurSel(0);
+	return TRUE;
 }
 
 void NageDlqDlg::OnTcnSelchangeTabMain(NMHDR* pNMHDR, LRESULT* pResult)
@@ -151,6 +173,7 @@ HCURSOR NageDlqDlg::OnQueryDragIcon()
 }
 
 // 初始化网络通信
+/*
 BOOL NageDlqDlg::初始化网络通信()
 {
 	// 初始化Socket库
@@ -174,6 +197,44 @@ BOOL NageDlqDlg::初始化网络通信()
 	}
 
 	return TRUE;
+}
+*/
+BOOL NageDlqDlg::初始化网络通信()
+{
+	// 检查是否已经初始化过
+	if (网络通信.是否已连接())
+	{
+		return TRUE;
+	}
+
+	// 设置消息回调
+	//网络通信.设置消息回调函数(&NageDlqDlg::处理网络消息, this);
+	网络通信.设置消息回调函数(&NageDlqDlg::处理网络消息, this);
+
+	// 尝试连接服务端
+	if (网络通信.连接服务端(_T("127.0.0.1"), 9896))
+	{
+		// 发送连接请求
+		CString 连接请求;
+		连接请求.Format(_T("CONNECT:1.0.0:%s"), _T("127.0.0.1"));
+
+		if (网络通信.发送数据(连接请求))
+		{
+			添加信息显示(_T("连接请求已发送"));
+			return TRUE;
+		}
+		else
+		{
+			添加信息显示(_T("发送连接请求失败"));
+			return FALSE;
+		}
+	}
+	else
+	{
+		// 连接失败，但不弹出警告，只是记录日志
+		添加信息显示(_T("连接服务端失败，使用默认功能"));
+		return FALSE; // 返回FALSE但不弹窗
+	}
 }
 
 // 处理网络消息

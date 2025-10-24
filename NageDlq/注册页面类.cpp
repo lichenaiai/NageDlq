@@ -28,13 +28,11 @@ void 注册页面类::DoDataExchange(CDataExchange* pDX)
     DDX_Control(pDX, IDC_EDIT_REG_PASSWORD, 密码编辑框);
     DDX_Control(pDX, IDC_EDIT_CONFIRM_PASSWORD, 确认密码编辑框);
     DDX_Control(pDX, IDC_EDIT_EMAIL, 邮箱编辑框);
-    DDX_Control(pDX, IDC_BUTTON_REG_CONFIRM, 注册按钮);
-    DDX_Control(pDX, IDC_BUTTON_REG_CANCEL, 取消按钮);
+    DDX_Control(pDX, IDC_BUTTON_REGISTER_DLG, 注册按钮);
 }
 
 BEGIN_MESSAGE_MAP(注册页面类, CDialogEx)
-    ON_BN_CLICKED(IDC_BUTTON_REG_CONFIRM, &注册页面类::OnBnClickedButtonRegConfirm)
-    ON_BN_CLICKED(IDC_BUTTON_REG_CANCEL, &注册页面类::OnBnClickedButtonRegCancel)
+    ON_BN_CLICKED(IDC_BUTTON_REGISTER_DLG, &注册页面类::OnBnClickedButtonRegConfirm)
 END_MESSAGE_MAP()
 
 BOOL 注册页面类::OnInitDialog()
@@ -85,14 +83,6 @@ void 注册页面类::OnBnClickedButtonRegConfirm()
 
     // 发送注册请求
     发送注册请求();
-}
-
-// 取消按钮点击事件
-void 注册页面类::OnBnClickedButtonRegCancel()
-{
-    // 清空输入框并关闭对话框
-    清空输入框();
-    GetParent()->SendMessage(WM_COMMAND, IDCANCEL);
 }
 
 // 验证输入内容
@@ -245,15 +235,21 @@ void 注册页面类::发送注册请求()
     密码编辑框.GetWindowText(密码);
     邮箱编辑框.GetWindowText(邮箱);
 
+    // 确保数据格式正确，去除可能的空格
+    账号.Trim();
+    密码.Trim();
+    邮箱.Trim();
+
     // 构建注册请求字符串
     CString 注册请求;
     注册请求.Format(_T("REGISTER:%s:%s:%s"), 账号, 密码, 邮箱);
+    TRACE(_T("发送注册请求: %s\n"), 注册请求);
 
     // 获取主对话框并发送请求
     NageDlqDlg* 主对话框 = dynamic_cast<NageDlqDlg*>(AfxGetMainWnd());
     if (主对话框 && 主对话框->发送请求到服务端(注册请求))
     {
-        MessageBox(_T("注册请求已发送，请等待结果"), _T("提示"), MB_ICONINFORMATION);
+        //MessageBox(_T("注册请求已发送，请等待结果"), _T("提示"), MB_ICONINFORMATION);
     }
     else
     {
