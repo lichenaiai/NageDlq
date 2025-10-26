@@ -312,6 +312,13 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 	SOCKET 客户端套接字 = (SOCKET)pParam;
 	NageDlqServerDlg* 对话框指针 = (NageDlqServerDlg*)AfxGetApp()->GetMainWnd();
 
+	// 只添加这一个安全检查
+	if (!对话框指针)
+	{
+		closesocket(客户端套接字);
+		return 1;
+	}
+
 	// 接收客户端请求
 	CString 客户端请求 = 对话框指针->从客户端接收(客户端套接字);
 	if (客户端请求.IsEmpty())
@@ -1154,30 +1161,6 @@ BOOL NageDlqServerDlg::发送到客户端(SOCKET 客户端套接字, const CStri
 // 从客户端接收
 CString NageDlqServerDlg::从客户端接收(SOCKET 客户端套接字)
 {
-	/*
-	char 缓冲区[1024];
-	int 接收长度 = recv(客户端套接字, 缓冲区, sizeof(缓冲区) - 1, 0);
-	if (接收长度 > 0)
-	{
-		缓冲区[接收长度] = '\0';
-		return CString(缓冲区);
-		
-		// 添加调试信息
-		CString 调试信息;
-		调试信息.Format(_T("接收到数据长度: %d, 内容: %s"), 接收长度, 结果);
-		添加信息显示(调试信息);
-		return 结果;
-	}
-	else if (接收长度 == 0)
-	{
-		添加信息显示(_T("客户端正常断开连接"));
-	}
-	else
-	{
-		添加信息显示(_T("接收数据错误"));
-	}
-	return _T("");
-	*/
 	char 缓冲区[4096];  // 增大缓冲区
 	memset(缓冲区, 0, sizeof(缓冲区));
 
