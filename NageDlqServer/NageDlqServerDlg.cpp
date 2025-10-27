@@ -243,11 +243,11 @@ UINT NageDlqServerDlg::服务器线程函数(LPVOID pParam)
 	}
 
 	// 设置socket为非阻塞模式
-	u_long 非阻塞模式 = 1;
-	ioctlsocket(对话框指针->监听套接字, FIONBIO, &非阻塞模式);
+	//u_long 非阻塞模式 = 1;
+	//ioctlsocket(对话框指针->监听套接字, FIONBIO, &非阻塞模式);
 
 	// 绑定地址
-	sockaddr_in 服务器地址;
+	sockaddr_in 服务器地址 = { 0 };
 	服务器地址.sin_family = AF_INET;
 	服务器地址.sin_port = htons(9896);
 	服务器地址.sin_addr.s_addr = INADDR_ANY;
@@ -276,32 +276,48 @@ UINT NageDlqServerDlg::服务器线程函数(LPVOID pParam)
 	{
 		sockaddr_in 客户端地址;
 		int 客户端地址长度 = sizeof(客户端地址);
+		// 阻塞等待客户端连接
 		SOCKET 客户端套接字 = accept(对话框指针->监听套接字, (sockaddr*)&客户端地址, &客户端地址长度);
 
-		if (客户端套接字 != INVALID_SOCKET)
+		if (客户端套接字 = INVALID_SOCKET)
 		{
-			char 客户端IP缓冲区[INET_ADDRSTRLEN];
-			inet_ntop(AF_INET, &(客户端地址.sin_addr), 客户端IP缓冲区, INET_ADDRSTRLEN);
+			int err = WSAGetLastError();
+			// accept失败可能是错误也可能是关闭，适当处理
+			if (err == WSAEINTR)  // 中断错误，继续
+				continue;
 
-			CString 客户端IP = CString(客户端IP缓冲区);
-			对话框指针->添加客户端连接(客户端套接字, 客户端IP);
-			对话框指针->添加信息显示(客户端IP + _T(" 已连接"));
+			CString errStr;
+			errStr.Format(_T("accept失败，错误码: %d"), err);
+			对话框指针->添加信息显示(errStr);
+			Sleep(100);
+			continue;
+		}
+		// 获取客户端IP字符串
+		char ipBuf[INET_ADDRSTRLEN] = { 0 };
+		inet_ntop(AF_INET, &客户端地址.sin_addr, ipBuf, sizeof(ipBuf));
+		CString 客户端IP(ipBuf);
 
-			// 为每个客户端创建线程
-			HANDLE 客户端线程句柄 = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)客户端线程函数,
-				(LPVOID)客户端套接字, 0, NULL);
-			if (客户端线程句柄)
-			{
-				CloseHandle(客户端线程句柄);
-			}
+		对话框指针->添加客户端连接(客户端套接字, 客户端IP);
+		对话框指针->添加信息显示(客户端IP + _T(" 已连接"));
+
+		// 创建线程处理客户端连接
+		HANDLE hThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)客户端线程函数,
+			(LPVOID)客户端套接字, 0, NULL);
+
+		if (hThread)
+		{
+			CloseHandle(hThread);
 		}
 		else
 		{
-			// 非阻塞模式下，如果没有连接会立即返回，需要适当延迟
-			Sleep(100);
+			对话框指针->添加信息显示(_T("创建客户端线程失败"));
+			// 线程创建失败时关闭socket
+			对话框指针->移除客户端连接(客户端套接字);
+			closesocket(客户端套接字);
 		}
 	}
 
+	// 退出监听时关闭监听socket
 	closesocket(对话框指针->监听套接字);
 	return 0;
 }
@@ -458,43 +474,6 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		CString 注册数据 = 客户端请求.Mid(9); // 去掉"REGISTER:"
 		CString 用户名, 密码, 邮箱;
 		
-		// 解析注册数据
-		/*
-		int 分隔符1 = 注册数据.Find(':');
-		int 分隔符2 = -1;
-
-		if (分隔符1 != -1)
-		{
-			用户名 = 注册数据.Left(分隔符1);
-			分隔符2 = 注册数据.Find(':', 分隔符1 + 1);
-
-			if (分隔符2 != -1)
-			{
-				密码 = 注册数据.Mid(分隔符1 + 1, 分隔符2 - 分隔符1 - 1);
-				邮箱 = 注册数据.Mid(分隔符2 + 1);
-
-				// 处理注册
-				BOOL 注册结果 = 对话框指针->处理用户注册(用户名, 密码, 邮箱);
-
-				if (注册结果)
-				{
-					对话框指针->发送到客户端(客户端套接字, _T("REGISTER_SUCCESS:注册成功"));
-					对话框指针->添加信息显示(客户端IP + _T(" 注册成功 - 用户名: ") + 用户名);
-				}
-				else
-				{
-					对话框指针->发送到客户端(客户端套接字, _T("REGISTER_FAILED:注册失败"));
-					对话框指针->添加信息显示(客户端IP + _T(" 注册失败 - 用户名: ") + 用户名);
-				}
-			}
-		}
-
-		if (用户名.IsEmpty() || 密码.IsEmpty())
-		{
-			对话框指针->发送到客户端(客户端套接字, _T("REGISTER_FAILED:无效的注册数据格式"));
-			对话框指针->添加信息显示(客户端IP + _T(" 注册数据格式错误"));
-		}
-		*/
 		// 使用更可靠的解析方法
 		CStringArray 参数数组;
 		int 起始位置 = 0;
