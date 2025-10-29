@@ -15,6 +15,8 @@ IMPLEMENT_DYNAMIC(注册页面类, CDialogEx)
 注册页面类::注册页面类(CWnd* pParent /*=nullptr*/)
     : CDialogEx(IDD_PAGE_REGISTER, pParent)
 {
+    状态文本颜色 = RGB(0, 0, 0);  // 默认黑色
+    需要设置颜色 = FALSE;
 }
 
 注册页面类::~注册页面类()
@@ -29,10 +31,13 @@ void 注册页面类::DoDataExchange(CDataExchange* pDX)
     DDX_Control(pDX, IDC_EDIT_CONFIRM_PASSWORD, 确认密码编辑框);
     DDX_Control(pDX, IDC_EDIT_EMAIL, 邮箱编辑框);
     DDX_Control(pDX, IDC_BUTTON_REGISTER_DLG, 注册按钮);
+    DDX_Control(pDX, IDC_STATIC_REG_STATUS, 注册状态标签);
 }
 
 BEGIN_MESSAGE_MAP(注册页面类, CDialogEx)
     ON_BN_CLICKED(IDC_BUTTON_REGISTER_DLG, &注册页面类::OnBnClickedButtonRegConfirm)
+    ON_WM_TIMER()   //定时器消息
+    ON_WM_CTLCOLOR()
 END_MESSAGE_MAP()
 
 BOOL 注册页面类::OnInitDialog()
@@ -51,8 +56,24 @@ BOOL 注册页面类::OnInitDialog()
     密码编辑框.SetLimitText(12);    // 密码最长12位
     确认密码编辑框.SetLimitText(12); // 确认密码最长12位
     邮箱编辑框.SetLimitText(50);     // 邮箱最长50位
+    注册状态标签.ShowWindow(SW_HIDE);
 
     return TRUE;
+}
+
+// 实现 OnCtlColor
+HBRUSH 注册页面类::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
+{
+    HBRUSH hbr = CDialogEx::OnCtlColor(pDC, pWnd, nCtlColor);
+
+    // 如果是状态标签并且需要设置颜色
+    if (nCtlColor == CTLCOLOR_STATIC && pWnd == &注册状态标签 && 需要设置颜色)
+    {
+        pDC->SetTextColor(状态文本颜色);
+        pDC->SetBkMode(TRANSPARENT);  // 透明背景
+    }
+
+    return hbr;
 }
 
 // 注册按钮点击事件
@@ -83,6 +104,71 @@ void 注册页面类::OnBnClickedButtonRegConfirm()
 
     // 发送注册请求
     发送注册请求();
+}
+
+// 显示注册状态函数
+void 注册页面类::显示注册状态(const CString& 状态信息, BOOL 成功)
+{
+    TRACE(_T("显示注册状态: %s, 成功: %d\n"), 状态信息, 成功);
+
+    // 设置颜色
+    if (成功)
+    {
+        状态文本颜色 = RGB(0, 128, 0); // 绿色
+    }
+    else
+    {
+        状态文本颜色 = RGB(255, 0, 0); // 红色
+    }
+
+    需要设置颜色 = TRUE;
+
+    // 设置文字
+    注册状态标签.SetWindowText(状态信息);
+
+    // 设置字体
+    CFont* p旧字体 = 注册状态标签.GetFont();
+    CFont 新字体;
+
+    if (p旧字体)
+    {
+        LOGFONT lf;
+        p旧字体->GetLogFont(&lf);
+        lf.lfHeight = -20; // 20号字体
+        _tcscpy_s(lf.lfFaceName, _T("微软雅黑"));
+        新字体.CreateFontIndirect(&lf);
+    }
+    else
+    {
+        新字体.CreatePointFont(200, _T("微软雅黑")); // 20号字体
+    }
+
+    注册状态标签.SetFont(&新字体);
+    新字体.Detach();  // 分离字体，避免被销毁
+
+    // 显示标签
+    注册状态标签.ShowWindow(SW_SHOW);
+
+    // 强制重绘
+    注册状态标签.Invalidate();
+    注册状态标签.UpdateWindow();
+
+    // 5秒后自动隐藏
+    SetTimer(1, 5000, nullptr);
+
+    TRACE(_T("状态标签显示完成\n"));
+}
+
+//定时器
+void 注册页面类::OnTimer(UINT_PTR nIDEvent)
+{
+    if (nIDEvent == 1)
+    {
+        KillTimer(1);
+        注册状态标签.ShowWindow(SW_HIDE);
+        需要设置颜色 = FALSE;  // 重置颜色状态
+    }
+    CDialogEx::OnTimer(nIDEvent);
 }
 
 // 验证输入内容
@@ -247,13 +333,22 @@ void 注册页面类::发送注册请求()
 
     // 获取主对话框并发送请求
     NageDlqDlg* 主对话框 = dynamic_cast<NageDlqDlg*>(AfxGetMainWnd());
-    if (主对话框 && 主对话框->发送请求到服务端(注册请求))
+    if (主对话框)
     {
-        //MessageBox(_T("注册请求已发送，请等待结果"), _T("提示"), MB_ICONINFORMATION);
+        if (主对话框->发送请求到服务端(注册请求))
+        {
+            TRACE(_T("注册请求发送成功\n"));
+        }
+        else
+        {
+            TRACE(_T("注册请求发送失败\n"));
+            MessageBox(_T("发送注册请求失败，请检查网络连接"), _T("错误"), MB_ICONERROR);
+        }
     }
     else
     {
-        MessageBox(_T("发送注册请求失败，请检查网络连接"), _T("错误"), MB_ICONERROR);
+        TRACE(_T("获取主对话框失败\n"));
+        MessageBox(_T("系统错误，无法发送请求"), _T("错误"), MB_ICONERROR);
     }
 }
 

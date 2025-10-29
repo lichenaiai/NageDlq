@@ -37,8 +37,10 @@ BEGIN_MESSAGE_MAP(NageDlqDlg, CDialogEx)
 	ON_WM_PAINT()
 	ON_WM_QUERYDRAGICON()
 	ON_NOTIFY(TCN_SELCHANGE, IDC_TAB_MAIN, &NageDlqDlg::OnTcnSelchangeTabMain)
+	ON_MESSAGE(WM_USER + 100, &NageDlqDlg::OnNetworkMessage)
 END_MESSAGE_MAP()
 IMPLEMENT_DYNAMIC(NageDlqDlg, CDialogEx)
+
 // 初始化函数
 BOOL NageDlqDlg::OnInitDialog()
 {
@@ -74,7 +76,22 @@ BOOL NageDlqDlg::OnInitDialog()
 		TRACE(_T("网络初始化失败，使用本地功能\n"));
 	}
 	
+	// 延迟初始化网络，避免在对话框完全初始化前操作
+	SetTimer(1, 100, NULL);
 	return TRUE;
+}
+
+void NageDlqDlg::OnTimer(UINT_PTR nIDEvent)
+{
+	if (nIDEvent == 1)
+	{
+		KillTimer(1);
+		if (!初始化网络通信())
+		{
+			TRACE(_T("网络初始化失败，使用本地功能\n"));
+		}
+	}
+	CDialogEx::OnTimer(nIDEvent);
 }
 
 BOOL NageDlqDlg::初始化分页控件()
@@ -172,7 +189,7 @@ HCURSOR NageDlqDlg::OnQueryDragIcon()
 	return static_cast<HCURSOR>(m_hIcon);
 }
 
-// 初始化网络通信
+
 /*
 BOOL NageDlqDlg::初始化网络通信()
 {
@@ -199,63 +216,142 @@ BOOL NageDlqDlg::初始化网络通信()
 	return TRUE;
 }
 */
+
+// 实现消息处理函数
+LRESULT NageDlqDlg::OnNetworkMessage(WPARAM wParam, LPARAM lParam)
+{
+	CString* pMsg = (CString*)lParam;
+	if (pMsg)
+	{
+		处理网络消息(*pMsg);
+		delete pMsg;
+	}
+	return 0;
+}
+
+// 初始化网络通信
 BOOL NageDlqDlg::初始化网络通信()
 {
 	// 检查是否已经初始化过
 	if (网络通信.是否已连接())
 	{
+		TRACE(_T("网络通信已连接\n"));
 		return TRUE;
 	}
 
+	TRACE(_T("开始初始化网络通信\n"));
+
 	// 设置消息回调
-	//网络通信.设置消息回调函数(&NageDlqDlg::处理网络消息, this);
 	网络通信.设置消息回调函数(&NageDlqDlg::处理网络消息, this);
+
+	// 先更新状态为连接中
+	登录页面.权限状态.SetWindowText(_T("状态：连接中..."));
+	TRACE(_T("设置状态为连接中...\n"));
 
 	// 尝试连接服务端
 	if (网络通信.连接服务端(_T("127.0.0.1"), 9896))
 	{
+		TRACE(_T("连接服务端成功，发送连接请求\n"));
+
 		// 发送连接请求
 		CString 连接请求;
-		连接请求.Format(_T("CONNECT:1.0.0:%s"), _T("127.0.0.1"));
+		连接请求.Format(_T("CONNECT:1.0.0:127.0.0.1"));
 
 		if (网络通信.发送数据(连接请求))
 		{
-			添加信息显示(_T("连接请求已发送"));
+			TRACE(_T("连接请求发送成功\n"));
 			return TRUE;
 		}
 		else
 		{
-			添加信息显示(_T("发送连接请求失败"));
+			TRACE(_T("发送连接请求失败\n"));
+			登录页面.权限状态.SetWindowText(_T("状态：发送请求失败"));
 			return FALSE;
 		}
 	}
 	else
 	{
-		// 连接失败，但不弹出警告，只是记录日志
-		添加信息显示(_T("连接服务端失败，使用默认功能"));
-		return FALSE; // 返回FALSE但不弹窗
+		TRACE(_T("连接服务端失败\n"));
+		登录页面.权限状态.SetWindowText(_T("状态：连接失败"));
+		return FALSE;
 	}
 }
 
 // 处理网络消息
 void NageDlqDlg::处理网络消息(CString 消息)
 {
+	TRACE(_T("处理网络消息: %s\n"), 消息);
+
 	if (消息 == _T("CONNECT_SUCCESS"))
 	{
-		添加信息显示(_T("成功连接到服务端"));
+		TRACE(_T("连接成功，但未收到密钥\n"));
+		// 这种情况不应该发生，连接成功应该包含密钥
+		登录页面.权限状态.SetWindowText(_T("状态：已连接，等待密钥"));
+	}
+	else if (消息.Find(_T("CONNECT_SUCCESS:")) == 0)
+	{
+		// 解析连接成功响应 - 格式: CONNECT_SUCCESS:密钥:版本号
+		CString 响应数据 = 消息.Mid(16); // 去掉"CONNECT_SUCCESS:"
+		TRACE(_T("连接成功响应数据: %s\n"), 响应数据);
+
+		int 分隔符位置 = 响应数据.Find(':');
+
+		if (分隔符位置 != -1)
+		{
+			CString 密钥 = 响应数据.Left(分隔符位置);
+			CString 版本号 = 响应数据.Mid(分隔符位置 + 1);
+
+			TRACE(_T("解析密钥: %s, 版本: %s\n"), 密钥, 版本号);
+
+			// 更新状态标签
+			CString 状态文本;
+			if (密钥 == _T("chenge"))
+			{
+				状态文本 = _T("状态：权限全开 (") + 密钥 + _T(")");
+			}
+			else if (密钥 == _T("alucard"))
+			{
+				状态文本 = _T("状态：限制权限 (") + 密钥 + _T(")");
+			}
+			else if (密钥 == _T("feier"))
+			{
+				状态文本 = _T("状态：未授权 (") + 密钥 + _T(")");
+			}
+			else
+			{
+				状态文本 = _T("状态：") + 密钥;
+			}
+			TRACE(_T("设置状态文本: %s\n"), 状态文本);
+			登录页面.权限状态.SetWindowText(状态文本);
+		}
+		else
+		{
+			TRACE(_T("密钥解析失败\n"));
+			登录页面.权限状态.SetWindowText(_T("状态：密钥解析失败"));
+		}
 	}
 	else if (消息 == _T("CONNECT_FAILED"))
 	{
 		添加信息显示(_T("连接服务端失败"));
+		登录页面.权限状态.SetWindowText(_T("状态：连接失败"));
 	}
 	else if (消息 == _T("CONNECTION_CLOSED"))
 	{
 		添加信息显示(_T("与服务端的连接已断开"));
+		登录页面.权限状态.SetWindowText(_T("状态：连接断开"));
+	}
+	else if (消息.Find(_T("REGISTER_")) == 0)
+	{
+		处理注册响应(消息);
+	}
+	else if (消息.Find(_T("LOGIN_")) == 0)
+	{
+		// 处理登录响应
+		登录页面.处理登录响应(消息);
 	}
 	else
 	{
-		// 处理服务端响应
-		处理服务端响应(消息);
+		添加信息显示(CString(_T("收到未知响应: ")) + 消息);
 	}
 }
 
@@ -301,16 +397,25 @@ void NageDlqDlg::处理服务端响应(const CString& 响应数据)
 // 处理注册响应
 void NageDlqDlg::处理注册响应(const CString& 响应数据)
 {
+	TRACE(_T("处理注册响应: %s\n"), 响应数据);  // 添加调试
+
 	if (响应数据.Find(_T("REGISTER_SUCCESS")) == 0)
 	{
-		MessageBox(_T("注册成功"), _T("成功"), MB_ICONINFORMATION);
-		// 可以在这里清空注册页面的输入框
+		TRACE(_T("注册成功\n"));
+		// 注册成功
+		注册页面.显示注册状态(_T("注册成功"), TRUE);
 		注册页面.清空输入框();
 	}
 	else if (响应数据.Find(_T("REGISTER_FAILED")) == 0)
 	{
 		CString 错误信息 = 响应数据.Mid(16); // 去掉"REGISTER_FAILED:"
-		MessageBox(错误信息, _T("注册失败"), MB_ICONERROR);
+		TRACE(_T("注册失败: %s\n"), 错误信息);
+		// 注册失败
+		注册页面.显示注册状态(_T("注册失败: ") + 错误信息, FALSE);
+	}
+	else
+	{
+		TRACE(_T("未知注册响应: %s\n"), 响应数据);
 	}
 }
 

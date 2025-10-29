@@ -36,6 +36,8 @@ protected:
     //afx_msg void OnSysCommand(UINT nID, LPARAM lParam);
     afx_msg void OnPaint();
     afx_msg HCURSOR OnQueryDragIcon();
+    afx_msg void OnTimer(UINT_PTR nIDEvent);
+    afx_msg LRESULT OnNetworkMessage(WPARAM wParam, LPARAM lParam);
     DECLARE_MESSAGE_MAP()
 public:
     // 分页控件变量

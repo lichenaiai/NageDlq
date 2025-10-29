@@ -312,33 +312,16 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 	SOCKET 客户端套接字 = (SOCKET)pParam;
 	NageDlqServerDlg* 对话框指针 = (NageDlqServerDlg*)AfxGetApp()->GetMainWnd();
 
-	// 只添加这一个安全检查
 	if (!对话框指针)
 	{
 		closesocket(客户端套接字);
 		return 1;
 	}
 
-	// 接收客户端请求
-	CString 客户端请求 = 对话框指针->从客户端接收(客户端套接字);
-	if (客户端请求.IsEmpty())
-	{
-		CString 客户端IP;
-		EnterCriticalSection(&对话框指针->客户端列表锁);
-		auto it = 对话框指针->客户端连接列表.find(客户端套接字);
-		if (it != 对话框指针->客户端连接列表.end())
-		{
-			客户端IP = it->second;
-		}
-		LeaveCriticalSection(&对话框指针->客户端列表锁);
+	// 设置socket为阻塞模式
+	u_long 阻塞模式 = 0;
+	ioctlsocket(客户端套接字, FIONBIO, &阻塞模式);
 
-		对话框指针->添加信息显示(客户端IP + _T(" 接收数据为空或出错"));
-		对话框指针->移除客户端连接(客户端套接字);
-		closesocket(客户端套接字);
-		return 1;
-	}
-
-	// 记录客户端请求
 	CString 客户端IP;
 	EnterCriticalSection(&对话框指针->客户端列表锁);
 	auto it = 对话框指针->客户端连接列表.find(客户端套接字);
@@ -348,130 +331,154 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 	}
 	LeaveCriticalSection(&对话框指针->客户端列表锁);
 
-	if (!客户端IP.IsEmpty())
+	// 持续处理客户端请求
+	while (对话框指针->服务器运行状态)
 	{
-		CString 完整请求信息;
-		完整请求信息.Format(_T(" 请求: [%s], 长度: %d"), 客户端请求, 客户端请求.GetLength());
-		对话框指针->添加信息显示(客户端IP + 完整请求信息);
-	}
+		// 接收客户端请求
+		CString 客户端请求 = 对话框指针->从客户端接收(客户端套接字);
 
-	// 解析请求
-	if (客户端请求.Find(_T("CONNECT:")) == 0)
-	{
-		// 处理连接验证请求 - 格式: CONNECT:客户端版本号:客户端IP
-		CString 连接数据 = 客户端请求.Mid(8); // 去掉"CONNECT:"
-		int 分隔符位置 = 连接数据.Find(':');
-		if (分隔符位置 != -1)
+		// 检查连接是否关闭或出错
+		if (客户端请求.IsEmpty())
 		{
-			CString 客户端版本号 = 连接数据.Left(分隔符位置);
-			CString 客户端IP = 连接数据.Mid(分隔符位置 + 1);
-
-			// 查询数据库获取密钥和最新版本号
-			CString 客户端密钥 = 对话框指针->获取客户端密钥();
-			CString 最新版本号 = 对话框指针->获取最新版本号();
-
-			// 发送响应
-			CString 响应数据;
-			if (!客户端密钥.IsEmpty())
+			// 检查是否是真正的连接关闭
+			char 测试缓冲区[1];
+			int 测试结果 = recv(客户端套接字, 测试缓冲区, 1, MSG_PEEK);
+			if (测试结果 == 0)
 			{
-				响应数据.Format(_T("CONNECT_SUCCESS:%s:%s"), 客户端密钥, 最新版本号);
-				对话框指针->添加信息显示(客户端IP + _T(" 连接验证成功，版本: ") + 客户端版本号);
+				// 连接已关闭
+				对话框指针->添加信息显示(客户端IP + _T(" 连接已关闭"));
+				break;
+			}
+			else if (测试结果 == SOCKET_ERROR)
+			{
+				// 连接错误
+				int 错误码 = WSAGetLastError();
+				if (错误码 != WSAEWOULDBLOCK)
+				{
+					CString 错误信息;
+					错误信息.Format(_T(" 连接错误，错误码: %d"), 错误码);
+					对话框指针->添加信息显示(客户端IP + 错误信息);
+					break;
+				}
+			}
+			// 如果是空数据但不是错误，继续等待
+			continue;
+		}
+
+		// 记录客户端请求
+		if (!客户端IP.IsEmpty())
+		{
+			CString 完整请求信息;
+			完整请求信息.Format(_T(" 请求: [%s], 长度: %d"), 客户端请求, 客户端请求.GetLength());
+			对话框指针->添加信息显示(客户端IP + 完整请求信息);
+		}
+
+		// 解析请求
+		if (客户端请求.Find(_T("CONNECT:")) == 0)
+		{
+			// 处理连接验证请求 - 格式: CONNECT:客户端版本号:客户端IP
+			CString 连接数据 = 客户端请求.Mid(8); // 去掉"CONNECT:"
+			int 分隔符位置 = 连接数据.Find(':');
+			if (分隔符位置 != -1)
+			{
+				CString 客户端版本号 = 连接数据.Left(分隔符位置);
+				CString 客户端IP = 连接数据.Mid(分隔符位置 + 1);
+
+				// 查询数据库获取密钥和最新版本号
+				CString 客户端密钥 = 对话框指针->获取客户端密钥();
+				CString 最新版本号 = 对话框指针->获取最新版本号();
+
+				// 发送响应
+				CString 响应数据;
+				if (!客户端密钥.IsEmpty())
+				{
+					响应数据.Format(_T("CONNECT_SUCCESS:%s:%s"), 客户端密钥, 最新版本号);
+					对话框指针->添加信息显示(客户端IP + _T(" 连接验证成功，版本: ") + 客户端版本号);
+				}
+				else
+				{
+					响应数据 = _T("CONNECT_FAILED:服务端配置错误");
+					对话框指针->添加信息显示(客户端IP + _T(" 连接验证失败"));
+				}
+
+				对话框指针->发送到客户端(客户端套接字, 响应数据);
 			}
 			else
 			{
-				响应数据 = _T("CONNECT_FAILED:服务端配置错误");
-				对话框指针->添加信息显示(客户端IP + _T(" 连接验证失败"));
+				对话框指针->发送到客户端(客户端套接字, _T("CONNECT_FAILED:无效的连接数据格式"));
+				对话框指针->添加信息显示(客户端IP + _T(" 连接数据格式错误"));
+			}
+		}
+		else if (客户端请求.Find(_T("LOGIN:")) == 0)
+		{
+			// 先记录请求，再处理
+			if (!客户端IP.IsEmpty())
+			{
+				CString 完整请求信息;
+				完整请求信息.Format(_T(" 请求: [%s], 长度: %d"), 客户端请求, 客户端请求.GetLength());
+				对话框指针->添加信息显示(客户端IP + 完整请求信息);
 			}
 
-			对话框指针->发送到客户端(客户端套接字, 响应数据);
-		}
-		else
-		{
-			对话框指针->发送到客户端(客户端套接字, _T("CONNECT_FAILED:无效的连接数据格式"));
-			对话框指针->添加信息显示(客户端IP + _T(" 连接数据格式错误"));
-		}
-	}
-	else if (客户端请求.Find(_T("LOGIN:")) == 0)
-	{
-		// 处理真正的登录请求 - 格式: LOGIN:username:password
-		CString 登录数据 = 客户端请求.Mid(6);
-		/*
-		int 分隔符位置 = 登录数据.Find(':');
+			// 然后处理登录请求
+			CString 登录数据 = 客户端请求.Mid(6);
 
-		if (分隔符位置 != -1)
-		{
-			CString 用户名 = 登录数据.Left(分隔符位置);
-			CString 密码 = 登录数据.Mid(分隔符位置 + 1);
+			CStringArray 参数数组;
+			int 起始位置 = 0;
+			CString 参数 = 登录数据.Tokenize(_T(":"), 起始位置);
 
-			// 验证用户名和密码
-			BOOL 登录结果 = 对话框指针->验证用户登录(用户名, 密码);
-
-			if (登录结果)
+			while (!参数.IsEmpty())
 			{
-				对话框指针->发送到客户端(客户端套接字, _T("LOGIN_SUCCESS:登录成功"));
-				对话框指针->添加信息显示(客户端IP + _T(" 登录成功 - 用户名: ") + 用户名);
+				参数数组.Add(参数);
+				参数 = 登录数据.Tokenize(_T(":"), 起始位置);
 			}
-			else
+
+			if (参数数组.GetSize() == 2)
 			{
-				对话框指针->发送到客户端(客户端套接字, _T("LOGIN_FAILED:用户名或密码错误"));
-				对话框指针->添加信息显示(客户端IP + _T(" 登录失败 - 用户名: ") + 用户名);
-			}
-		*/
-		CStringArray 参数数组;
-		int 起始位置 = 0;
-		CString 参数 = 登录数据.Tokenize(_T(":"), 起始位置);
+				CString 用户名 = 参数数组[0];
+				CString 密码 = 参数数组[1];
 
-		while (!参数.IsEmpty())
-		{
-			参数数组.Add(参数);
-			参数 = 登录数据.Tokenize(_T(":"), 起始位置);
-		}
+				// 验证用户名和密码
+				BOOL 登录结果 = 对话框指针->验证用户登录(用户名, 密码);
 
-		if (参数数组.GetSize() == 2)
-		{
-			CString 用户名 = 参数数组[0];
-			CString 密码 = 参数数组[1];
-
-			// 验证用户名和密码
-			BOOL 登录结果 = 对话框指针->验证用户登录(用户名, 密码);
-
-			if (登录结果)
-			{
-				对话框指针->发送到客户端(客户端套接字, _T("LOGIN_SUCCESS:登录成功"));
-				对话框指针->添加信息显示(客户端IP + _T(" 登录成功 - 用户名: ") + 用户名);
+				if (登录结果)
+				{
+					对话框指针->发送到客户端(客户端套接字, _T("LOGIN_SUCCESS:登录成功"));
+					// 成功日志放在最后
+					对话框指针->添加信息显示(客户端IP + _T(" 登录成功 - 用户名: ") + 用户名);
+				}
+				else
+				{
+					对话框指针->发送到客户端(客户端套接字, _T("LOGIN_FAILED:用户名或密码错误"));
+					// 失败日志放在最后
+					对话框指针->添加信息显示(客户端IP + _T(" 登录失败 - 用户名: ") + 用户名);
+				}
 			}
 			else
 			{
-				对话框指针->发送到客户端(客户端套接字, _T("LOGIN_FAILED:用户名或密码错误"));
-				对话框指针->添加信息显示(客户端IP + _T(" 登录失败 - 用户名: ") + 用户名);
+				对话框指针->发送到客户端(客户端套接字, _T("LOGIN_FAILED:无效的登录数据格式"));
+				对话框指针->添加信息显示(客户端IP + _T(" 登录数据格式错误"));
 			}
 		}
-		else
+		else if (客户端请求.Find(_T("REGISTER:")) == 0)
 		{
-			对话框指针->发送到客户端(客户端套接字, _T("LOGIN_FAILED:无效的登录数据格式"));
-			对话框指针->添加信息显示(客户端IP + _T(" 登录数据格式错误"));
-		}
-	}
-	else if (客户端请求.Find(_T("REGISTER:")) == 0)
-	{
-		// 处理注册请求 - 格式: REGISTER:username:password:email
-		CString 注册数据 = 客户端请求.Mid(9); // 去掉"REGISTER:"
-		CString 用户名, 密码, 邮箱;
-		
-		// 解析注册数据
-		/*
-		int 分隔符1 = 注册数据.Find(':');
-		int 分隔符2 = -1;
+			// 处理注册请求 - 格式: REGISTER:username:password:email
+			CString 注册数据 = 客户端请求.Mid(9); // 去掉"REGISTER:"
 
-		if (分隔符1 != -1)
-		{
-			用户名 = 注册数据.Left(分隔符1);
-			分隔符2 = 注册数据.Find(':', 分隔符1 + 1);
+			CStringArray 参数数组;
+			int 起始位置 = 0;
+			CString 参数 = 注册数据.Tokenize(_T(":"), 起始位置);
 
-			if (分隔符2 != -1)
+			while (!参数.IsEmpty())
 			{
-				密码 = 注册数据.Mid(分隔符1 + 1, 分隔符2 - 分隔符1 - 1);
-				邮箱 = 注册数据.Mid(分隔符2 + 1);
+				参数数组.Add(参数);
+				参数 = 注册数据.Tokenize(_T(":"), 起始位置);
+			}
+
+			if (参数数组.GetSize() >= 3)
+			{
+				CString 用户名 = 参数数组[0];
+				CString 密码 = 参数数组[1];
+				CString 邮箱 = 参数数组[2];
 
 				// 处理注册
 				BOOL 注册结果 = 对话框指针->处理用户注册(用户名, 密码, 邮箱);
@@ -487,217 +494,183 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 					对话框指针->添加信息显示(客户端IP + _T(" 注册失败 - 用户名: ") + 用户名);
 				}
 			}
-		}
-
-		if (用户名.IsEmpty() || 密码.IsEmpty())
-		{
-			对话框指针->发送到客户端(客户端套接字, _T("REGISTER_FAILED:无效的注册数据格式"));
-			对话框指针->添加信息显示(客户端IP + _T(" 注册数据格式错误"));
-		}
-		*/
-		// 使用更可靠的解析方法
-		CStringArray 参数数组;
-		int 起始位置 = 0;
-		CString 参数 = 注册数据.Tokenize(_T(":"), 起始位置);
-
-		while (!参数.IsEmpty())
-		{
-			参数数组.Add(参数);
-			参数 = 注册数据.Tokenize(_T(":"), 起始位置);
-		}
-
-		if (参数数组.GetSize() >= 3) // 至少需要用户名、密码、邮箱
-		{
-			CString 用户名 = 参数数组[0];
-			CString 密码 = 参数数组[1];
-			CString 邮箱 = 参数数组[2];
-
-			// 处理注册
-			BOOL 注册结果 = 对话框指针->处理用户注册(用户名, 密码, 邮箱);
-
-			if (注册结果)
-			{
-				对话框指针->发送到客户端(客户端套接字, _T("REGISTER_SUCCESS:注册成功"));
-				对话框指针->添加信息显示(客户端IP + _T(" 注册成功 - 用户名: ") + 用户名);
-			}
 			else
 			{
-				对话框指针->发送到客户端(客户端套接字, _T("REGISTER_FAILED:注册失败"));
-				对话框指针->添加信息显示(客户端IP + _T(" 注册失败 - 用户名: ") + 用户名);
+				CString 错误信息;
+				错误信息.Format(_T("注册数据格式错误，参数数量: %d"), 参数数组.GetSize());
+				对话框指针->添加信息显示(客户端IP + _T(" ") + 错误信息);
+				对话框指针->发送到客户端(客户端套接字, _T("REGISTER_FAILED:") + 错误信息);
 			}
 		}
-		else
+		else if (客户端请求 == _T("GET_HOOKS"))
 		{
-			对话框指针->发送到客户端(客户端套接字, _T("REGISTER_FAILED:无效的注册数据格式"));
-			//对话框指针->添加信息显示(客户端IP + _T(" 注册数据格式错误，参数数量: ") + CString(参数数组.GetSize()));
-			CString 参数数量信息;
-			参数数量信息.Format(_T("%d"), (int)参数数组.GetSize());
-			对话框指针->添加信息显示(客户端IP + _T(" 注册数据格式错误，参数数量: ") + 参数数量信息);
-		}
-	}
-	else if (客户端请求 == _T("GET_HOOKS"))
-	{
-		// 发送Hook功能列表
-		CString 响应数据 = _T("HOOKS_LIST:");
-		for (const auto& hook : 对话框指针->Hook功能列表)
-		{
-			响应数据 += hook.功能名称 + _T("|") + hook.功能描述 + _T(";");
-		}
-		对话框指针->发送到客户端(客户端套接字, 响应数据);
-		对话框指针->添加信息显示(客户端IP + _T(" 请求HOOK列表"));
-	}
-	else if (客户端请求.Find(_T("GET_HOOK_CODE:")) == 0)
-	{
-		// 获取特定Hook的代码
-		CString Hook名称 = 客户端请求.Mid(14);
-		CString Hook代码;
-
-		for (const auto& hook : 对话框指针->Hook功能列表)
-		{
-			if (hook.功能名称 == Hook名称)
+			// 发送Hook功能列表
+			CString 响应数据 = _T("HOOKS_LIST:");
+			for (const auto& hook : 对话框指针->Hook功能列表)
 			{
-				Hook代码 = hook.功能代码;
-				break;
+				响应数据 += hook.功能名称 + _T("|") + hook.功能描述 + _T(";");
 			}
+			对话框指针->发送到客户端(客户端套接字, 响应数据);
+			对话框指针->添加信息显示(客户端IP + _T(" 请求HOOK列表"));
 		}
-
-		if (!Hook代码.IsEmpty())
+		else if (客户端请求.Find(_T("GET_HOOK_CODE:")) == 0)
 		{
-			对话框指针->发送到客户端(客户端套接字, _T("HOOK_CODE:") + Hook代码);
-			对话框指针->添加信息显示(客户端IP + _T(" 获取HOOK代码: ") + Hook名称);
-		}
-		else
-		{
-			对话框指针->发送到客户端(客户端套接字, _T("HOOK_CODE_NOT_FOUND"));
-			对话框指针->添加信息显示(客户端IP + _T(" 请求的HOOK不存在: ") + Hook名称);
-		}
-	}
-	else if (客户端请求.Find(_T("REBORN:")) == 0)
-	{
-		// 处理转生请求 - 格式: REBORN:username:charname
-		CString 转生数据 = 客户端请求.Mid(7); // 去掉"REBORN:"
-		int 分隔符 = 转生数据.Find(':');
+			// 获取特定Hook的代码
+			CString Hook名称 = 客户端请求.Mid(14);
+			CString Hook代码;
 
-		if (分隔符 != -1)
-		{
-			CString 用户名 = 转生数据.Left(分隔符);
-			CString 角色名 = 转生数据.Mid(分隔符 + 1);
-
-			BOOL 转生结果 = 对话框指针->处理角色转生(用户名, 角色名);
-
-			if (转生结果)
+			for (const auto& hook : 对话框指针->Hook功能列表)
 			{
-				对话框指针->发送到客户端(客户端套接字, _T("REBORN_SUCCESS:转生成功"));
-				对话框指针->添加信息显示(客户端IP + _T(" 角色转生成功: ") + 角色名);
-			}
-			else
-			{
-				对话框指针->发送到客户端(客户端套接字, _T("REBORN_FAILED:转生失败"));
-				对话框指针->添加信息显示(客户端IP + _T(" 角色转生失败: ") + 角色名);
-			}
-		}
-		else
-		{
-			对话框指针->发送到客户端(客户端套接字, _T("REBORN_FAILED:无效的转生数据格式"));
-			对话框指针->添加信息显示(客户端IP + _T(" 转生数据格式错误"));
-		}
-		}
-	else if (客户端请求.Find(_T("ADD_POINTS:")) == 0)
-	{
-		// 处理加点请求 - 格式: ADD_POINTS:username:charname:str:dex:esp:spt
-		CString 加点数据 = 客户端请求.Mid(11); // 去掉"ADD_POINTS:"
-
-		CStringArray 参数数组;
-		int 起始位置 = 0;
-		CString 临时字符串 = 加点数据.Tokenize(_T(":"), 起始位置);
-		while (!临时字符串.IsEmpty())
-		{
-			参数数组.Add(临时字符串);
-			临时字符串 = 加点数据.Tokenize(_T(":"), 起始位置);
-		}
-
-		if (参数数组.GetSize() == 6)
-		{
-			CString 用户名 = 参数数组[0];
-			CString 角色名 = 参数数组[1];
-			int 力量 = _ttoi(参数数组[2]);
-			int 敏捷 = _ttoi(参数数组[3]);
-			int 意念 = _ttoi(参数数组[4]);
-			int 灵力 = _ttoi(参数数组[5]);
-
-			BOOL 加点结果 = 对话框指针->处理角色加点(用户名, 角色名, 力量, 敏捷, 意念, 灵力);
-
-			if (加点结果)
-			{
-				对话框指针->发送到客户端(客户端套接字, _T("ADD_POINTS_SUCCESS:加点成功"));
-				对话框指针->添加信息显示(客户端IP + _T(" 角色加点成功: ") + 角色名);
-			}
-			else
-			{
-				对话框指针->发送到客户端(客户端套接字, _T("ADD_POINTS_FAILED:加点失败"));
-				对话框指针->添加信息显示(客户端IP + _T(" 角色加点失败: ") + 角色名);
-			}
-		}
-		else
-		{
-			对话框指针->发送到客户端(客户端套接字, _T("ADD_POINTS_FAILED:无效的加点数据格式"));
-			对话框指针->添加信息显示(客户端IP + _T(" 加点数据格式错误"));
-		}
-		}
-	else if (客户端请求.Find(_T("GET_CHAR_INFO:")) == 0)
-	{
-		// 获取角色信息 - 格式: GET_CHAR_INFO:username:charname
-		CString 查询数据 = 客户端请求.Mid(14); // 去掉"GET_CHAR_INFO:"
-		int 分隔符 = 查询数据.Find(':');
-
-		if (分隔符 != -1)
-		{
-			CString 用户名 = 查询数据.Left(分隔符);
-			CString 角色名 = 查询数据.Mid(分隔符 + 1);
-
-			// 查询角色信息
-			CString 查询语句;
-			查询语句.Format(_T("SELECT baseskill, Lv, lv + relvC AS total_lv, lvpoint, Str, Dex, Esp, Spt FROM CharInfo WHERE charname = '%s'"), 角色名);
-
-			SQLRETURN retcode = SQLExecDirectW(对话框指针->SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
-			if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
-			{
-				retcode = SQLFetch(对话框指针->SQL语句句柄);
-				if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+				if (hook.功能名称 == Hook名称)
 				{
-					SQLINTEGER 职业代码, 战斗等级, 累计等级, 剩余点数, 力量, 敏捷, 意念, 灵力;
+					Hook代码 = hook.功能代码;
+					break;
+				}
+			}
 
-					SQLGetData(对话框指针->SQL语句句柄, 1, SQL_C_LONG, &职业代码, sizeof(职业代码), NULL);
-					SQLGetData(对话框指针->SQL语句句柄, 2, SQL_C_LONG, &战斗等级, sizeof(战斗等级), NULL);
-					SQLGetData(对话框指针->SQL语句句柄, 3, SQL_C_LONG, &累计等级, sizeof(累计等级), NULL);
-					SQLGetData(对话框指针->SQL语句句柄, 4, SQL_C_LONG, &剩余点数, sizeof(剩余点数), NULL);
-					SQLGetData(对话框指针->SQL语句句柄, 5, SQL_C_LONG, &力量, sizeof(力量), NULL);
-					SQLGetData(对话框指针->SQL语句句柄, 6, SQL_C_LONG, &敏捷, sizeof(敏捷), NULL);
-					SQLGetData(对话框指针->SQL语句句柄, 7, SQL_C_LONG, &意念, sizeof(意念), NULL);
-					SQLGetData(对话框指针->SQL语句句柄, 8, SQL_C_LONG, &灵力, sizeof(灵力), NULL);
+			if (!Hook代码.IsEmpty())
+			{
+				对话框指针->发送到客户端(客户端套接字, _T("HOOK_CODE:") + Hook代码);
+				对话框指针->添加信息显示(客户端IP + _T(" 获取HOOK代码: ") + Hook名称);
+			}
+			else
+			{
+				对话框指针->发送到客户端(客户端套接字, _T("HOOK_CODE_NOT_FOUND"));
+				对话框指针->添加信息显示(客户端IP + _T(" 请求的HOOK不存在: ") + Hook名称);
+			}
+		}
+		else if (客户端请求.Find(_T("REBORN:")) == 0)
+		{
+			// 处理转生请求 - 格式: REBORN:username:charname
+			CString 转生数据 = 客户端请求.Mid(7); // 去掉"REBORN:"
+			int 分隔符 = 转生数据.Find(':');
 
-					CString 响应数据;
-					响应数据.Format(_T("CHAR_INFO:%d:%d:%d:%d:%d:%d:%d:%d"),
-						职业代码, 战斗等级, 累计等级, 剩余点数, 力量, 敏捷, 意念, 灵力);
+			if (分隔符 != -1)
+			{
+				CString 用户名 = 转生数据.Left(分隔符);
+				CString 角色名 = 转生数据.Mid(分隔符 + 1);
 
-					对话框指针->发送到客户端(客户端套接字, 响应数据);
-					对话框指针->添加信息显示(客户端IP + _T(" 查询角色信息: ") + 角色名);
+				BOOL 转生结果 = 对话框指针->处理角色转生(用户名, 角色名);
+
+				if (转生结果)
+				{
+					对话框指针->发送到客户端(客户端套接字, _T("REBORN_SUCCESS:转生成功"));
+					对话框指针->添加信息显示(客户端IP + _T(" 角色转生成功: ") + 角色名);
 				}
 				else
 				{
-					对话框指针->发送到客户端(客户端套接字, _T("CHAR_INFO_FAILED:角色不存在"));
+					对话框指针->发送到客户端(客户端套接字, _T("REBORN_FAILED:转生失败"));
+					对话框指针->添加信息显示(客户端IP + _T(" 角色转生失败: ") + 角色名);
 				}
-				SQLCloseCursor(对话框指针->SQL语句句柄);
 			}
 			else
 			{
-				对话框指针->发送到客户端(客户端套接字, _T("CHAR_INFO_FAILED:查询失败"));
+				对话框指针->发送到客户端(客户端套接字, _T("REBORN_FAILED:无效的转生数据格式"));
+				对话框指针->添加信息显示(客户端IP + _T(" 转生数据格式错误"));
 			}
 		}
-	}
-	
+		else if (客户端请求.Find(_T("ADD_POINTS:")) == 0)
+		{
+			// 处理加点请求 - 格式: ADD_POINTS:username:charname:str:dex:esp:spt
+			CString 加点数据 = 客户端请求.Mid(11); // 去掉"ADD_POINTS:"
 
-	// 关闭连接
+			CStringArray 参数数组;
+			int 起始位置 = 0;
+			CString 临时字符串 = 加点数据.Tokenize(_T(":"), 起始位置);
+			while (!临时字符串.IsEmpty())
+			{
+				参数数组.Add(临时字符串);
+				临时字符串 = 加点数据.Tokenize(_T(":"), 起始位置);
+			}
+
+			if (参数数组.GetSize() == 6)
+			{
+				CString 用户名 = 参数数组[0];
+				CString 角色名 = 参数数组[1];
+				int 力量 = _ttoi(参数数组[2]);
+				int 敏捷 = _ttoi(参数数组[3]);
+				int 意念 = _ttoi(参数数组[4]);
+				int 灵力 = _ttoi(参数数组[5]);
+
+				BOOL 加点结果 = 对话框指针->处理角色加点(用户名, 角色名, 力量, 敏捷, 意念, 灵力);
+
+				if (加点结果)
+				{
+					对话框指针->发送到客户端(客户端套接字, _T("ADD_POINTS_SUCCESS:加点成功"));
+					对话框指针->添加信息显示(客户端IP + _T(" 角色加点成功: ") + 角色名);
+				}
+				else
+				{
+					对话框指针->发送到客户端(客户端套接字, _T("ADD_POINTS_FAILED:加点失败"));
+					对话框指针->添加信息显示(客户端IP + _T(" 角色加点失败: ") + 角色名);
+				}
+			}
+			else
+			{
+				对话框指针->发送到客户端(客户端套接字, _T("ADD_POINTS_FAILED:无效的加点数据格式"));
+				对话框指针->添加信息显示(客户端IP + _T(" 加点数据格式错误"));
+			}
+		}
+		else if (客户端请求.Find(_T("GET_CHAR_INFO:")) == 0)
+		{
+			// 获取角色信息 - 格式: GET_CHAR_INFO:username:charname
+			CString 查询数据 = 客户端请求.Mid(14); // 去掉"GET_CHAR_INFO:"
+			int 分隔符 = 查询数据.Find(':');
+
+			if (分隔符 != -1)
+			{
+				CString 用户名 = 查询数据.Left(分隔符);
+				CString 角色名 = 查询数据.Mid(分隔符 + 1);
+
+				// 查询角色信息
+				CString 查询语句;
+				查询语句.Format(_T("SELECT baseskill, Lv, lv + relvC AS total_lv, lvpoint, Str, Dex, Esp, Spt FROM CharInfo WHERE charname = '%s'"), 角色名);
+
+				SQLRETURN retcode = SQLExecDirectW(对话框指针->SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
+				if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+				{
+					retcode = SQLFetch(对话框指针->SQL语句句柄);
+					if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+					{
+						SQLINTEGER 职业代码, 战斗等级, 累计等级, 剩余点数, 力量, 敏捷, 意念, 灵力;
+
+						SQLGetData(对话框指针->SQL语句句柄, 1, SQL_C_LONG, &职业代码, sizeof(职业代码), NULL);
+						SQLGetData(对话框指针->SQL语句句柄, 2, SQL_C_LONG, &战斗等级, sizeof(战斗等级), NULL);
+						SQLGetData(对话框指针->SQL语句句柄, 3, SQL_C_LONG, &累计等级, sizeof(累计等级), NULL);
+						SQLGetData(对话框指针->SQL语句句柄, 4, SQL_C_LONG, &剩余点数, sizeof(剩余点数), NULL);
+						SQLGetData(对话框指针->SQL语句句柄, 5, SQL_C_LONG, &力量, sizeof(力量), NULL);
+						SQLGetData(对话框指针->SQL语句句柄, 6, SQL_C_LONG, &敏捷, sizeof(敏捷), NULL);
+						SQLGetData(对话框指针->SQL语句句柄, 7, SQL_C_LONG, &意念, sizeof(意念), NULL);
+						SQLGetData(对话框指针->SQL语句句柄, 8, SQL_C_LONG, &灵力, sizeof(灵力), NULL);
+
+						CString 响应数据;
+						响应数据.Format(_T("CHAR_INFO:%d:%d:%d:%d:%d:%d:%d:%d"),
+							职业代码, 战斗等级, 累计等级, 剩余点数, 力量, 敏捷, 意念, 灵力);
+
+						对话框指针->发送到客户端(客户端套接字, 响应数据);
+						对话框指针->添加信息显示(客户端IP + _T(" 查询角色信息: ") + 角色名);
+					}
+					else
+					{
+						对话框指针->发送到客户端(客户端套接字, _T("CHAR_INFO_FAILED:角色不存在"));
+					}
+					SQLCloseCursor(对话框指针->SQL语句句柄);
+				}
+				else
+				{
+					对话框指针->发送到客户端(客户端套接字, _T("CHAR_INFO_FAILED:查询失败"));
+				}
+			}
+		}
+		else
+		{
+			// 未知请求
+			对话框指针->发送到客户端(客户端套接字, _T("UNKNOWN_COMMAND"));
+			对话框指针->添加信息显示(客户端IP + _T(" 未知请求: ") + 客户端请求);
+		}
+	}
+
+	// 只有在连接出错或服务器停止时才关闭连接
 	对话框指针->移除客户端连接(客户端套接字);
 	closesocket(客户端套接字);
 
@@ -1161,18 +1134,30 @@ BOOL NageDlqServerDlg::发送到客户端(SOCKET 客户端套接字, const CStri
 // 从客户端接收
 CString NageDlqServerDlg::从客户端接收(SOCKET 客户端套接字)
 {
-	char 缓冲区[4096];  // 增大缓冲区
+	char 缓冲区[4096];
 	memset(缓冲区, 0, sizeof(缓冲区));
 
+	// 移除超时设置，使用阻塞模式正常接收
+	// struct timeval 超时;
+	// 超时.tv_sec = 5;
+	// 超时.tv_usec = 0;
+	// setsockopt(客户端套接字, SOL_SOCKET, SO_RCVTIMEO, (char*)&超时, sizeof(超时));
+
 	int 接收长度 = recv(客户端套接字, 缓冲区, sizeof(缓冲区) - 1, 0);
+
 	if (接收长度 > 0)
 	{
 		缓冲区[接收长度] = '\0';
 
 		// 调试信息
-		TRACE(_T("接收到的原始数据: %hs\n"), 缓冲区);
+		TRACE(_T("接收到的原始数据(长度%d): "), 接收长度);
+		for (int i = 0; i < 接收长度; i++) {
+			TRACE(_T("%02x "), (unsigned char)缓冲区[i]);
+		}
+		TRACE(_T("\n"));
+		TRACE(_T("接收到的文本: %hs\n"), 缓冲区);
 
-		// 转换为宽字符
+		// 尝试UTF-8转换
 		int 宽字符长度 = MultiByteToWideChar(CP_UTF8, 0, 缓冲区, 接收长度, NULL, 0);
 		if (宽字符长度 > 0)
 		{
@@ -1183,25 +1168,42 @@ CString NageDlqServerDlg::从客户端接收(SOCKET 客户端套接字)
 			CString 结果(宽字符缓冲区);
 			delete[] 宽字符缓冲区;
 
-			TRACE(_T("转换后的数据: %s\n"), 结果);
+			TRACE(_T("UTF-8转换后的数据: %s\n"), 结果);
 			return 结果;
 		}
-
-		return CString(缓冲区);  // 如果转换失败，返回原始ANSI字符串
+		else
+		{
+			// 如果UTF-8转换失败，尝试ANSI
+			CString 结果(缓冲区);
+			TRACE(_T("UTF-8转换失败，使用ANSI: %s\n"), 结果);
+			return 结果;
+		}
 	}
-	return _T("");
+	else if (接收长度 == 0)
+	{
+		TRACE(_T("客户端正常关闭连接\n"));
+		return _T("");
+	}
+	else
+	{
+		int 错误码 = WSAGetLastError();
+		TRACE(_T("接收数据错误，错误码: %d\n"), 错误码);
+
+		// 如果是阻塞操作被中断，继续等待
+		if (错误码 == WSAEWOULDBLOCK) {
+			return _T(""); // 返回空但不视为错误
+		}
+
+		return _T(""); // 其他错误返回空
+	}
 }
 
-// 注册处理函数
+// 处理用户注册函数
 BOOL NageDlqServerDlg::处理用户注册(const CString& 用户名, const CString& 密码, const CString& 邮箱)
 {
-	// 添加调试信息
-	添加信息显示(_T("开始处理注册: 用户名=") + 用户名 + _T(", 密码=") + 密码 + _T(", 邮箱=") + 邮箱);
-
 	// 验证用户名规则：只能包含字母和数字，最长12位
 	if (用户名.GetLength() > 12 || 用户名.IsEmpty())
 	{
-		添加信息显示(_T("注册失败: 用户名长度不符合要求"));
 		return FALSE;
 	}
 
@@ -1212,7 +1214,6 @@ BOOL NageDlqServerDlg::处理用户注册(const CString& 用户名, const CStrin
 			(c >= _T('A') && c <= _T('Z')) ||
 			(c >= _T('0') && c <= _T('9'))))
 		{
-			添加信息显示(_T("注册失败: 用户名包含非法字符"));
 			return FALSE;
 		}
 	}
@@ -1220,7 +1221,6 @@ BOOL NageDlqServerDlg::处理用户注册(const CString& 用户名, const CStrin
 	// 验证密码长度
 	if (密码.GetLength() > 12 || 密码.IsEmpty())
 	{
-		添加信息显示(_T("注册失败: 密码长度不符合要求"));
 		return FALSE;
 	}
 
@@ -1235,7 +1235,6 @@ BOOL NageDlqServerDlg::处理用户注册(const CString& 用户名, const CStrin
 		retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)检查语句.GetString(), SQL_NTS);
 		if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO)
 		{
-			添加信息显示(_T("注册失败: 数据库查询错误"));
 			SQLCloseCursor(SQL语句句柄);
 			return FALSE;
 		}
@@ -1248,7 +1247,6 @@ BOOL NageDlqServerDlg::处理用户注册(const CString& 用户名, const CStrin
 
 			if (数量 > 0)
 			{
-				添加信息显示(_T("注册失败: 用户名已存在 - ") + 用户名);
 				SQLCloseCursor(SQL语句句柄);
 				return FALSE;
 			}
@@ -1285,7 +1283,6 @@ BOOL NageDlqServerDlg::处理用户注册(const CString& 用户名, const CStrin
 		{
 			// 提交事务
 			SQLEndTran(SQL_HANDLE_DBC, SQL连接句柄, SQL_COMMIT);
-			添加信息显示(_T("注册成功: ") + 用户名);
 			return TRUE;
 		}
 		else
@@ -1300,7 +1297,6 @@ BOOL NageDlqServerDlg::处理用户注册(const CString& 用户名, const CStrin
 
 			CString 错误信息;
 			错误信息.Format(_T("注册失败: %s"), CString(message));
-			添加信息显示(错误信息);
 
 			// 回滚事务
 			SQLEndTran(SQL_HANDLE_DBC, SQL连接句柄, SQL_ROLLBACK);
@@ -1309,7 +1305,6 @@ BOOL NageDlqServerDlg::处理用户注册(const CString& 用户名, const CStrin
 	}
 	catch (...)
 	{
-		添加信息显示(_T("注册失败: 发生未知错误"));
 		return FALSE;
 	}
 }

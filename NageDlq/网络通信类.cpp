@@ -64,16 +64,33 @@ BOOL 网络通信类::发送数据(const CString& 数据)
     // 添加换行符作为结束标记
     CString 发送数据 = 数据 + _T("\n");
 
-    // 发送数据
-    int 发送结果 = Send((LPCTSTR)发送数据, 发送数据.GetLength() * sizeof(TCHAR));
-
-    if (发送结果 == SOCKET_ERROR)
+    // 转换为UTF-8
+    int 字节长度 = WideCharToMultiByte(CP_UTF8, 0, 发送数据, -1, NULL, 0, NULL, NULL);
+    if (字节长度 <= 0)
     {
-        TRACE(_T("发送数据失败\n"));
+        TRACE(_T("转换数据到UTF-8失败\n"));
         return FALSE;
     }
 
-    TRACE(_T("发送数据: %s\n"), 发送数据);
+    char* 字节缓冲区 = new char[字节长度];
+    WideCharToMultiByte(CP_UTF8, 0, 发送数据, -1, 字节缓冲区, 字节长度, NULL, NULL);
+
+    // 发送数据 - 确保发送完整数据
+    int 总发送长度 = 0;
+    while (总发送长度 < 字节长度 - 1)  // -1 去掉null终止符
+    {
+        int 本次发送长度 = Send(字节缓冲区 + 总发送长度, 字节长度 - 1 - 总发送长度);
+        if (本次发送长度 == SOCKET_ERROR)
+        {
+            TRACE(_T("发送数据失败\n"));
+            delete[] 字节缓冲区;
+            return FALSE;
+        }
+        总发送长度 += 本次发送长度;
+    }
+
+    TRACE(_T("发送数据成功: %s\n"), 发送数据);
+    delete[] 字节缓冲区;
     return TRUE;
 }
 
@@ -120,16 +137,20 @@ void 网络通信类::OnConnect(int 错误代码)
         // 通知主窗口连接成功
         if (回调窗口指针 && 消息回调函数)
         {
-            (回调窗口指针->*消息回调函数)(CString(_T("CONNECT_SUCCESS")));
+            // 使用PostMessage确保线程安全
+            CString* p消息 = new CString(_T("CONNECT_SUCCESS"));
+            ::PostMessage(回调窗口指针->GetSafeHwnd(), WM_USER + 100, 0, (LPARAM)p消息);
         }
     }
     else
     {
         TRACE(_T("连接失败，错误代码: %d\n"), 错误代码);
+        连接状态 = FALSE;
 
         if (回调窗口指针 && 消息回调函数)
         {
-            (回调窗口指针->*消息回调函数)(CString(_T("CONNECT_FAILED")));
+            CString* p消息 = new CString(_T("CONNECT_FAILED"));
+            ::PostMessage(回调窗口指针->GetSafeHwnd(), WM_USER + 100, 0, (LPARAM)p消息);
         }
     }
 
@@ -141,8 +162,6 @@ void 网络通信类::OnReceive(int 错误代码)
 {
     if (错误代码 != 0)
     {
-        TRACE(_T("接收数据错误，错误代码: %d\n"), 错误代码);
-        CAsyncSocket::OnReceive(错误代码);
         return;
     }
 
@@ -151,63 +170,38 @@ void 网络通信类::OnReceive(int 错误代码)
     TCHAR 缓冲区[缓冲区大小];
     int 接收长度;
 
-    do
+    while ((接收长度 = Receive(缓冲区, 缓冲区大小 - 1)) > 0)
     {
-        接收长度 = Receive(缓冲区, 缓冲区大小 - 1);
-        if (接收长度 == SOCKET_ERROR)
-        {
-            int 错误 = GetLastError();
-            if (错误 != WSAEWOULDBLOCK)
-            {
-                TRACE(_T("接收数据错误: %d\n"), 错误);
-            }
-            break;
-        }
-        else if (接收长度 > 0)
-        {
-            缓冲区[接收长度] = _T('\0');
-            接收缓冲区 += 缓冲区;
+        缓冲区[接收长度] = _T('\0');
+        接收缓冲区 += 缓冲区;
+    }
 
-            // 解析接收到的数据
-            解析接收数据(接收缓冲区);
-        }
-    } while (接收长度 == 缓冲区大小 - 1);
-
-    CAsyncSocket::OnReceive(错误代码);
+    // 解析并发送消息到主线程
+    解析接收数据(接收缓冲区);
+    接收缓冲区.Empty();
 }
 
 // 解析接收到的数据
 void 网络通信类::解析接收数据(const CString& 数据)
 {
-    //int 起始位置 = 0;
-    //CString 临时数据 = 数据;
-    CString 临时数据 = 接收缓冲区 + 数据;      //接收缓冲区= 接收数据
-    接收缓冲区.Empty();
-
-    // 按换行符分割数据
+    CString 临时数据 = 数据;
     int 换行位置;
+
     while ((换行位置 = 临时数据.Find(_T('\n'))) != -1)
     {
         CString 单条数据 = 临时数据.Left(换行位置);
         临时数据 = 临时数据.Mid(换行位置 + 1);
+        单条数据.TrimRight(_T("\r"));
 
-        单条数据.TrimRight(_T("\r"));   //去除可能的回车
-
-        // 处理单条数据
-        if (!单条数据.IsEmpty())
+        if (!单条数据.IsEmpty() && 回调窗口指针)
         {
-            TRACE(_T("接收到数据: %s\n"), 单条数据);
-
-            // 回调到主窗口处理
-            if (回调窗口指针 && 消息回调函数)
-            {
-                (回调窗口指针->*消息回调函数)(单条数据);
-            }
+            // 使用PostMessage确保线程安全
+            ::PostMessage(回调窗口指针->GetSafeHwnd(),
+                WM_USER + 100,
+                0,
+                (LPARAM)new CString(单条数据));
         }
     }
-
-    // 保存剩余数据
-    接收缓冲区 = 临时数据;
 }
 
 // Socket关闭事件
