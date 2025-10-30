@@ -104,6 +104,7 @@ void 注册页面类::OnBnClickedButtonRegConfirm()
 
     // 发送注册请求
     发送注册请求();
+    
 }
 
 // 显示注册状态函数

@@ -84,9 +84,14 @@ void 登录页面类::OnBnClickedButtonLogin()
 		return;
 	}
 
+	// 防止重复点击
+	登录按钮.EnableWindow(FALSE);
+
 	// 构建登录请求
 	CString 登录请求;
 	登录请求.Format(_T("LOGIN:%s:%s"), 用户名, 密码);
+
+	TRACE(_T("发送登录请求: %s\n"), 登录请求);
 
 	/// 通过主对话框发送请求
 	CWnd* 主窗口 = AfxGetMainWnd();
@@ -95,14 +100,23 @@ void 登录页面类::OnBnClickedButtonLogin()
 		NageDlqDlg* 主对话框 = dynamic_cast<NageDlqDlg*>(主窗口);
 		if (主对话框 && 主对话框->发送请求到服务端(登录请求))
 		{
-			MessageBox(_T("登录请求已发送，请等待验证"), _T("提示"), MB_ICONINFORMATION);
+			TRACE(_T("登录请求发送成功\n"));
+			// 3秒后重新启用按钮，防止重复发送
+			SetTimer(100, 3000, nullptr);
 		}
 		else
 		{
+			TRACE(_T("发送登录请求失败\n"));
 			MessageBox(_T("发送登录请求失败"), _T("错误"), MB_ICONERROR);
+			登录按钮.EnableWindow(TRUE);
 		}
 	}
+	else
+	{
+		登录按钮.EnableWindow(TRUE);
+	}
 }
+
 
 // 点击启动按钮
 void 登录页面类::OnBnClickedButtonStart()		

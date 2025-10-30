@@ -220,12 +220,20 @@ BOOL NageDlqDlg::初始化网络通信()
 // 实现消息处理函数
 LRESULT NageDlqDlg::OnNetworkMessage(WPARAM wParam, LPARAM lParam)
 {
+	TRACE(_T("=== OnNetworkMessage被调用 ===\n"));
+
 	CString* pMsg = (CString*)lParam;
 	if (pMsg)
 	{
+		TRACE(_T("收到网络消息: %s\n"), *pMsg);
 		处理网络消息(*pMsg);
 		delete pMsg;
 	}
+	else
+	{
+		TRACE(_T("收到空消息指针\n"));
+	}
+
 	return 0;
 }
 
@@ -251,11 +259,13 @@ BOOL NageDlqDlg::初始化网络通信()
 	// 尝试连接服务端
 	if (网络通信.连接服务端(_T("127.0.0.1"), 9896))
 	{
-		TRACE(_T("连接服务端成功，发送连接请求\n"));
+		TRACE(_T("连接服务端成功"));
 
 		// 发送连接请求
 		CString 连接请求;
-		连接请求.Format(_T("CONNECT:1.0.0:127.0.0.1"));
+		连接请求.Format(_T("CONNECT:1.0.0:127.0.0.1\n"));
+
+		TRACE(_T("准备发送连接请求: %s\n"), 连接请求);
 
 		if (网络通信.发送数据(连接请求))
 		{
@@ -280,19 +290,21 @@ BOOL NageDlqDlg::初始化网络通信()
 // 处理网络消息
 void NageDlqDlg::处理网络消息(CString 消息)
 {
-	TRACE(_T("处理网络消息: %s\n"), 消息);
+	TRACE(_T("=== 处理网络消息开始 ===\n"));
+	TRACE(_T("原始消息: %s\n"), 消息);
 
-	if (消息 == _T("CONNECT_SUCCESS"))
+	// 检查消息是否包含注册响应
+	if (消息.Find(_T("REGISTER_")) == 0)
 	{
-		TRACE(_T("连接成功，但未收到密钥\n"));
-		// 这种情况不应该发生，连接成功应该包含密钥
-		登录页面.权限状态.SetWindowText(_T("状态：已连接，等待密钥"));
+		TRACE(_T("检测到注册响应消息\n"));
+		处理注册响应(消息);
 	}
 	else if (消息.Find(_T("CONNECT_SUCCESS:")) == 0)
 	{
+		TRACE(_T("检测到带密钥的连接成功消息\n"));
 		// 解析连接成功响应 - 格式: CONNECT_SUCCESS:密钥:版本号
 		CString 响应数据 = 消息.Mid(16); // 去掉"CONNECT_SUCCESS:"
-		TRACE(_T("连接成功响应数据: %s\n"), 响应数据);
+		TRACE(_T("响应数据: %s\n"), 响应数据);
 
 		int 分隔符位置 = 响应数据.Find(':');
 
@@ -303,56 +315,46 @@ void NageDlqDlg::处理网络消息(CString 消息)
 
 			TRACE(_T("解析密钥: %s, 版本: %s\n"), 密钥, 版本号);
 
-			// 更新状态标签
+			// 更新状态标签为密钥信息
 			CString 状态文本;
 			if (密钥 == _T("chenge"))
 			{
-				状态文本 = _T("状态：权限全开 (") + 密钥 + _T(")");
+				状态文本 = _T("状态：权限全开");
 			}
 			else if (密钥 == _T("alucard"))
 			{
-				状态文本 = _T("状态：限制权限 (") + 密钥 + _T(")");
+				状态文本 = _T("状态：限制权限");
 			}
 			else if (密钥 == _T("feier"))
 			{
-				状态文本 = _T("状态：未授权 (") + 密钥 + _T(")");
+				状态文本 = _T("状态：未授权");
 			}
 			else
 			{
-				状态文本 = _T("状态：") + 密钥;
+				状态文本.Format(_T("状态：%s"), 密钥);
 			}
+
 			TRACE(_T("设置状态文本: %s\n"), 状态文本);
 			登录页面.权限状态.SetWindowText(状态文本);
 		}
-		else
-		{
-			TRACE(_T("密钥解析失败\n"));
-			登录页面.权限状态.SetWindowText(_T("状态：密钥解析失败"));
-		}
 	}
-	else if (消息 == _T("CONNECT_FAILED"))
+	else if (消息 == _T("CONNECT_SUCCESS"))
 	{
-		添加信息显示(_T("连接服务端失败"));
-		登录页面.权限状态.SetWindowText(_T("状态：连接失败"));
-	}
-	else if (消息 == _T("CONNECTION_CLOSED"))
-	{
-		添加信息显示(_T("与服务端的连接已断开"));
-		登录页面.权限状态.SetWindowText(_T("状态：连接断开"));
-	}
-	else if (消息.Find(_T("REGISTER_")) == 0)
-	{
-		处理注册响应(消息);
+		TRACE(_T("检测到不带密钥的连接成功消息\n"));
+		登录页面.权限状态.SetWindowText(_T("状态：已连接"));
 	}
 	else if (消息.Find(_T("LOGIN_")) == 0)
 	{
+		TRACE(_T("检测到登录响应消息\n"));
 		// 处理登录响应
 		登录页面.处理登录响应(消息);
 	}
 	else
 	{
-		添加信息显示(CString(_T("收到未知响应: ")) + 消息);
+		TRACE(_T("未知消息类型\n"));
 	}
+
+	TRACE(_T("=== 处理网络消息结束 ===\n"));
 }
 
 // 发送请求到服务端

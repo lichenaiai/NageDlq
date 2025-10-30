@@ -35,6 +35,8 @@ BOOL 网络通信类::连接服务端(const CString& 地址, UINT 端口)
     服务端地址 = 地址;
     服务端端口 = 端口;
 
+    TRACE(_T("开始创建Socket\n"));
+
     // 创建socket
     if (!Create())
     {
@@ -42,13 +44,25 @@ BOOL 网络通信类::连接服务端(const CString& 地址, UINT 端口)
         return FALSE;
     }
 
+    TRACE(_T("Socket创建成功，开始连接: %s:%d\n"), 地址, 端口);
+
     // 连接到服务端
     if (!Connect(地址, 端口))
     {
-        TRACE(_T("连接服务端失败\n"));
-        return FALSE;
+        int 错误码 = GetLastError();
+        if (错误码 != WSAEWOULDBLOCK)
+        {
+            TRACE(_T("连接服务端失败，错误码: %d\n"), 错误码);
+            return FALSE;
+        }
+        else
+        {
+            TRACE(_T("连接操作正在进行(非阻塞)\n"));
+            return TRUE; // 非阻塞连接，返回TRUE等待OnConnect回调
+        }
     }
 
+    TRACE(_T("连接立即成功\n"));
     return TRUE;
 }
 
@@ -184,7 +198,9 @@ void 网络通信类::OnReceive(int 错误代码)
 // 解析接收到的数据
 void 网络通信类::解析接收数据(const CString& 数据)
 {
-    CString 临时数据 = 数据;
+    TRACE(_T("开始解析接收数据: %s\n"), 数据);
+    CString 临时数据 = 接收缓冲区 + 数据;
+    接收缓冲区.Empty();
     int 换行位置;
 
     while ((换行位置 = 临时数据.Find(_T('\n'))) != -1)
@@ -193,15 +209,28 @@ void 网络通信类::解析接收数据(const CString& 数据)
         临时数据 = 临时数据.Mid(换行位置 + 1);
         单条数据.TrimRight(_T("\r"));
 
-        if (!单条数据.IsEmpty() && 回调窗口指针)
+        if (!单条数据.IsEmpty())
         {
-            // 使用PostMessage确保线程安全
-            ::PostMessage(回调窗口指针->GetSafeHwnd(),
-                WM_USER + 100,
-                0,
-                (LPARAM)new CString(单条数据));
+            TRACE(_T("解析到单条数据: %s\n"), 单条数据);
+
+            // 回调到主窗口处理
+            if (回调窗口指针 && 消息回调函数)
+            {
+                TRACE(_T("准备回调处理消息\n"));
+                // 使用PostMessage确保线程安全
+                CString* p消息数据 = new CString(单条数据);
+                BOOL 发送结果 = ::PostMessage(回调窗口指针->GetSafeHwnd(), WM_USER + 100, 0, (LPARAM)p消息数据);
+                TRACE(_T("PostMessage结果: %d\n"), 发送结果);
+            }
+            else
+            {
+                TRACE(_T("回调函数或窗口指针为空\n"));
+            }
         }
     }
+    // 保存剩余数据
+    接收缓冲区 = 临时数据;
+    TRACE(_T("解析完成，剩余缓冲区: %s\n"), 接收缓冲区);
 }
 
 // Socket关闭事件

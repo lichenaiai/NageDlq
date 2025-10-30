@@ -309,6 +309,7 @@ UINT NageDlqServerDlg::服务器线程函数(LPVOID pParam)
 // 客户端线程函数
 UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 {
+	TRACE(_T("=== 客户端线程函数开始 ===\n"));
 	SOCKET 客户端套接字 = (SOCKET)pParam;
 	NageDlqServerDlg* 对话框指针 = (NageDlqServerDlg*)AfxGetApp()->GetMainWnd();
 
@@ -334,6 +335,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 	// 持续处理客户端请求
 	while (对话框指针->服务器运行状态)
 	{
+		TRACE(_T("=== chixuchulikehuduanqingqiu ===\n"));
 		// 接收客户端请求
 		CString 客户端请求 = 对话框指针->从客户端接收(客户端套接字);
 
@@ -374,19 +376,29 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		}
 
 		// 解析请求
+		//连接请求
+		TRACE(_T("开始解析请求: %s\n"), 客户端请求);  // 添加这行
 		if (客户端请求.Find(_T("CONNECT:")) == 0)
 		{
+			TRACE(_T("=== 处理连接请求开始 ===\n"));
+
 			// 处理连接验证请求 - 格式: CONNECT:客户端版本号:客户端IP
 			CString 连接数据 = 客户端请求.Mid(8); // 去掉"CONNECT:"
+			TRACE(_T("连接数据: %s\n"), 连接数据);
+
 			int 分隔符位置 = 连接数据.Find(':');
 			if (分隔符位置 != -1)
 			{
 				CString 客户端版本号 = 连接数据.Left(分隔符位置);
 				CString 客户端IP = 连接数据.Mid(分隔符位置 + 1);
 
+				TRACE(_T("客户端版本: %s, IP: %s\n"), 客户端版本号, 客户端IP);
+
 				// 查询数据库获取密钥和最新版本号
 				CString 客户端密钥 = 对话框指针->获取客户端密钥();
 				CString 最新版本号 = 对话框指针->获取最新版本号();
+
+				TRACE(_T("查询到密钥: %s, 版本: %s\n"), 客户端密钥, 最新版本号);
 
 				// 发送响应
 				CString 响应数据;
@@ -394,23 +406,31 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				{
 					响应数据.Format(_T("CONNECT_SUCCESS:%s:%s"), 客户端密钥, 最新版本号);
 					对话框指针->添加信息显示(客户端IP + _T(" 连接验证成功，版本: ") + 客户端版本号);
+					TRACE(_T("发送连接成功响应: %s\n"), 响应数据);
 				}
 				else
 				{
 					响应数据 = _T("CONNECT_FAILED:服务端配置错误");
 					对话框指针->添加信息显示(客户端IP + _T(" 连接验证失败"));
+					TRACE(_T("发送连接失败响应\n"));
 				}
 
-				对话框指针->发送到客户端(客户端套接字, 响应数据);
+				// 发送响应
+				BOOL 发送结果 = 对话框指针->发送到客户端(客户端套接字, 响应数据);
+				TRACE(_T("发送响应结果: %d\n"), 发送结果);
 			}
 			else
 			{
+				TRACE(_T("连接数据格式错误\n"));
 				对话框指针->发送到客户端(客户端套接字, _T("CONNECT_FAILED:无效的连接数据格式"));
 				对话框指针->添加信息显示(客户端IP + _T(" 连接数据格式错误"));
 			}
+			TRACE(_T("=== 处理连接请求结束 ===\n"));
 		}
+		//登录请求
 		else if (客户端请求.Find(_T("LOGIN:")) == 0)
 		{
+			TRACE(_T("=== 登录请求开始 ===\n"));
 			// 先记录请求，再处理
 			if (!客户端IP.IsEmpty())
 			{
@@ -459,10 +479,21 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				对话框指针->添加信息显示(客户端IP + _T(" 登录数据格式错误"));
 			}
 		}
+		//注册请求
 		else if (客户端请求.Find(_T("REGISTER:")) == 0)
 		{
+			TRACE(_T("=== 注册请求开始 ===\n"));
 			// 处理注册请求 - 格式: REGISTER:username:password:email
 			CString 注册数据 = 客户端请求.Mid(9); // 去掉"REGISTER:"
+			TRACE(_T("注册数据: %s\n"), 注册数据);
+
+			// 只保留请求日志
+			if (!客户端IP.IsEmpty())
+			{
+				CString 完整请求信息;
+				完整请求信息.Format(_T(" 请求: [%s], 长度: %d"), 客户端请求, 客户端请求.GetLength());
+				对话框指针->添加信息显示(客户端IP + 完整请求信息);
+			}
 
 			CStringArray 参数数组;
 			int 起始位置 = 0;
@@ -480,17 +511,28 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				CString 密码 = 参数数组[1];
 				CString 邮箱 = 参数数组[2];
 
+				TRACE(_T("解析参数 - 用户: %s, 密码: %s, 邮箱: %s\n"), 用户名, 密码, 邮箱);
+
 				// 处理注册
 				BOOL 注册结果 = 对话框指针->处理用户注册(用户名, 密码, 邮箱);
+				TRACE(_T("注册处理结果: %d\n"), 注册结果);
 
 				if (注册结果)
 				{
-					对话框指针->发送到客户端(客户端套接字, _T("REGISTER_SUCCESS:注册成功"));
+					CString 响应数据 = _T("REGISTER_SUCCESS:注册成功");
+					TRACE(_T("发送注册成功响应: %s\n"), 响应数据);
+					BOOL 发送结果 = 对话框指针->发送到客户端(客户端套接字, 响应数据);
+					TRACE(_T("发送响应结果: %d\n"), 发送结果);
+					// 只保留最终结果日志
 					对话框指针->添加信息显示(客户端IP + _T(" 注册成功 - 用户名: ") + 用户名);
 				}
 				else
 				{
-					对话框指针->发送到客户端(客户端套接字, _T("REGISTER_FAILED:注册失败"));
+					CString 响应数据 = _T("REGISTER_FAILED:注册失败");
+					TRACE(_T("发送注册失败响应: %s\n"), 响应数据);
+					BOOL 发送结果 = 对话框指针->发送到客户端(客户端套接字, 响应数据);
+					TRACE(_T("发送响应结果: %d\n"), 发送结果);
+					// 只保留最终结果日志
 					对话框指针->添加信息显示(客户端IP + _T(" 注册失败 - 用户名: ") + 用户名);
 				}
 			}
@@ -498,9 +540,14 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			{
 				CString 错误信息;
 				错误信息.Format(_T("注册数据格式错误，参数数量: %d"), 参数数组.GetSize());
+				TRACE(_T("注册数据格式错误: %s\n"), 错误信息);
+				CString 响应数据 = _T("REGISTER_FAILED:") + 错误信息;
+				BOOL 发送结果 = 对话框指针->发送到客户端(客户端套接字, 响应数据);
+				TRACE(_T("发送错误响应结果: %d\n"), 发送结果);
+				// 只保留最终结果日志
 				对话框指针->添加信息显示(客户端IP + _T(" ") + 错误信息);
-				对话框指针->发送到客户端(客户端套接字, _T("REGISTER_FAILED:") + 错误信息);
 			}
+			TRACE(_T("=== 处理注册请求结束 ===\n"));
 		}
 		else if (客户端请求 == _T("GET_HOOKS"))
 		{
@@ -664,6 +711,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		}
 		else
 		{
+			TRACE(_T("=== weizhiqingqiu ===\n"));
 			// 未知请求
 			对话框指针->发送到客户端(客户端套接字, _T("UNKNOWN_COMMAND"));
 			对话框指针->添加信息显示(客户端IP + _T(" 未知请求: ") + 客户端请求);
@@ -848,6 +896,7 @@ CString NageDlqServerDlg::获取客户端密钥()
 	SQLRETURN retcode;
 	CString 查询语句 = _T("SELECT TOP 1 pw FROM my ORDER BY [index] DESC");
 	
+
 	// 执行SQL查询
 	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO) {
@@ -864,6 +913,7 @@ CString NageDlqServerDlg::获取客户端密钥()
 
 		SQLCloseCursor(SQL语句句柄);
 		return CString(客户端密钥); // 返回实际的密钥值，如"chenge"
+		TRACE(_T("获取客户端密钥: %s\n"), 客户端密钥);
 	}
 
 	SQLCloseCursor(SQL语句句柄);
