@@ -364,3 +364,11 @@ FodyWeavers.xsd
 /NageDlqServer/NageDlqServerDlg.cpp
 /.gitignore
 /.gitignore
+/NageDlq/NageDlq.rc
+/NageDlq/NageDlqDlg.cpp
+/NageDlq/NageDlqDlg.h
+/NageDlq/resource.h
+/NageDlq/注册页面类.cpp
+/NageDlq/注册页面类.h
+/NageDlq/登录页面类.cpp
+/NageDlq/网络通信类.cpp
