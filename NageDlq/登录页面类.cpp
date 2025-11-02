@@ -57,11 +57,24 @@ BOOL 登录页面类::OnInitDialog()
 	// 加载背景图片
 	HBITMAP 背景位图 = (HBITMAP)LoadImage(AfxGetInstanceHandle(),
 		MAKEINTRESOURCE(IDB_LOGIN_MAP),
-		IMAGE_BITMAP, 818, 600, LR_DEFAULTCOLOR);
+		IMAGE_BITMAP, 825, 490, LR_DEFAULTCOLOR);
 
 	if (背景位图 != NULL)
 	{
+		// 设置背景图片
 		背景图片.SetBitmap(背景位图);
+
+		// 获取图片尺寸并调整控件大小
+		BITMAP bmpInfo;
+		GetObject(背景位图, sizeof(BITMAP), &bmpInfo);
+
+		// 调整背景图片控件大小以适应图片
+		背景图片.SetWindowPos(NULL, 800, 600, bmpInfo.bmWidth, bmpInfo.bmHeight,
+			SWP_NOZORDER | SWP_NOMOVE);
+	}
+	else
+	{
+		TRACE(_T("加载背景图片失败\n"));
 	}
 	
 

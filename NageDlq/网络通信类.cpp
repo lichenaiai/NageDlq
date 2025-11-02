@@ -69,6 +69,14 @@ BOOL 网络通信类::连接服务端(const CString& 地址, UINT 端口)
 // 发送数据到服务端
 BOOL 网络通信类::发送数据(const CString& 数据)
 {
+    // 等待连接建立
+    int 等待次数 = 0;
+    while (!是否已连接() && 等待次数 < 50) // 最多等待5秒
+    {
+        Sleep(100);
+        等待次数++;
+    }
+
     if (!是否已连接())
     {
         TRACE(_T("未连接到服务端，无法发送数据\n"));
@@ -77,6 +85,8 @@ BOOL 网络通信类::发送数据(const CString& 数据)
 
     // 添加换行符作为结束标记
     CString 发送数据 = 数据 + _T("\n");
+
+    TRACE(_T("准备发送数据: %s\n"), 发送数据);
 
     // 转换为UTF-8
     int 字节长度 = WideCharToMultiByte(CP_UTF8, 0, 发送数据, -1, NULL, 0, NULL, NULL);
@@ -89,22 +99,18 @@ BOOL 网络通信类::发送数据(const CString& 数据)
     char* 字节缓冲区 = new char[字节长度];
     WideCharToMultiByte(CP_UTF8, 0, 发送数据, -1, 字节缓冲区, 字节长度, NULL, NULL);
 
-    // 发送数据 - 确保发送完整数据
-    int 总发送长度 = 0;
-    while (总发送长度 < 字节长度 - 1)  // -1 去掉null终止符
+    // 发送数据
+    int 发送结果 = Send(字节缓冲区, 字节长度 - 1);  // -1 去掉null终止符
+
+    delete[] 字节缓冲区;
+
+    if (发送结果 == SOCKET_ERROR)
     {
-        int 本次发送长度 = Send(字节缓冲区 + 总发送长度, 字节长度 - 1 - 总发送长度);
-        if (本次发送长度 == SOCKET_ERROR)
-        {
-            TRACE(_T("发送数据失败\n"));
-            delete[] 字节缓冲区;
-            return FALSE;
-        }
-        总发送长度 += 本次发送长度;
+        TRACE(_T("发送数据失败\n"));
+        return FALSE;
     }
 
-    TRACE(_T("发送数据成功: %s\n"), 发送数据);
-    delete[] 字节缓冲区;
+    TRACE(_T("发送数据成功，发送字节数: %d\n"), 发送结果);
     return TRUE;
 }
 
@@ -148,10 +154,24 @@ void 网络通信类::OnConnect(int 错误代码)
         连接状态 = TRUE;
         TRACE(_T("成功连接到服务端\n"));
 
+        // 连接成功后立即发送连接请求
+        CString 连接请求;
+        连接请求.Format(_T("CONNECT:1.0.0:127.0.0.1\n"));
+
+        TRACE(_T("连接成功，发送连接请求: %s\n"), 连接请求);
+
+        if (发送数据(连接请求))
+        {
+            TRACE(_T("连接请求发送成功\n"));
+        }
+        else
+        {
+            TRACE(_T("连接请求发送失败\n"));
+        }
+
         // 通知主窗口连接成功
         if (回调窗口指针 && 消息回调函数)
         {
-            // 使用PostMessage确保线程安全
             CString* p消息 = new CString(_T("CONNECT_SUCCESS"));
             ::PostMessage(回调窗口指针->GetSafeHwnd(), WM_USER + 100, 0, (LPARAM)p消息);
         }
@@ -176,58 +196,113 @@ void 网络通信类::OnReceive(int 错误代码)
 {
     if (错误代码 != 0)
     {
+        TRACE(_T("OnReceive错误代码: %d\n"), 错误代码);
+        CAsyncSocket::OnReceive(错误代码);
         return;
     }
 
-    // 接收数据
     const int 缓冲区大小 = 1024;
-    TCHAR 缓冲区[缓冲区大小];
+    char 字节缓冲区[缓冲区大小];
     int 接收长度;
 
-    while ((接收长度 = Receive(缓冲区, 缓冲区大小 - 1)) > 0)
+    do
     {
-        缓冲区[接收长度] = _T('\0');
-        接收缓冲区 += 缓冲区;
-    }
+        接收长度 = Receive(字节缓冲区, 缓冲区大小 - 1);
+        if (接收长度 == SOCKET_ERROR)
+        {
+            int 错误 = GetLastError();
+            if (错误 != WSAEWOULDBLOCK)
+            {
+                TRACE(_T("接收数据错误: %d\n"), 错误);
+            }
+            break;
+        }
+        else if (接收长度 > 0)
+        {
+            字节缓冲区[接收长度] = '\0';
+            TRACE(_T("接收到原始字节数据，长度: %d\n"), 接收长度);
 
-    // 解析并发送消息到主线程
-    解析接收数据(接收缓冲区);
-    接收缓冲区.Empty();
+            // 调试输出字节内容
+            TRACE(_T("字节内容: "));
+            for (int i = 0; i < 接收长度; i++) {
+                TRACE(_T("%02x "), (unsigned char)字节缓冲区[i]);
+            }
+            TRACE(_T("\n"));
+
+            // 尝试多种编码转换
+            CString 解析结果;
+
+            // 先尝试UTF-8
+            int 宽字符长度 = MultiByteToWideChar(CP_UTF8, 0, 字节缓冲区, 接收长度, NULL, 0);
+            if (宽字符长度 > 0)
+            {
+                wchar_t* 宽字符缓冲区 = new wchar_t[宽字符长度 + 1];
+                MultiByteToWideChar(CP_UTF8, 0, 字节缓冲区, 接收长度, 宽字符缓冲区, 宽字符长度);
+                宽字符缓冲区[宽字符长度] = L'\0';
+                解析结果 = CString(宽字符缓冲区);
+                delete[] 宽字符缓冲区;
+                TRACE(_T("UTF-8解析结果: %s\n"), 解析结果);
+            }
+            else
+            {
+                // 尝试ANSI
+                解析结果 = CString(字节缓冲区);
+                TRACE(_T("ANSI解析结果: %s\n"), 解析结果);
+            }
+
+            if (!解析结果.IsEmpty())
+            {
+                接收缓冲区 += 解析结果;
+                TRACE(_T("添加到接收缓冲区: %s\n"), 解析结果);
+                解析接收数据(接收缓冲区);
+            }
+        }
+    } while (接收长度 == 缓冲区大小 - 1);
+
+    CAsyncSocket::OnReceive(错误代码);
 }
 
 // 解析接收到的数据
 void 网络通信类::解析接收数据(const CString& 数据)
 {
     TRACE(_T("开始解析接收数据: %s\n"), 数据);
-    CString 临时数据 = 接收缓冲区 + 数据;
-    接收缓冲区.Empty();
+
+    CString 临时数据 = 数据;
     int 换行位置;
 
     while ((换行位置 = 临时数据.Find(_T('\n'))) != -1)
     {
         CString 单条数据 = 临时数据.Left(换行位置);
         临时数据 = 临时数据.Mid(换行位置 + 1);
-        单条数据.TrimRight(_T("\r"));
+
+        单条数据.TrimRight(_T("\r"));   //去除可能的回车
+
+        TRACE(_T("解析到单条数据: %s\n"), 单条数据);
 
         if (!单条数据.IsEmpty())
         {
-            TRACE(_T("解析到单条数据: %s\n"), 单条数据);
-
             // 回调到主窗口处理
             if (回调窗口指针 && 消息回调函数)
             {
-                TRACE(_T("准备回调处理消息\n"));
-                // 使用PostMessage确保线程安全
+                TRACE(_T("准备发送消息到主窗口: %s\n"), 单条数据);
                 CString* p消息数据 = new CString(单条数据);
-                BOOL 发送结果 = ::PostMessage(回调窗口指针->GetSafeHwnd(), WM_USER + 100, 0, (LPARAM)p消息数据);
-                TRACE(_T("PostMessage结果: %d\n"), 发送结果);
-            }
-            else
-            {
-                TRACE(_T("回调函数或窗口指针为空\n"));
+                ::PostMessage(回调窗口指针->GetSafeHwnd(), WM_USER + 100, 0, (LPARAM)p消息数据);
             }
         }
     }
+
+    // 如果没有换行符，直接处理整个数据
+    if (临时数据 == 数据 && !临时数据.IsEmpty())
+    {
+        TRACE(_T("没有换行符，直接处理: %s\n"), 临时数据);
+        if (回调窗口指针 && 消息回调函数)
+        {
+            CString* p消息数据 = new CString(临时数据);
+            ::PostMessage(回调窗口指针->GetSafeHwnd(), WM_USER + 100, 0, (LPARAM)p消息数据);
+        }
+        临时数据.Empty();
+    }
+
     // 保存剩余数据
     接收缓冲区 = 临时数据;
     TRACE(_T("解析完成，剩余缓冲区: %s\n"), 接收缓冲区);

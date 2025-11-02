@@ -372,7 +372,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		{
 			CString 完整请求信息;
 			完整请求信息.Format(_T(" 请求: [%s], 长度: %d"), 客户端请求, 客户端请求.GetLength());
-			对话框指针->添加信息显示(客户端IP + 完整请求信息);
+			//对话框指针->添加信息显示(客户端IP + 完整请求信息);
 		}
 
 		// 解析请求
@@ -436,11 +436,13 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			{
 				CString 完整请求信息;
 				完整请求信息.Format(_T(" 请求: [%s], 长度: %d"), 客户端请求, 客户端请求.GetLength());
-				对话框指针->添加信息显示(客户端IP + 完整请求信息);
+				//对话框指针->添加信息显示(客户端IP + 完整请求信息);
 			}
 
 			// 然后处理登录请求
 			CString 登录数据 = 客户端请求.Mid(6);
+			登录数据.TrimRight(_T("\r\n")); // 去掉末尾的换行符和回车符
+			TRACE(_T("处理后的登录数据: %s\n"), 登录数据);
 
 			CStringArray 参数数组;
 			int 起始位置 = 0;
@@ -457,18 +459,23 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				CString 用户名 = 参数数组[0];
 				CString 密码 = 参数数组[1];
 
+				TRACE(_T("解析参数 - 用户: %s, 密码: %s\n"), 用户名, 密码);
+
 				// 验证用户名和密码
 				BOOL 登录结果 = 对话框指针->验证用户登录(用户名, 密码);
+				TRACE(_T("登录验证结果: %d\n"), 登录结果);
 
 				if (登录结果)
 				{
 					对话框指针->发送到客户端(客户端套接字, _T("LOGIN_SUCCESS:登录成功"));
+					TRACE(_T("=== 登录成功 ===\n"));
 					// 成功日志放在最后
 					对话框指针->添加信息显示(客户端IP + _T(" 登录成功 - 用户名: ") + 用户名);
 				}
 				else
 				{
 					对话框指针->发送到客户端(客户端套接字, _T("LOGIN_FAILED:用户名或密码错误"));
+					TRACE(_T("=== 账号密码错误 ===\n"));
 					// 失败日志放在最后
 					对话框指针->添加信息显示(客户端IP + _T(" 登录失败 - 用户名: ") + 用户名);
 				}
@@ -477,6 +484,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			{
 				对话框指针->发送到客户端(客户端套接字, _T("LOGIN_FAILED:无效的登录数据格式"));
 				对话框指针->添加信息显示(客户端IP + _T(" 登录数据格式错误"));
+				TRACE(_T("=== 登录失败 ===\n"));
 			}
 		}
 		//注册请求
@@ -1653,29 +1661,67 @@ BOOL NageDlqServerDlg::处理角色加点(const CString& 用户名, const CStrin
 // 验证用户登录
 BOOL NageDlqServerDlg::验证用户登录(const CString& 用户名, const CString& 密码)
 {
-	SQLRETURN retcode;
-	CString 查询语句;
-	查询语句.Format(_T("SELECT COUNT(*) FROM Chr_Log_Info WHERE id_loginid = '%s' AND id_passwd = '%s'"),
-		用户名, 密码);
+	TRACE(_T("=== 验证用户登录开始 ===\n"));
+	TRACE(_T("验证用户: %s, 密码: %s\n"), 用户名, 密码);
 
-	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
+	SQLRETURN retcode;
+
+	// 先检查用户是否存在
+	CString 检查用户语句;
+	检查用户语句.Format(_T("SELECT COUNT(*) FROM Chr_Log_Info WHERE id_loginid = '%s'"), 用户名);
+
+	TRACE(_T("执行检查用户SQL: %s\n"), 检查用户语句);
+
+	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)检查用户语句.GetString(), SQL_NTS);
 	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO)
 	{
-		添加信息显示(_T("登录验证失败: 数据库查询错误"));
+		TRACE(_T("检查用户数据库查询错误\n"));
 		SQLCloseCursor(SQL语句句柄);
 		return FALSE;
 	}
 
+	SQLINTEGER 用户数量 = 0;
 	retcode = SQLFetch(SQL语句句柄);
 	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
 	{
-		SQLINTEGER 数量;
-		SQLGetData(SQL语句句柄, 1, SQL_C_LONG, &数量, sizeof(数量), NULL);
-		SQLCloseCursor(SQL语句句柄);
+		SQLGetData(SQL语句句柄, 1, SQL_C_LONG, &用户数量, sizeof(用户数量), NULL);
+		TRACE(_T("用户数量: %d\n"), 用户数量);
+	}
+	SQLCloseCursor(SQL语句句柄);
 
-		return 数量 > 0;
+	if (用户数量 == 0)
+	{
+		TRACE(_T("用户不存在\n"));
+		return FALSE;
 	}
 
+	// 验证用户名和密码
+	CString 验证语句;
+	验证语句.Format(_T("SELECT COUNT(*) FROM Chr_Log_Info WHERE id_loginid = '%s' AND id_passwd = '%s'"),
+		用户名, 密码);
+
+	TRACE(_T("执行验证SQL: %s\n"), 验证语句);
+
+	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)验证语句.GetString(), SQL_NTS);
+	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO)
+	{
+		TRACE(_T("验证数据库查询错误\n"));
+		SQLCloseCursor(SQL语句句柄);
+		return FALSE;
+	}
+
+	SQLINTEGER 验证数量 = 0;
+	retcode = SQLFetch(SQL语句句柄);
+	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+	{
+		SQLGetData(SQL语句句柄, 1, SQL_C_LONG, &验证数量, sizeof(验证数量), NULL);
+		TRACE(_T("验证结果数量: %d\n"), 验证数量);
+	}
 	SQLCloseCursor(SQL语句句柄);
-	return FALSE;
+
+	BOOL 结果 = (验证数量 > 0);
+	TRACE(_T("最终验证结果: %d\n"), 结果);
+	TRACE(_T("=== 验证用户登录结束 ===\n"));
+
+	return 结果;
 }

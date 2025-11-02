@@ -49,7 +49,7 @@ BOOL NageDlqDlg::OnInitDialog()
 	SetIcon(m_hIcon, TRUE);			// 设置大图标
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
 	// 设置窗口大小 850x600
-	MoveWindow(0, 0, 862, 622);
+	MoveWindow(0, 0, 850, 622);
 
 	//初始化分页控件();
 	// 初始化分页控件
@@ -91,6 +91,28 @@ void NageDlqDlg::OnTimer(UINT_PTR nIDEvent)
 			TRACE(_T("网络初始化失败，使用本地功能\n"));
 		}
 	}
+	else if (nIDEvent == 2)  // 重试发送连接请求
+	{
+		KillTimer(2);
+
+		if (网络通信.是否已连接())
+		{
+			TRACE(_T("重试发送连接请求\n"));
+
+			CString 连接请求;
+			连接请求.Format(_T("CONNECT:1.0.0:127.0.0.1"));
+
+			if (网络通信.发送数据(连接请求))
+			{
+				TRACE(_T("连接请求发送成功\n"));
+			}
+		}
+		else
+		{
+			SetTimer(2, 1000, nullptr); // 继续重试
+		}
+	}
+
 	CDialogEx::OnTimer(nIDEvent);
 }
 
@@ -117,8 +139,8 @@ BOOL NageDlqDlg::初始化分页控件()
 	分页控件.GetClientRect(&rect);
 	rect.top += 25;
 	rect.bottom -= 2;
-	rect.left += 1;
-	rect.right -= 3;
+	rect.left += 0;
+	rect.right -= 2;
 
 	登录页面.MoveWindow(&rect);
 	注册页面.MoveWindow(&rect);
@@ -238,6 +260,7 @@ LRESULT NageDlqDlg::OnNetworkMessage(WPARAM wParam, LPARAM lParam)
 }
 
 // 初始化网络通信
+/*
 BOOL NageDlqDlg::初始化网络通信()
 {
 	// 检查是否已经初始化过
@@ -259,25 +282,58 @@ BOOL NageDlqDlg::初始化网络通信()
 	// 尝试连接服务端
 	if (网络通信.连接服务端(_T("127.0.0.1"), 9896))
 	{
-		TRACE(_T("连接服务端成功"));
+		TRACE(_T("连接服务端调用成功\n"));
 
 		// 发送连接请求
 		CString 连接请求;
-		连接请求.Format(_T("CONNECT:1.0.0:127.0.0.1\n"));
+		连接请求.Format(_T("CONNECT:1.0.0:127.0.0.1"));
 
-		TRACE(_T("准备发送连接请求: %s\n"), 连接请求);
+		TRACE(_T("发送连接请求: %s\n"), 连接请求);
 
 		if (网络通信.发送数据(连接请求))
 		{
 			TRACE(_T("连接请求发送成功\n"));
-			return TRUE;
 		}
 		else
 		{
 			TRACE(_T("发送连接请求失败\n"));
-			登录页面.权限状态.SetWindowText(_T("状态：发送请求失败"));
-			return FALSE;
+			// 设置定时器重试
+			SetTimer(2, 1000, nullptr);
 		}
+
+		return TRUE;
+	}
+	else
+	{
+		TRACE(_T("连接服务端失败\n"));
+		登录页面.权限状态.SetWindowText(_T("状态：连接失败"));
+		return FALSE;
+	}
+}
+*/
+BOOL NageDlqDlg::初始化网络通信()
+{
+	// 检查是否已经初始化过
+	if (网络通信.是否已连接())
+	{
+		TRACE(_T("网络通信已连接\n"));
+		return TRUE;
+	}
+
+	TRACE(_T("开始初始化网络通信\n"));
+
+	// 设置消息回调
+	网络通信.设置消息回调函数(&NageDlqDlg::处理网络消息, this);
+
+	// 先更新状态为连接中
+	登录页面.权限状态.SetWindowText(_T("状态：连接中..."));
+	TRACE(_T("设置状态为连接中...\n"));
+
+	// 尝试连接服务端 - 连接请求会在OnConnect中自动发送
+	if (网络通信.连接服务端(_T("127.0.0.1"), 9896))
+	{
+		TRACE(_T("连接服务端调用成功，等待连接建立...\n"));
+		return TRUE;
 	}
 	else
 	{
@@ -351,7 +407,7 @@ void NageDlqDlg::处理网络消息(CString 消息)
 	}
 	else
 	{
-		TRACE(_T("未知消息类型\n"));
+		TRACE(_T("未知消息类型: %s\n"), 消息);
 	}
 
 	TRACE(_T("=== 处理网络消息结束 ===\n"));
@@ -399,7 +455,8 @@ void NageDlqDlg::处理服务端响应(const CString& 响应数据)
 // 处理注册响应
 void NageDlqDlg::处理注册响应(const CString& 响应数据)
 {
-	TRACE(_T("处理注册响应: %s\n"), 响应数据);  // 添加调试
+	TRACE(_T("=== 处理注册响应开始 ===\n"));
+	TRACE(_T("响应数据: %s\n"), 响应数据);
 
 	if (响应数据.Find(_T("REGISTER_SUCCESS")) == 0)
 	{
@@ -417,8 +474,10 @@ void NageDlqDlg::处理注册响应(const CString& 响应数据)
 	}
 	else
 	{
-		TRACE(_T("未知注册响应: %s\n"), 响应数据);
+		TRACE(_T("未知注册响应格式\n"));
 	}
+
+	TRACE(_T("=== 处理注册响应结束 ===\n"));
 }
 
 // 添加信息显示
