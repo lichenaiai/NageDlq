@@ -394,19 +394,39 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 
 				TRACE(_T("客户端版本: %s, IP: %s\n"), 客户端版本号, 客户端IP);
 
+				// 检查IP黑白名单
+				if (!检查IP权限(客户端IP))
+				{
+					TRACE(_T("IP不在白名单或存在于黑名单中\n"));
+					对话框指针->发送到客户端(客户端套接字, _T("CONNECT_FAILED:IP访问受限"));
+					对话框指针->添加信息显示(客户端IP + _T(" IP访问受限"));
+					closesocket(客户端套接字);
+					return;
+				}
+
 				// 查询数据库获取密钥和最新版本号
 				CString 客户端密钥 = 对话框指针->获取客户端密钥();
 				CString 最新版本号 = 对话框指针->获取最新版本号();
 
 				TRACE(_T("查询到密钥: %s, 版本: %s\n"), 客户端密钥, 最新版本号);
 
-				// 发送响应
+				// 检查客户端版本
+				if (比较版本号(客户端版本号, 最新版本号) < 0)
+				{
+					TRACE(_T("客户端版本过时\n"));
+					对话框指针->发送到客户端(客户端套接字, _T("VERSION_OUTDATED"));
+					对话框指针->添加信息显示(客户端IP + _T(" 版本过时，已断开连接"));
+					closesocket(客户端套接字);
+					return;
+				}
+
+				// 发送响应 - 确保包含密钥和版本号
 				CString 响应数据;
-				if (!客户端密钥.IsEmpty())
+				if (!客户端密钥.IsEmpty() && !最新版本号.IsEmpty())
 				{
 					响应数据.Format(_T("CONNECT_SUCCESS:%s:%s"), 客户端密钥, 最新版本号);
-					对话框指针->添加信息显示(客户端IP + _T(" 连接验证成功，版本: ") + 客户端版本号);
-					TRACE(_T("发送连接成功响应: %s\n"), 响应数据);
+					对话框指针->添加信息显示(客户端IP + _T(" 连接验证成功"));
+					TRACE(_T("发送带密钥的连接成功响应: %s\n"), 响应数据);
 				}
 				else
 				{
@@ -1724,4 +1744,145 @@ BOOL NageDlqServerDlg::验证用户登录(const CString& 用户名, const CStrin
 	TRACE(_T("=== 验证用户登录结束 ===\n"));
 
 	return 结果;
+}
+
+//版本比较函数
+int NageDlqServerDlg::比较版本号(const CString& 版本1, const CString& 版本2)
+{
+	CStringArray 版本1数组, 版本2数组;
+
+	// 分割版本号
+	int 位置 = 0;
+	CString 部分 = 版本1.Tokenize(_T("."), 位置);
+	while (!部分.IsEmpty())
+	{
+		版本1数组.Add(部分);
+		部分 = 版本1.Tokenize(_T("."), 位置);
+	}
+
+	位置 = 0;
+	部分 = 版本2.Tokenize(_T("."), 位置);
+	while (!部分.IsEmpty())
+	{
+		版本2数组.Add(部分);
+		部分 = 版本2.Tokenize(_T("."), 位置);
+	}
+
+	// 比较每个部分
+	int 最大长度 = max(版本1数组.GetSize(), 版本2数组.GetSize());
+	for (int i = 0; i < 最大长度; i++)
+	{
+		int 数字1 = (i < 版本1数组.GetSize()) ? _ttoi(版本1数组[i]) : 0;
+		int 数字2 = (i < 版本2数组.GetSize()) ? _ttoi(版本2数组[i]) : 0;
+
+		if (数字1 < 数字2) return -1;
+		if (数字1 > 数字2) return 1;
+	}
+
+	return 0; // 版本相同
+}
+
+//IP权限检查函数
+BOOL NageDlqServerDlg::检查IP权限(const CString& IP地址)
+{
+	TRACE(_T("=== 检查IP权限开始 ===\n"));
+	TRACE(_T("检查IP: %s\n"), IP地址);
+
+	// 从注册表或文件加载黑白名单
+	加载黑白名单();
+
+	// 先检查黑名单
+	for (const auto& 黑名单IP : 黑名单列表)
+	{
+		if (黑名单IP == IP地址)
+		{
+			TRACE(_T("IP在黑名单中: %s\n"), IP地址);
+			return FALSE;
+		}
+	}
+
+	// 如果白名单不为空，检查白名单
+	if (!白名单列表.empty())
+	{
+		BOOL 在白名单中 = FALSE;
+		for (const auto& 白名单IP : 白名单列表)
+		{
+			if (白名单IP == IP地址)
+			{
+				在白名单中 = TRUE;
+				break;
+			}
+		}
+
+		if (!在白名单中)
+		{
+			TRACE(_T("IP不在白名单中: %s\n"), IP地址);
+			return FALSE;
+		}
+	}
+
+	TRACE(_T("IP允许访问: %s\n"), IP地址);
+	return TRUE;
+}
+
+//加载黑白名单
+void NageDlqServerDlg::加载黑白名单()
+{
+	// 如果已经加载过，直接返回
+	static BOOL 已加载 = FALSE;
+	if (已加载) return;
+
+	黑名单列表.clear();
+	白名单列表.clear();
+
+	// 从注册表加载黑白名单
+	HKEY hKey;
+	if (RegOpenKeyEx(HKEY_CURRENT_USER, _T("Software\\NageServer\\IPLists"), 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+	{
+		DWORD dwType, dwSize;
+		TCHAR szValue[4096];
+
+		// 加载黑名单
+		dwSize = sizeof(szValue);
+		if (RegQueryValueEx(hKey, _T("BlackList"), NULL, &dwType, (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS)
+		{
+			CString 黑名单数据(szValue);
+			int 位置 = 0;
+			CString IP = 黑名单数据.Tokenize(_T(";"), 位置);
+			while (!IP.IsEmpty())
+			{
+				IP.Trim();
+				if (!IP.IsEmpty())
+				{
+					黑名单列表.push_back(IP);
+					TRACE(_T("加载黑名单IP: %s\n"), IP);
+				}
+				IP = 黑名单数据.Tokenize(_T(";"), 位置);
+			}
+		}
+
+		// 加载白名单
+		dwSize = sizeof(szValue);
+		if (RegQueryValueEx(hKey, _T("WhiteList"), NULL, &dwType, (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS)
+		{
+			CString 白名单数据(szValue);
+			int 位置 = 0;
+			CString IP = 白名单数据.Tokenize(_T(";"), 位置);
+			while (!IP.IsEmpty())
+			{
+				IP.Trim();
+				if (!IP.IsEmpty())
+				{
+					白名单列表.push_back(IP);
+					TRACE(_T("加载白名单IP: %s\n"), IP);
+				}
+				IP = 白名单数据.Tokenize(_T(";"), 位置);
+			}
+		}
+
+		RegCloseKey(hKey);
+	}
+
+	已加载 = TRUE;
+	TRACE(_T("加载黑白名单完成，黑名单数量: %d, 白名单数量: %d\n"), 黑名单列表.size(), 白名单列表.size());
 }

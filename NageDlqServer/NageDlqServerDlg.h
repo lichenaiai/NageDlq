@@ -90,6 +90,15 @@ private:
 	};
 	std::vector<Hook功能结构> Hook功能列表;
 
+	// IP黑白名单相关
+	std::vector<CString> 黑名单列表;
+	std::vector<CString> 白名单列表;
+
+	// 版本管理函数
+	int 比较版本号(const CString& 版本1, const CString& 版本2);
+	BOOL 检查IP权限(const CString& IP地址);
+	void 加载黑白名单();
+
 public:
 	// 线程函数
 	static UINT 服务器线程函数(LPVOID pParam);  // 服务器线程
@@ -133,4 +142,5 @@ public:
 	BOOL 检测账号是否在线(const CString& 用户名);
 	void 获取职业初始属性(int 职业代码, int 累计等级, int& Lv, int& Exp, int& HP, int& SP, int& STM,
 		int& Str, int& Dex, int& Esp, int& Spt, int& cmap, int& lvpoint, int& relvC);
+
 };
