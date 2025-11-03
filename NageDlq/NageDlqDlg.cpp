@@ -211,34 +211,6 @@ HCURSOR NageDlqDlg::OnQueryDragIcon()
 	return static_cast<HCURSOR>(m_hIcon);
 }
 
-
-/*
-BOOL NageDlqDlg::初始化网络通信()
-{
-	// 初始化Socket库
-	if (!AfxSocketInit())
-	{
-		MessageBox(_T("初始化网络失败"), _T("错误"), MB_ICONERROR);
-		return FALSE;
-	}
-
-	// 设置消息回调
-	网络通信.设置消息回调函数(static_cast<void (CWnd::*)(CString)>(&NageDlqDlg::处理网络消息), this);
-
-	// 连接到服务端（这里使用默认地址和端口）
-	CString 服务端地址 = _T("127.0.0.1");  // 默认本地地址
-	UINT 服务端端口 = 9896;                 // 默认端口
-
-	if (!网络通信.连接服务端(服务端地址, 服务端端口))
-	{
-		MessageBox(_T("连接服务端失败"), _T("错误"), MB_ICONERROR);
-		return FALSE;
-	}
-
-	return TRUE;
-}
-*/
-
 // 实现消息处理函数
 LRESULT NageDlqDlg::OnNetworkMessage(WPARAM wParam, LPARAM lParam)
 {
@@ -260,57 +232,6 @@ LRESULT NageDlqDlg::OnNetworkMessage(WPARAM wParam, LPARAM lParam)
 }
 
 // 初始化网络通信
-/*
-BOOL NageDlqDlg::初始化网络通信()
-{
-	// 检查是否已经初始化过
-	if (网络通信.是否已连接())
-	{
-		TRACE(_T("网络通信已连接\n"));
-		return TRUE;
-	}
-
-	TRACE(_T("开始初始化网络通信\n"));
-
-	// 设置消息回调
-	网络通信.设置消息回调函数(&NageDlqDlg::处理网络消息, this);
-
-	// 先更新状态为连接中
-	登录页面.权限状态.SetWindowText(_T("状态：连接中..."));
-	TRACE(_T("设置状态为连接中...\n"));
-
-	// 尝试连接服务端
-	if (网络通信.连接服务端(_T("127.0.0.1"), 9896))
-	{
-		TRACE(_T("连接服务端调用成功\n"));
-
-		// 发送连接请求
-		CString 连接请求;
-		连接请求.Format(_T("CONNECT:1.0.0:127.0.0.1"));
-
-		TRACE(_T("发送连接请求: %s\n"), 连接请求);
-
-		if (网络通信.发送数据(连接请求))
-		{
-			TRACE(_T("连接请求发送成功\n"));
-		}
-		else
-		{
-			TRACE(_T("发送连接请求失败\n"));
-			// 设置定时器重试
-			SetTimer(2, 1000, nullptr);
-		}
-
-		return TRUE;
-	}
-	else
-	{
-		TRACE(_T("连接服务端失败\n"));
-		登录页面.权限状态.SetWindowText(_T("状态：连接失败"));
-		return FALSE;
-	}
-}
-*/
 BOOL NageDlqDlg::初始化网络通信()
 {
 	// 检查是否已经初始化过
@@ -349,7 +270,6 @@ void NageDlqDlg::处理网络消息(CString 消息)
 	TRACE(_T("=== 处理网络消息开始 ===\n"));
 	TRACE(_T("原始消息: %s\n"), 消息);
 
-	// 检查消息是否包含注册响应
 	if (消息.Find(_T("REGISTER_")) == 0)
 	{
 		TRACE(_T("检测到注册响应消息\n"));
@@ -367,9 +287,12 @@ void NageDlqDlg::处理网络消息(CString 消息)
 		if (分隔符位置 != -1)
 		{
 			CString 密钥 = 响应数据.Left(分隔符位置);
-			CString 版本号 = 响应数据.Mid(分隔符位置 + 1);
+			CString 服务端版本号 = 响应数据.Mid(分隔符位置 + 1);
 
-			TRACE(_T("解析密钥: %s, 版本: %s\n"), 密钥, 版本号);
+			TRACE(_T("解析密钥: %s, 服务端版本: %s\n"), 密钥, 服务端版本号);
+
+			// 检查版本更新
+			检查版本更新(服务端版本号);
 
 			// 更新状态标签为密钥信息
 			CString 状态文本;
@@ -404,6 +327,11 @@ void NageDlqDlg::处理网络消息(CString 消息)
 		TRACE(_T("检测到登录响应消息\n"));
 		// 处理登录响应
 		登录页面.处理登录响应(消息);
+	}
+	else if (消息 == _T("VERSION_OUTDATED"))
+	{
+		TRACE(_T("检测到版本过时消息\n"));
+		AfxMessageBox(_T("客户端版本过时，请更新到最新版本！"), MB_ICONWARNING);
 	}
 	else
 	{
@@ -485,4 +413,123 @@ void NageDlqDlg::添加信息显示(const CString& 信息)
 {
 	// 这里可以添加信息到日志或状态栏
 	TRACE(_T("信息: %s\n"), 信息);
+}
+
+//版本检查函数
+void NageDlqDlg::检查版本更新(const CString& 服务端版本号)
+{
+	TRACE(_T("=== 检查版本更新开始 ===\n"));
+	TRACE(_T("客户端版本: %s, 服务端版本: %s\n"), _T(CLIENT_VERSION), 服务端版本号);
+
+	// 简单的版本号比较（按点分割比较）
+	if (比较版本号(_T(CLIENT_VERSION), 服务端版本号) < 0)
+	{
+		TRACE(_T("检测到新版本，提示用户更新\n"));
+
+		CString 提示信息;
+		提示信息.Format(_T("发现新版本 %s，当前版本 %s。是否立即更新？"),
+			服务端版本号, _T(CLIENT_VERSION));
+
+		if (AfxMessageBox(提示信息, MB_YESNO | MB_ICONQUESTION) == IDYES)
+		{
+			TRACE(_T("用户选择更新，启动更新程序\n"));
+			启动更新程序();
+		}
+		else
+		{
+			TRACE(_T("用户取消更新\n"));
+		}
+	}
+	else
+	{
+		TRACE(_T("客户端版本是最新的\n"));
+	}
+
+	TRACE(_T("=== 检查版本更新结束 ===\n"));
+}
+
+// 版本号比较函数
+int NageDlqDlg::比较版本号(const CString& 版本1, const CString& 版本2)
+{
+	CStringArray 版本1数组, 版本2数组;
+
+	// 分割版本号
+	int 位置 = 0;
+	CString 部分 = 版本1.Tokenize(_T("."), 位置);
+	while (!部分.IsEmpty())
+	{
+		版本1数组.Add(部分);
+		部分 = 版本1.Tokenize(_T("."), 位置);
+	}
+
+	位置 = 0;
+	部分 = 版本2.Tokenize(_T("."), 位置);
+	while (!部分.IsEmpty())
+	{
+		版本2数组.Add(部分);
+		部分 = 版本2.Tokenize(_T("."), 位置);
+	}
+
+	// 比较每个部分
+	int 最大长度 = max(版本1数组.GetSize(), 版本2数组.GetSize());
+	for (int i = 0; i < 最大长度; i++)
+	{
+		int 数字1 = (i < 版本1数组.GetSize()) ? _ttoi(版本1数组[i]) : 0;
+		int 数字2 = (i < 版本2数组.GetSize()) ? _ttoi(版本2数组[i]) : 0;
+
+		if (数字1 < 数字2) return -1;
+		if (数字1 > 数字2) return 1;
+	}
+
+	return 0; // 版本相同
+}
+
+// 启动更新程序
+void NageDlqDlg::启动更新程序()
+{
+	TRACE(_T("=== 启动更新程序开始 ===\n"));
+
+	// 构建更新程序路径
+	TCHAR 当前路径[MAX_PATH];
+	GetCurrentDirectory(MAX_PATH, 当前路径);
+
+	CString 更新程序路径;
+	更新程序路径.Format(_T("%s\\NageUpdater.exe"), 当前路径);
+
+	TRACE(_T("更新程序路径: %s\n"), 更新程序路径);
+
+	// 检查更新程序是否存在
+	if (GetFileAttributes(更新程序路径) == INVALID_FILE_ATTRIBUTES)
+	{
+		TRACE(_T("更新程序不存在\n"));
+		AfxMessageBox(_T("更新程序不存在，请联系管理员！"), MB_ICONERROR);
+		return;
+	}
+
+	// 启动更新程序
+	STARTUPINFO si = { sizeof(STARTUPINFO) };
+	PROCESS_INFORMATION pi;
+
+	CString 命令行;
+	命令行.Format(_T("\"%s\" --current-version=%s"), 更新程序路径, _T(CLIENT_VERSION));
+
+	TRACE(_T("启动更新程序命令行: %s\n"), 命令行);
+
+	if (CreateProcess(NULL, 命令行.GetBuffer(), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
+	{
+		TRACE(_T("更新程序启动成功\n"));
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+
+		// 可选：退出主程序让更新程序接管
+		AfxGetMainWnd()->PostMessage(WM_CLOSE);
+	}
+	else
+	{
+		TRACE(_T("更新程序启动失败\n"));
+		AfxMessageBox(_T("启动更新程序失败！"), MB_ICONERROR);
+	}
+
+	命令行.ReleaseBuffer();
+	TRACE(_T("=== 启动更新程序结束 ===\n"));
 }

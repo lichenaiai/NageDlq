@@ -11,3 +11,5 @@
 #include "framework.h"
 
 #endif //PCH_H
+
+#define CLIENT_VERSION "0.16"
