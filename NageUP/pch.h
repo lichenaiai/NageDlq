@@ -11,6 +11,4 @@
 #include "framework.h"
 
 #endif //PCH_H
-
-#define CLIENT_VERSION "1.0.0"					//客户端版本号
 #define UPDATE_SERVER "47.116.167.99/nageup/"  // 更新服务器地址

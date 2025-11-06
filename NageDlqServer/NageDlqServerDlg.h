@@ -42,7 +42,8 @@ public:
 	afx_msg void OnBnClickedButtonStop();         // 停止服务器
 	afx_msg void OnBnClickedButtonUpdateClient(); // 推送登录器更新
 	afx_msg void OnBnClickedButtonUpdateHook();  // 推送HOOK更新
-	afx_msg void OnBnClickedButtonSettings();    // 设置
+	afx_msg void OnBnClickedButtonSettings();    // 设置按钮
+	afx_msg void OnBnClickedButtonBwlist();		//黑白名单按钮
 
 private:
 	// 控件变量 - 使用中文
@@ -90,14 +91,7 @@ private:
 	};
 	std::vector<Hook功能结构> Hook功能列表;
 
-	// IP黑白名单相关
-	std::vector<CString> 黑名单列表;
-	std::vector<CString> 白名单列表;
-
-	// 版本管理函数
-	int 比较版本号(const CString& 版本1, const CString& 版本2);
-	BOOL 检查IP权限(const CString& IP地址);
-	void 加载黑白名单();
+	
 
 public:
 	// 线程函数
@@ -143,4 +137,14 @@ public:
 	void 获取职业初始属性(int 职业代码, int 累计等级, int& Lv, int& Exp, int& HP, int& SP, int& STM,
 		int& Str, int& Dex, int& Esp, int& Spt, int& cmap, int& lvpoint, int& relvC);
 
+	// IP黑白名单相关
+	std::vector<CString> 黑名单列表;
+	std::vector<CString> 白名单列表;
+
+	// 版本管理函数
+	int 比较版本号(const CString& 版本1, const CString& 版本2);
+	BOOL 检查IP权限(const CString& IP地址);
+	void 加载黑白名单();
+
+	CButton 黑白名单按钮;
 };

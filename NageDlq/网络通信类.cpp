@@ -156,7 +156,7 @@ void 网络通信类::OnConnect(int 错误代码)
 
         // 连接成功后立即发送连接请求
         CString 连接请求;
-        连接请求.Format(_T("CONNECT:1.0.0:127.0.0.1\n"));
+        连接请求.Format(_T("CONNECT:%s:127.0.0.1\n"), _T(CLIENT_VERSION));  //全局变量控制版本号
 
         TRACE(_T("连接成功，发送连接请求: %s\n"), 连接请求);
 

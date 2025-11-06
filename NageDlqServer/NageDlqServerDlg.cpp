@@ -4,6 +4,7 @@
 #include "NageDlqServerDlg.h"
 #include "afxdialogex.h"
 #include "设置对话框类.h"
+#include "黑白名单对话框类.h"
 
 // 添加ODBC头文件
 #define WIN32_LEAN_AND_MEAN
@@ -64,14 +65,17 @@ void NageDlqServerDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_STATIC_KEY, 权限状态标签);
 	DDX_Control(pDX, IDC_STATIC_VERSION, 当前版本号标签);
 	DDX_Control(pDX, IDC_STATIC_CONNECTIONS, 连接数量标签);
+	DDX_Control(pDX, IDC_BUTTON_BWLIST, 黑白名单按钮);
 }
 
+//消息映射
 BEGIN_MESSAGE_MAP(NageDlqServerDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_START, &NageDlqServerDlg::OnBnClickedButtonStart)
 	ON_BN_CLICKED(IDC_BUTTON_STOP, &NageDlqServerDlg::OnBnClickedButtonStop)
 	ON_BN_CLICKED(IDC_BUTTON_UPDATE_CLIENT, &NageDlqServerDlg::OnBnClickedButtonUpdateClient)
 	ON_BN_CLICKED(IDC_BUTTON_UPDATE_HOOK, &NageDlqServerDlg::OnBnClickedButtonUpdateHook)
 	ON_BN_CLICKED(IDC_BUTTON_SETTINGS, &NageDlqServerDlg::OnBnClickedButtonSettings)
+	ON_BN_CLICKED(IDC_BUTTON_BWLIST, &NageDlqServerDlg::OnBnClickedButtonBwlist)
 END_MESSAGE_MAP()
 
 BOOL NageDlqServerDlg::OnInitDialog()
@@ -227,6 +231,23 @@ void NageDlqServerDlg::OnBnClickedButtonSettings()
 		连接数据库();
 		更新服务器信息();
 	}
+}
+
+//黑白名单按钮点击处理
+void NageDlqServerDlg::OnBnClickedButtonBwlist()
+{
+	TRACE(_T("=== 打开黑白名单管理界面 ===\n"));
+
+	// 创建并显示黑白名单对话框
+	黑白名单对话框类 黑白名单对话框;
+	黑白名单对话框.DoModal();
+
+	// 对话框关闭后重新加载黑白名单
+	黑名单列表.clear();
+	白名单列表.clear();
+	加载黑白名单();
+
+	TRACE(_T("=== 黑白名单管理界面关闭 ===\n"));
 }
 
 // 服务器线程函数
@@ -395,7 +416,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				TRACE(_T("客户端版本: %s, IP: %s\n"), 客户端版本号, 客户端IP);
 
 				// 检查IP黑白名单
-				if (!检查IP权限(客户端IP))
+				if (!对话框指针->检查IP权限(客户端IP))  // 修复：通过指针调用
 				{
 					TRACE(_T("IP不在白名单或存在于黑名单中\n"));
 					对话框指针->发送到客户端(客户端套接字, _T("CONNECT_FAILED:IP访问受限"));
@@ -411,7 +432,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				TRACE(_T("查询到密钥: %s, 版本: %s\n"), 客户端密钥, 最新版本号);
 
 				// 检查客户端版本
-				if (比较版本号(客户端版本号, 最新版本号) < 0)
+				if (对话框指针->比较版本号(客户端版本号, 最新版本号) < 0)  // 修复：通过指针调用
 				{
 					TRACE(_T("客户端版本过时\n"));
 					对话框指针->发送到客户端(客户端套接字, _T("VERSION_OUTDATED"));
@@ -1819,6 +1840,10 @@ BOOL NageDlqServerDlg::检查IP权限(const CString& IP地址)
 			TRACE(_T("IP不在白名单中: %s\n"), IP地址);
 			return FALSE;
 		}
+	}
+	else
+	{
+		TRACE(_T("白名单为空，允许所有非黑名单IP访问\n"));
 	}
 
 	TRACE(_T("IP允许访问: %s\n"), IP地址);
