@@ -100,7 +100,7 @@ void NageDlqDlg::OnTimer(UINT_PTR nIDEvent)
 			TRACE(_T("重试发送连接请求\n"));
 
 			CString 连接请求;
-			连接请求.Format(_T("CONNECT:1.0.0:127.0.0.1"));
+			连接请求.Format(_T("CONNECT:%s:127.0.0.1"), _T(CLIENT_VERSION));  // 使用全局变量控制版本号
 
 			if (网络通信.发送数据(连接请求))
 			{
@@ -253,7 +253,25 @@ BOOL NageDlqDlg::初始化网络通信()
 	// 尝试连接服务端 - 连接请求会在OnConnect中自动发送
 	if (网络通信.连接服务端(_T("127.0.0.1"), 9896))
 	{
-		TRACE(_T("连接服务端调用成功，等待连接建立...\n"));
+		TRACE(_T("连接服务端调用成功\n"));
+
+		// 立即发送连接请求，使用版本常量
+		CString 连接请求;
+		连接请求.Format(_T("CONNECT:%s:127.0.0.1"), _T(CLIENT_VERSION));  // 修复：使用版本常量
+
+		TRACE(_T("立即发送连接请求: %s\n"), 连接请求);
+
+		if (网络通信.发送数据(连接请求))
+		{
+			TRACE(_T("连接请求发送成功\n"));
+		}
+		else
+		{
+			TRACE(_T("发送连接请求失败\n"));
+			// 设置定时器重试
+			SetTimer(2, 1000, nullptr);
+		}
+
 		return TRUE;
 	}
 	else
