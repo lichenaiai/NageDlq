@@ -63,7 +63,10 @@ private:
     BOOL 解压压缩文件(const CString& 压缩文件路径, const CString& 解压目录);
     BOOL 替换程序文件(const CString& 源目录, const CString& 目标目录);
     CString 从文件名提取版本号(const CString& 文件名);
-    BOOL 通过文件名扫描获取更新信息(CString& 最新版本号, CString& 更新文件名);
+    BOOL 通过文件名模式查找(CString& 最新版本号, CString& 更新文件名);
+    BOOL 使用命令行解压ZIP文件(const CString& 压缩文件路径, const CString& 解压目录);
+    BOOL 使用URLDownloadToFile下载(const CString& 文件URL, const CString& 本地路径);
+    BOOL 使用WinINet下载文件(const CString& 文件URL, const CString& 本地路径);
 
     // 自定义消息处理
     afx_msg LRESULT OnUpdateProgress(WPARAM wParam, LPARAM lParam);
