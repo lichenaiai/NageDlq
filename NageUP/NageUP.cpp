@@ -1,4 +1,10 @@
-﻿#include "stdafx.h"
+﻿#include <windows.h>
+#include <afxwin.h>
+#include <afxext.h>
+#include <afxdisp.h>
+#include <afxdtctl.h>
+#include <afxcmn.h>
+#include "pch.h"
 #include "NageUP.h"
 #include "NageUPDlg.h"
 
@@ -13,11 +19,10 @@ CNageUPApp::CNageUPApp()
 {
 }
 
-CNageUPApp theApp;  // MFC应用的全局实例
+CNageUPApp theApp;
 
 BOOL CNageUPApp::InitInstance()
 {
-    // 初始化通用控件
     INITCOMMONCONTROLSEX InitCtrls;
     InitCtrls.dwSize = sizeof(InitCtrls);
     InitCtrls.dwICC = ICC_WIN95_CLASSES;
@@ -25,9 +30,8 @@ BOOL CNageUPApp::InitInstance()
 
     CWinApp::InitInstance();
 
-    // 解析命令行参数获取当前版本
     CString 命令行 = GetCommandLine();
-    CString 当前版本号 = _T("1.0.0"); // 默认版本号
+    CString 当前版本号 = _T("1.0.0");
 
     int 参数位置 = 命令行.Find(_T("--current-version="));
     if (参数位置 != -1)
@@ -36,7 +40,6 @@ BOOL CNageUPApp::InitInstance()
         当前版本号.Trim(_T("\" "));
     }
 
-    // 创建并显示主对话框
     NageUPDlg dlg;
     dlg.设置当前版本(当前版本号);
     m_pMainWnd = &dlg;

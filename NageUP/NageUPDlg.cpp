@@ -213,81 +213,24 @@ BOOL NageUPDlg::获取服务器更新信息(CString& 最新版本号, CString& �
 {
     TRACE(_T("获取服务器更新信息\n"));
 
-    // 从服务器下载版本信息文件
-    CString 版本信息URL = 更新服务器地址 + _T("version.txt");
-    CString 本地版本文件 = _T(".\\version_temp.txt");
+    // 只需要获取更新文件名，不需要比较版本
+    // 尝试几个固定的更新文件名
 
-    // 下载版本信息文件
-    HRESULT 下载结果 = URLDownloadToFile(NULL, 版本信息URL, 本地版本文件, 0, NULL);
-    if (下载结果 == S_OK)
-    {
-        // 读取版本信息文件
-        CStdioFile 版本文件;
-        if (版本文件.Open(本地版本文件, CFile::modeRead))
-        {
-            CString 行内容;
-            if (版本文件.ReadString(行内容))
-            {
-                行内容.Trim();
-                int 分隔符位置 = 行内容.Find(_T('|'));
-                if (分隔符位置 != -1)
-                {
-                    最新版本号 = 行内容.Left(分隔符位置);
-                    更新文件名 = 行内容.Mid(分隔符位置 + 1);
-
-                    TRACE(_T("从版本文件获取: 版本=%s, 文件=%s\n"), 最新版本号, 更新文件名);
-
-                    版本文件.Close();
-                    DeleteFile(本地版本文件);
-                    return TRUE;
-                }
-            }
-            版本文件.Close();
-        }
-        DeleteFile(本地版本文件);
-    }
-
-    // 如果版本信息文件不存在，通过文件名扫描获取
-    return 通过文件名扫描获取更新信息(最新版本号, 更新文件名);
-}
-
-BOOL NageUPDlg::通过文件名扫描获取更新信息(CString& 最新版本号, CString& 更新文件名)
-{
-    TRACE(_T("通过文件名扫描获取更新信息\n"));
-
-    // 根据文件名规则扫描可能的更新文件
-    std::vector<CString> 可能文件名;
-
-    // 生成可能的文件名组合
-    for (int 主版本 = 1; 主版本 <= 10; 主版本++)
-    {
-        for (int 次版本 = 0; 次版本 <= 20; 次版本++)
-        {
-            for (int 修订版本 = 0; 修订版本 <= 99; 修订版本++)
-            {
-                CString 文件名;
-                文件名.Format(_T("nageup%d.%d.%d.zip"), 主版本, 次版本, 修订版本);
-                可能文件名.push_back(文件名);
-
-                文件名.Format(_T("nageup%d.%d.%d.rar"), 主版本, 次版本, 修订版本);
-                可能文件名.push_back(文件名);
-            }
-
-            CString 文件名;
-            文件名.Format(_T("nageup%d.%d.zip"), 主版本, 次版本);
-            可能文件名.push_back(文件名);
-
-            文件名.Format(_T("nageup%d.%d.rar"), 主版本, 次版本);
-            可能文件名.push_back(文件名);
-        }
-    }
+    std::vector<CString> 可能文件名 = {
+        _T("nageup.zip"),           // 默认文件名
+        _T("update.zip"),           // 备用文件名
+        _T("client_update.zip")     // 另一个备用名
+    };
 
     // 检查文件是否存在
     for (const auto& 文件名 : 可能文件名)
     {
-        CString 文件URL = 构建文件URL(文件名);
+        if (用户取消) break;
 
-        // 尝试HEAD请求检查文件是否存在
+        CString 文件URL = 构建文件URL(文件名);
+        TRACE(_T("检查更新文件: %s\n"), 文件URL);
+
+        // 检查远程文件是否存在
         HINTERNET hInternet = InternetOpen(_T("NageUpdater"), INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
         if (hInternet)
         {
@@ -301,23 +244,90 @@ BOOL NageUPDlg::通过文件名扫描获取更新信息(CString& 最新版本号
                 更新文件名 = 文件名;
                 最新版本号 = 从文件名提取版本号(文件名);
 
-                TRACE(_T("找到更新文件: %s, 版本: %s\n"), 更新文件名, 最新版本号);
+                TRACE(_T("找到更新文件: %s, 显示版本: %s\n"), 更新文件名, 最新版本号);
+                return TRUE;
+            }
+            InternetCloseHandle(hInternet);
+        }
+    }
+
+    // 如果固定文件名都不存在，尝试从文件名模式查找
+    return 通过文件名模式查找(最新版本号, 更新文件名);
+}
+
+BOOL NageUPDlg::通过文件名模式查找(CString& 最新版本号, CString& 更新文件名)
+{
+    TRACE(_T("通过文件名模式查找更新文件\n"));
+
+    // 按照 nageup{版本号}.zip 模式查找
+    // 生成一些可能的版本号组合进行尝试
+
+    std::vector<CString> 可能版本号 = {
+        _T("1.3.1"), _T("1.3.0"), _T("1.2.9"), _T("1.2.8"),
+        _T("1.4.0"), _T("1.3.2"), _T("2.0.0"), _T("1.5.0")
+    };
+
+    for (const auto& 版本号 : 可能版本号)
+    {
+        if (用户取消) break;
+
+        // 尝试ZIP格式
+        CString 文件名;
+        文件名.Format(_T("nageup%s.zip"), 版本号);
+        CString 文件URL = 构建文件URL(文件名);
+
+        TRACE(_T("尝试文件: %s\n"), 文件URL);
+
+        HINTERNET hInternet = InternetOpen(_T("NageUpdater"), INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
+        if (hInternet)
+        {
+            HINTERNET hUrl = InternetOpenUrl(hInternet, 文件URL, NULL, 0, INTERNET_FLAG_RELOAD, 0);
+            if (hUrl)
+            {
+                InternetCloseHandle(hUrl);
+                InternetCloseHandle(hInternet);
+
+                更新文件名 = 文件名;
+                最新版本号 = 版本号;
+
+                TRACE(_T("通过模式找到更新文件: %s\n"), 更新文件名);
                 return TRUE;
             }
             InternetCloseHandle(hInternet);
         }
 
-        if (用户取消) break;
+        // 尝试RAR格式
+        文件名.Format(_T("nageup%s.rar"), 版本号);
+        文件URL = 构建文件URL(文件名);
+
+        TRACE(_T("尝试文件: %s\n"), 文件URL);
+
+        hInternet = InternetOpen(_T("NageUpdater"), INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
+        if (hInternet)
+        {
+            HINTERNET hUrl2 = InternetOpenUrl(hInternet, 文件URL, NULL, 0, INTERNET_FLAG_RELOAD, 0);
+            if (hUrl2)
+            {
+                InternetCloseHandle(hUrl2);
+                InternetCloseHandle(hInternet);
+
+                更新文件名 = 文件名;
+                最新版本号 = 版本号;
+
+                TRACE(_T("通过模式找到更新文件: %s\n"), 更新文件名);
+                return TRUE;
+            }
+            InternetCloseHandle(hInternet);
+        }
     }
 
-    TRACE(_T("未找到更新文件\n"));
+    TRACE(_T("未找到任何更新文件\n"));
     return FALSE;
 }
 
 CString NageUPDlg::从文件名提取版本号(const CString& 文件名)
 {
-    // 从文件名中提取版本号
-    // 支持格式: nageup1.3.zip, nageup1.3.0.zip, nageup1.3.0.rar 等
+    TRACE(_T("从文件名提取版本号: %s\n"), 文件名);
 
     CString 纯文件名 = 文件名;
 
@@ -333,23 +343,18 @@ CString NageUPDlg::从文件名提取版本号(const CString& 文件名)
     {
         纯文件名 = 纯文件名.Mid(6); // 移除 "nageup"
     }
-
-    // 验证版本号格式
-    for (int i = 0; i < 纯文件名.GetLength(); i++)
+    else if (纯文件名.Find(_T("update")) == 0)
     {
-        TCHAR c = 纯文件名[i];
-        if (!((c >= _T('0') && c <= _T('9')) || c == _T('.')))
-        {
-            纯文件名 = 纯文件名.Left(i);
-            break;
-        }
+        纯文件名 = 纯文件名.Mid(6); // 移除 "update"
     }
 
+    // 如果提取后为空，使用默认版本号
     if (纯文件名.IsEmpty())
     {
-        return _T("未知版本");
+        return _T("最新版本");
     }
 
+    TRACE(_T("提取的版本号: %s\n"), 纯文件名);
     return 纯文件名;
 }
 
@@ -366,33 +371,170 @@ BOOL NageUPDlg::下载更新文件(const CString& 文件名)
     // 删除已存在的文件
     DeleteFile(本地路径);
 
-    // 下载文件
+    // 方法1：使用WinINet API下载（更可靠）
     更新进度(25, _T("正在连接下载服务器..."));
 
-    // 使用 URLDownloadToFile 下载
-    HRESULT 下载结果 = URLDownloadToFile(NULL, 文件URL, 本地路径, 0, NULL);
+    BOOL 下载结果 = 使用WinINet下载文件(文件URL, 本地路径);
 
-    if (下载结果 != S_OK)
+    if (!下载结果)
     {
-        TRACE(_T("文件下载失败，错误码: %d\n"), 下载结果);
-        return FALSE;
+        TRACE(_T("WinINet下载失败，尝试备用方法\n"));
+
+        // 方法2：备用方案 - 使用URLDownloadToFile但修复URL
+        下载结果 = 使用URLDownloadToFile下载(文件URL, 本地路径);
     }
 
-    // 获取实际文件大小
-    ULONG 文件大小 = 获取文件大小(本地路径);
-    if (文件大小 == 0)
+    if (下载结果)
     {
-        TRACE(_T("下载的文件大小为0\n"));
-        return FALSE;
+        // 验证下载的文件
+        ULONG 文件大小 = 获取文件大小(本地路径);
+        if (文件大小 > 0)
+        {
+            CString 大小信息;
+            大小信息.Format(_T("已下载: %.1f MB"), 文件大小 / 1024.0 / 1024.0);
+            更新下载信息(文件名, _T("下载完成"), 大小信息);
+
+            TRACE(_T("文件下载完成，大小: %lu 字节\n"), 文件大小);
+            return TRUE;
+        }
+        else
+        {
+            TRACE(_T("下载的文件大小为0\n"));
+            DeleteFile(本地路径);
+            return FALSE;
+        }
     }
 
-    // 更新下载信息
-    CString 大小信息;
-    大小信息.Format(_T("已下载: %.1f MB"), 文件大小 / 1024.0 / 1024.0);
-    更新下载信息(文件名, _T("下载完成"), 大小信息);
+    TRACE(_T("所有下载方法都失败\n"));
+    return FALSE;
+}
 
-    TRACE(_T("文件下载完成，大小: %lu 字节\n"), 文件大小);
-    return TRUE;
+// 使用WinINet API下载
+BOOL NageUPDlg::使用WinINet下载文件(const CString& 文件URL, const CString& 本地路径)
+{
+    TRACE(_T("使用WinINet下载文件\n"));
+
+    HINTERNET hInternet = NULL;
+    HINTERNET hUrl = NULL;
+    HANDLE hFile = INVALID_HANDLE_VALUE;
+    BOOL 结果 = FALSE;
+
+    try
+    {
+        // 初始化WinINet
+        hInternet = InternetOpen(_T("NageUpdater"),
+            INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+
+        if (!hInternet)
+        {
+            TRACE(_T("InternetOpen失败，错误: %d\n"), GetLastError());
+            return FALSE;
+        }
+
+        // 设置超时 - 使用局部变量
+        DWORD 连接超时 = 30000;  // 30秒
+        DWORD 接收超时 = 30000;  // 30秒
+
+        InternetSetOption(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT,
+            &连接超时, sizeof(连接超时));
+        InternetSetOption(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT,
+            &接收超时, sizeof(接收超时));
+
+        // 打开URL
+        hUrl = InternetOpenUrl(hInternet, 文件URL, NULL, 0,
+            INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_KEEP_CONNECTION, 0);
+
+        if (!hUrl)
+        {
+            DWORD 错误 = GetLastError();
+            TRACE(_T("InternetOpenUrl失败，错误: %d, URL: %s\n"), 错误, 文件URL);
+            return FALSE;
+        }
+
+        // 创建本地文件
+        hFile = CreateFile(本地路径, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hFile == INVALID_HANDLE_VALUE)
+        {
+            TRACE(_T("创建文件失败: %s\n"), 本地路径);
+            return FALSE;
+        }
+
+        // 读取数据并写入文件
+        DWORD 已读取 = 0;
+        DWORD 已写入 = 0;
+        BYTE 缓冲区[8192];
+        ULONGLONG 总大小 = 0;
+
+        while (InternetReadFile(hUrl, 缓冲区, sizeof(缓冲区), &已读取) && 已读取 > 0)
+        {
+            if (用户取消)
+            {
+                TRACE(_T("用户取消下载\n"));
+                break;
+            }
+
+            WriteFile(hFile, 缓冲区, 已读取, &已写入, NULL);
+            总大小 += 已读取;
+
+            // 更新进度
+            if (总大小 % (1024 * 100) == 0) // 每100KB更新一次
+            {
+                CString 状态;
+                状态.Format(_T("正在下载... (%.1f MB)"), 总大小 / 1024.0 / 1024.0);
+                更新进度(25 + (int)(总大小 / (1024 * 1024) * 2), 状态); // 添加显式类型转换
+            }
+        }
+
+        if (总大小 > 0)
+        {
+            结果 = TRUE;
+            TRACE(_T("WinINet下载成功，文件大小: %llu 字节\n"), 总大小);
+        }
+        else
+        {
+            TRACE(_T("WinINet下载失败，未读取到数据\n"));
+        }
+    }
+    catch (...)
+    {
+        TRACE(_T("WinINet下载过程中发生异常\n"));
+        结果 = FALSE;
+    }
+
+    // 清理资源
+    if (hFile != INVALID_HANDLE_VALUE)
+        CloseHandle(hFile);
+    if (hUrl)
+        InternetCloseHandle(hUrl);
+    if (hInternet)
+        InternetCloseHandle(hInternet);
+
+    return 结果;
+}
+
+// 使用URLDownloadToFile下载
+BOOL NageUPDlg::使用URLDownloadToFile下载(const CString& 文件URL, const CString& 本地路径)
+{
+    TRACE(_T("使用URLDownloadToFile下载\n"));
+
+    // 确保URL格式正确
+    CString 修复的URL = 文件URL;
+
+    // 如果URL没有协议头，添加http://
+    if (修复的URL.Find(_T("://")) == -1)
+    {
+        修复的URL = _T("http://") + 修复的URL;
+        TRACE(_T("修复后的URL: %s\n"), 修复的URL);
+    }
+
+    // 创建下载回调（可选，用于显示进度）
+    // 这里使用NULL，如果需要进度显示可以实现IBindStatusCallback接口
+
+    HRESULT hr = URLDownloadToFile(NULL, 修复的URL, 本地路径, 0, NULL);
+
+    TRACE(_T("URLDownloadToFile返回: 0x%X\n"), hr);
+
+    return (hr == S_OK);
 }
 
 BOOL NageUPDlg::验证文件完整性(const CString& 文件路径)
@@ -486,13 +628,19 @@ BOOL NageUPDlg::解压压缩文件(const CString& 压缩文件路径, const CStr
 
 BOOL NageUPDlg::解压ZIP文件(const CString& 压缩文件路径, const CString& 解压目录)
 {
-    // 使用Windows内置的压缩功能
-    // 需要 Windows 8 或更高版本，或者安装 .NET Framework
+    TRACE(_T("解压ZIP文件: %s -> %s\n"), 压缩文件路径, 解压目录);
 
+    // 方法1: 使用Windows内置的压缩功能（更简单的方式）
     CoInitialize(NULL);
 
-    // 创建Shell对象
+    BOOL 解压结果 = FALSE;
     IShellDispatch* pShell = NULL;
+
+    VARIANT 压缩文件变量;
+    VARIANT 目标文件夹变量;
+    VariantInit(&压缩文件变量);
+    VariantInit(&目标文件夹变量);
+
     HRESULT hr = CoCreateInstance(CLSID_Shell, NULL, CLSCTX_INPROC_SERVER, IID_IShellDispatch, (void**)&pShell);
 
     if (SUCCEEDED(hr) && pShell)
@@ -501,7 +649,7 @@ BOOL NageUPDlg::解压ZIP文件(const CString& 压缩文件路径, const CString
         VARIANT 压缩文件变量;
         VariantInit(&压缩文件变量);
         压缩文件变量.vt = VT_BSTR;
-        压缩文件变量.bstrVal = 压缩文件路径.AllocSysString();
+        压缩文件变量.bstrVal = ::SysAllocString(压缩文件路径);
 
         Folder* pZipFolder = NULL;
         hr = pShell->NameSpace(压缩文件变量, &pZipFolder);
@@ -512,92 +660,173 @@ BOOL NageUPDlg::解压ZIP文件(const CString& 压缩文件路径, const CString
             VARIANT 目标文件夹变量;
             VariantInit(&目标文件夹变量);
             目标文件夹变量.vt = VT_BSTR;
-            目标文件夹变量.bstrVal = 解压目录.AllocSysString();
+            目标文件夹变量.bstrVal = ::SysAllocString(解压目录);
 
             Folder* pDestFolder = NULL;
             hr = pShell->NameSpace(目标文件夹变量, &pDestFolder);
 
             if (SUCCEEDED(hr) && pDestFolder)
             {
-                // 复制所有项目到目标文件夹
+                // 获取压缩包中的所有项目
                 FolderItems* pItems = NULL;
                 hr = pZipFolder->Items(&pItems);
 
                 if (SUCCEEDED(hr) && pItems)
                 {
+                    // 正确调用CopyHere方法
                     VARIANT 选项变量;
                     VariantInit(&选项变量);
                     选项变量.vt = VT_I4;
-                    选项变量.lVal = 0; // 不显示进度对话框
+                    选项变量.lVal = 4 | 16 | 1024; // 不显示UI，覆盖现有文件
 
-                    hr = pDestFolder->CopyHere(pItems, 选项变量);
+                    VARIANT 项目变量;
+                    VariantInit(&项目变量);
+                    项目变量.vt = VT_DISPATCH;
+                    项目变量.pdispVal = pItems;
+
+                    hr = pDestFolder->CopyHere(项目变量, 选项变量);
+
+                    if (SUCCEEDED(hr))
+                    {
+                        解压结果 = TRUE;
+                        TRACE(_T("ZIP解压成功\n"));
+                    }
+                    else
+                    {
+                        TRACE(_T("ZIP解压失败，错误码: 0x%X\n"), hr);
+                    }
+
                     pItems->Release();
                 }
-
                 pDestFolder->Release();
             }
-
             pZipFolder->Release();
         }
-
-        VariantClear(&压缩文件变量);
         pShell->Release();
     }
+    if (pShell)
+        pShell->Release();
 
     CoUninitialize();
 
-    return SUCCEEDED(hr);
+    // 如果方法1失败，尝试方法2：使用命令行
+    if (!解压结果)
+    {
+        TRACE(_T("尝试使用命令行解压ZIP文件\n"));
+        解压结果 = 使用命令行解压ZIP文件(压缩文件路径, 解压目录);
+    }
+
+    return 解压结果;
+}
+
+BOOL NageUPDlg::使用命令行解压ZIP文件(const CString& 压缩文件路径, const CString& 解压目录)
+{
+    // 使用PowerShell解压ZIP文件
+    CString 解压命令;
+    解压命令.Format(_T("powershell -command \"& {Add-Type -AssemblyName 'System.IO.Compression.FileSystem'; [System.IO.Compression.ZipFile]::ExtractToDirectory('%s', '%s');}\""),
+        压缩文件路径, 解压目录);
+
+    TRACE(_T("执行解压命令: %s\n"), 解压命令);
+
+    STARTUPINFO si = { sizeof(si) };
+    PROCESS_INFORMATION pi;
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE; // 隐藏窗口
+
+    BOOL 创建成功 = CreateProcess(NULL, 解压命令.GetBuffer(), NULL, NULL, FALSE,
+        CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+
+    解压命令.ReleaseBuffer();
+
+    if (创建成功)
+    {
+        WaitForSingleObject(pi.hProcess, 60000); // 等待60秒
+        DWORD 退出码;
+        GetExitCodeProcess(pi.hProcess, &退出码);
+
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+
+        TRACE(_T("命令行解压退出码: %d\n"), 退出码);
+        return (退出码 == 0);
+    }
+
+    return FALSE;
 }
 
 BOOL NageUPDlg::解压RAR文件(const CString& 压缩文件路径, const CString& 解压目录)
 {
-    // 对于RAR文件，使用命令行工具
-    CString 解压命令;
+    TRACE(_T("解压RAR文件: %s -> %s\n"), 压缩文件路径, 解压目录);
 
-    // 检查是否安装了WinRAR
+    // 查找WinRAR安装路径
     CString WinRAR路径;
     HKEY hKey;
+
+    // 先尝试64位WinRAR
     if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, _T("SOFTWARE\\WinRAR"), 0, KEY_READ, &hKey) == ERROR_SUCCESS)
     {
         TCHAR szPath[MAX_PATH];
         DWORD dwSize = sizeof(szPath);
-        if (RegQueryValueEx(hKey, _T("exe64"), NULL, NULL, (LPBYTE)szPath, &dwSize) == ERROR_SUCCESS ||
-            RegQueryValueEx(hKey, _T("exe32"), NULL, NULL, (LPBYTE)szPath, &dwSize) == ERROR_SUCCESS)
+
+        if (RegQueryValueEx(hKey, _T("exe64"), NULL, NULL, (LPBYTE)szPath, &dwSize) == ERROR_SUCCESS)
+        {
+            WinRAR路径 = szPath;
+        }
+        else if (RegQueryValueEx(hKey, _T("exe32"), NULL, NULL, (LPBYTE)szPath, &dwSize) == ERROR_SUCCESS)
         {
             WinRAR路径 = szPath;
         }
         RegCloseKey(hKey);
     }
 
-    if (!WinRAR路径.IsEmpty())
+    // 如果没找到，尝试当前目录下的WinRAR
+    if (WinRAR路径.IsEmpty())
+    {
+        WinRAR路径 = _T(".\\WinRAR\\WinRAR.exe");
+        if (GetFileAttributes(WinRAR路径) == INVALID_FILE_ATTRIBUTES)
+        {
+            WinRAR路径 = _T("WinRAR.exe");
+        }
+    }
+
+    CString 解压命令;
+    if (GetFileAttributes(WinRAR路径) != INVALID_FILE_ATTRIBUTES)
     {
         // 使用WinRAR解压
-        解压命令.Format(_T("\"%s\" x -y \"%s\" \"%s\\\""), WinRAR路径, 压缩文件路径, 解压目录);
+        解压命令.Format(_T("\"%s\" x -y -ibck \"%s\" \"%s\\\""), WinRAR路径, 压缩文件路径, 解压目录);
     }
     else
     {
-        // 使用系统内置支持（如果有）或7-zip
-        解压命令.Format(_T("powershell -command \"& {Add-Type -A 'System.IO.Compression.FileSystem'; [IO.Compression.ZipFile]::ExtractToDirectory('%s', '%s');}\""),
-            压缩文件路径, 解压目录);
+        // 如果没有WinRAR，提示用户
+        AfxMessageBox(_T("未找到WinRAR，无法解压RAR文件。请安装WinRAR或使用ZIP格式的更新包。"), MB_ICONERROR);
+        return FALSE;
     }
+
+    TRACE(_T("执行RAR解压命令: %s\n"), 解压命令);
 
     STARTUPINFO si = { sizeof(si) };
     PROCESS_INFORMATION pi;
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
 
-    if (CreateProcess(NULL, 解压命令.GetBuffer(), NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi))
+    BOOL 创建成功 = CreateProcess(NULL, 解压命令.GetBuffer(), NULL, NULL, FALSE,
+        CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
+
+    解压命令.ReleaseBuffer();
+
+    if (创建成功)
     {
-        WaitForSingleObject(pi.hProcess, 30000); // 等待30秒
+        WaitForSingleObject(pi.hProcess, 60000); // 等待60秒
         DWORD 退出码;
         GetExitCodeProcess(pi.hProcess, &退出码);
 
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
-        解压命令.ReleaseBuffer();
 
+        TRACE(_T("RAR解压退出码: %d\n"), 退出码);
         return (退出码 == 0);
     }
 
-    解压命令.ReleaseBuffer();
     return FALSE;
 }
 
