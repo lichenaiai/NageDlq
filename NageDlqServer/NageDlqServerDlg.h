@@ -1,4 +1,5 @@
-﻿#pragma once
+﻿//NageDlqServerDlg.h
+#pragma once
 #include "pch.h"
 #include "framework.h"
 #include "NageDlqServer.h"
@@ -17,6 +18,8 @@
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
+
+class 黑白名单对话框类;
 
 // CNageDlqServerDlg 对话框
 class NageDlqServerDlg : public CDialogEx

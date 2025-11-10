@@ -440,7 +440,9 @@ void NageDlqDlg::检查版本更新(const CString& 服务端版本号)
 	TRACE(_T("客户端版本: %s, 服务端版本: %s\n"), _T(CLIENT_VERSION), 服务端版本号);
 
 	// 简单的版本号比较（按点分割比较）
-	if (比较版本号(_T(CLIENT_VERSION), 服务端版本号) < 0)
+	int 比较结果 = 比较版本号(_T(CLIENT_VERSION), 服务端版本号);
+
+	if (比较结果 < 0)
 	{
 		TRACE(_T("检测到新版本，提示用户更新\n"));
 
@@ -451,12 +453,18 @@ void NageDlqDlg::检查版本更新(const CString& 服务端版本号)
 		if (AfxMessageBox(提示信息, MB_YESNO | MB_ICONQUESTION) == IDYES)
 		{
 			TRACE(_T("用户选择更新，启动更新程序\n"));
-			启动更新程序();
+			// 传递目标版本号给更新程序
+			启动更新程序(服务端版本号);
 		}
 		else
 		{
 			TRACE(_T("用户取消更新\n"));
 		}
+	}
+	else if (比较结果 > 0)
+	{
+		TRACE(_T("客户端版本比服务端新\n"));
+		// 可选：提示用户客户端版本过新
 	}
 	else
 	{
@@ -469,6 +477,9 @@ void NageDlqDlg::检查版本更新(const CString& 服务端版本号)
 // 版本号比较函数
 int NageDlqDlg::比较版本号(const CString& 版本1, const CString& 版本2)
 {
+	TRACE(_T("=== 比较版本号开始 ===\n"));
+	TRACE(_T("版本1: %s, 版本2: %s\n"), 版本1, 版本2);
+
 	CStringArray 版本1数组, 版本2数组;
 
 	// 分割版本号
@@ -495,31 +506,54 @@ int NageDlqDlg::比较版本号(const CString& 版本1, const CString& 版本2)
 		int 数字1 = (i < 版本1数组.GetSize()) ? _ttoi(版本1数组[i]) : 0;
 		int 数字2 = (i < 版本2数组.GetSize()) ? _ttoi(版本2数组[i]) : 0;
 
-		if (数字1 < 数字2) return -1;
-		if (数字1 > 数字2) return 1;
+		TRACE(_T("比较部分 %d: %d vs %d\n"), i, 数字1, 数字2);
+
+		if (数字1 < 数字2)
+		{
+			TRACE(_T("版本1 < 版本2\n"));
+			return -1;
+		}
+		if (数字1 > 数字2)
+		{
+			TRACE(_T("版本1 > 版本2\n"));
+			return 1;
+		}
 	}
 
+	TRACE(_T("版本相同\n"));
 	return 0; // 版本相同
 }
 
 // 启动更新程序
-void NageDlqDlg::启动更新程序()
+void NageDlqDlg::启动更新程序(const CString& 目标版本号)
 {
 	TRACE(_T("=== 启动更新程序开始 ===\n"));
+	TRACE(_T("目标版本号: %s\n"), 目标版本号);
 
 	// 构建更新程序路径
 	TCHAR 当前路径[MAX_PATH];
 	GetCurrentDirectory(MAX_PATH, 当前路径);
 
 	CString 更新程序路径;
-	更新程序路径.Format(_T("%s\\NageUpdater.exe"), 当前路径);
+	更新程序路径.Format(_T("%s\\NageUp.exe"), 当前路径);
 
-	TRACE(_T("更新程序路径: %s\n"), 更新程序路径);
+	// 调试：显示实际命令行
+	CString 命令行;
+	命令行.Format(_T("\"%s\" --target-version=%s"), 更新程序路径, 目标版本号);
+
+	CString 调试信息;
+	调试信息.Format(_T("更新程序路径: %s\n目标版本号: %s\n完整命令行:\n%s"),
+		更新程序路径, 目标版本号, 命令行);
+
+	// 显示调试信息（确认后再继续）
+	if (AfxMessageBox(调试信息 + _T("\n\n点击确定继续启动更新程序"), MB_OKCANCEL | MB_ICONINFORMATION) == IDCANCEL)
+	{
+		return; // 用户取消
+	}
 
 	// 检查更新程序是否存在
 	if (GetFileAttributes(更新程序路径) == INVALID_FILE_ATTRIBUTES)
 	{
-		TRACE(_T("更新程序不存在\n"));
 		AfxMessageBox(_T("更新程序不存在，请联系管理员！"), MB_ICONERROR);
 		return;
 	}
@@ -528,26 +562,16 @@ void NageDlqDlg::启动更新程序()
 	STARTUPINFO si = { sizeof(STARTUPINFO) };
 	PROCESS_INFORMATION pi;
 
-	CString 命令行;
-	命令行.Format(_T("\"%s\" --current-version=%s"), 更新程序路径, _T(CLIENT_VERSION));
-
-	TRACE(_T("启动更新程序命令行: %s\n"), 命令行);
-
 	if (CreateProcess(NULL, 命令行.GetBuffer(), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
 	{
-		TRACE(_T("更新程序启动成功\n"));
 		CloseHandle(pi.hProcess);
 		CloseHandle(pi.hThread);
-
-		// 可选：退出主程序让更新程序接管
 		AfxGetMainWnd()->PostMessage(WM_CLOSE);
 	}
 	else
 	{
-		TRACE(_T("更新程序启动失败\n"));
 		AfxMessageBox(_T("启动更新程序失败！"), MB_ICONERROR);
 	}
 
 	命令行.ReleaseBuffer();
-	TRACE(_T("=== 启动更新程序结束 ===\n"));
 }

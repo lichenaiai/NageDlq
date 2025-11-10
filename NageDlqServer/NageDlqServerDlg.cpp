@@ -1,4 +1,5 @@
-﻿#include "pch.h"
+﻿//NageDlqServerDlg.cpp
+#include "pch.h"
 #include "framework.h"
 #include "NageDlqServer.h"
 #include "NageDlqServerDlg.h"
@@ -422,7 +423,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 					对话框指针->发送到客户端(客户端套接字, _T("CONNECT_FAILED:IP访问受限"));
 					对话框指针->添加信息显示(客户端IP + _T(" IP访问受限"));
 					closesocket(客户端套接字);
-					return;
+					return 0;
 				}
 
 				// 查询数据库获取密钥和最新版本号
@@ -438,7 +439,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 					对话框指针->发送到客户端(客户端套接字, _T("VERSION_OUTDATED"));
 					对话框指针->添加信息显示(客户端IP + _T(" 版本过时，已断开连接"));
 					closesocket(客户端套接字);
-					return;
+					return 0;
 				}
 
 				// 发送响应 - 确保包含密钥和版本号

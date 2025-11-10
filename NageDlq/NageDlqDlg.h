@@ -76,5 +76,5 @@ private:
     // 版本管理函数
     void 检查版本更新(const CString& 服务端版本号);
     int 比较版本号(const CString& 版本1, const CString& 版本2);
-    void 启动更新程序();
+    void 启动更新程序(const CString& 目标版本号 = _T(""));
 };

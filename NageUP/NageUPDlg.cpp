@@ -87,13 +87,25 @@ BOOL NageUPDlg::OnInitDialog()
 {
     CDialogEx::OnInitDialog();
 
+    // 调试：检查目标版本号是否已设置
+    CString 调试信息;
+    调试信息.Format(_T("OnInitDialog - 目标版本号: %s"), 目标版本号);
+
+    // 设置窗口标题
     CString 窗口标题;
-    窗口标题.Format(_T("NageDLQ 更新程序 - 当前版本: %s"), 当前版本号);
+    if (目标版本号.IsEmpty())
+    {
+        窗口标题 = _T("NageDLQ 更新程序");
+    }
+    else
+    {
+        窗口标题.Format(_T("NageDLQ 更新程序 - 目标版本: %s"), 目标版本号);
+    }
     SetWindowText(窗口标题);
 
+    // 其余初始化代码...
     进度条控件.SetRange(0, 100);
     进度条控件.SetPos(0);
-
     当前状态标签.SetWindowText(_T("正在初始化..."));
     文件名标签.SetWindowText(_T("文件: 等待中..."));
     下载速度标签.SetWindowText(_T("速度: 0 KB/s"));
@@ -145,7 +157,7 @@ void NageUPDlg::开始更新流程()
 
             // 更新窗口标题显示目标版本
             CString 窗口标题;
-            窗口标题.Format(_T("NageDLQ 更新程序 - %s -> %s"), 当前版本号, 最新版本号);
+            窗口标题.Format(_T("NageDLQ 更新程序 - 正在更新到 %s"), 最新版本号);
             PostMessage(WM_SETTEXT, 0, (LPARAM)窗口标题.GetString());
 
             // 步骤2: 下载更新文件
@@ -211,48 +223,154 @@ void NageUPDlg::开始更新流程()
 
 BOOL NageUPDlg::获取服务器更新信息(CString& 最新版本号, CString& 更新文件名)
 {
-    TRACE(_T("获取服务器更新信息\n"));
-
-    // 只需要获取更新文件名，不需要比较版本
-    // 尝试几个固定的更新文件名
-
-    std::vector<CString> 可能文件名 = {
-        _T("nageup.zip"),           // 默认文件名
-        _T("update.zip"),           // 备用文件名
-        _T("client_update.zip")     // 另一个备用名
-    };
-
-    // 检查文件是否存在
-    for (const auto& 文件名 : 可能文件名)
+    //AfxMessageBox(_T("开始获取服务器更新信息"), MB_OK | MB_ICONINFORMATION);
+    CString 调试信息;
+    调试信息.Format(_T("目标版本号: %s"), 目标版本号);
+    //AfxMessageBox(调试信息, MB_OK | MB_ICONINFORMATION);
+    // 直接使用客户端提供的目标版本号构建文件名
+    if (!目标版本号.IsEmpty())
     {
-        if (用户取消) break;
+        CString 调试信息;
+        调试信息.Format(_T("目标版本号: %s"), 目标版本号);
+        //AfxMessageBox(调试信息, MB_OK | MB_ICONINFORMATION);
+        TRACE(_T("使用客户端提供的目标版本号: %s\n"), 目标版本号);
 
+        // 尝试ZIP格式
+        CString 文件名;
+        文件名.Format(_T("nageup%s.zip"), 目标版本号);
         CString 文件URL = 构建文件URL(文件名);
-        TRACE(_T("检查更新文件: %s\n"), 文件URL);
 
-        // 检查远程文件是否存在
-        HINTERNET hInternet = InternetOpen(_T("NageUpdater"), INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
-        if (hInternet)
+        调试信息.Format(_T("尝试ZIP文件:\n构建的文件名: %s\n完整的URL: %s"), 文件名, 文件URL);
+        //AfxMessageBox(调试信息, MB_OK | MB_ICONINFORMATION);
+        // 直接显示构建的URL，手动在浏览器中测试
+        //AfxMessageBox(_T("请复制以下URL到浏览器中测试是否能访问:\n" + 文件URL), MB_OK | MB_ICONINFORMATION);
+
+        if (检查远程文件是否存在(文件URL))
         {
-            HINTERNET hUrl = InternetOpenUrl(hInternet, 文件URL, NULL, 0, INTERNET_FLAG_RELOAD, 0);
-            if (hUrl)
-            {
-                // 文件存在
-                InternetCloseHandle(hUrl);
-                InternetCloseHandle(hInternet);
-
-                更新文件名 = 文件名;
-                最新版本号 = 从文件名提取版本号(文件名);
-
-                TRACE(_T("找到更新文件: %s, 显示版本: %s\n"), 更新文件名, 最新版本号);
-                return TRUE;
-            }
-            InternetCloseHandle(hInternet);
+            更新文件名 = 文件名;
+            最新版本号 = 目标版本号;
+            
+            return TRUE;
         }
+
+        // 尝试RAR格式
+        文件名.Format(_T("nageup%s.rar"), 目标版本号);
+        文件URL = 构建文件URL(文件名);
+
+        TRACE(_T("尝试RAR文件: %s\n"), 文件URL);
+
+        if (检查远程文件是否存在(文件URL))
+        {
+            更新文件名 = 文件名;
+            最新版本号 = 目标版本号;
+            TRACE(_T("找到RAR更新文件: %s\n"), 更新文件名);
+            return TRUE;
+        }
+
+        TRACE(_T("使用目标版本号未找到更新文件\n"));
+        //AfxMessageBox(_T("未找到对应版本的更新文件，请联系管理员。"), MB_ICONERROR);
+        return FALSE;
     }
 
-    // 如果固定文件名都不存在，尝试从文件名模式查找
-    return 通过文件名模式查找(最新版本号, 更新文件名);
+    // 如果没有目标版本号，说明调用有问题
+    TRACE(_T("错误：没有提供目标版本号\n"));
+    //AfxMessageBox(_T("更新程序调用参数错误。"), MB_ICONERROR);
+    return FALSE;
+}
+
+BOOL NageUPDlg::检查远程文件是否存在(const CString& 文件URL)
+{
+    TRACE(_T("检查远程文件是否存在: %s\n"), 文件URL);
+
+    HINTERNET hInternet = NULL;
+    HINTERNET hUrl = NULL;
+    BOOL 文件存在 = FALSE;
+
+    try
+    {
+        // 初始化WinINet
+        hInternet = InternetOpen(_T("NageUpdater/FileCheck"),
+            INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+
+        if (!hInternet)
+        {
+            TRACE(_T("InternetOpen失败\n"));
+            return FALSE;
+        }
+
+        // 设置超时
+        DWORD 超时 = 10000; // 10秒超时
+        InternetSetOption(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &超时, sizeof(超时));
+        InternetSetOption(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &超时, sizeof(超时));
+
+        // 打开URL（只获取头信息，不下载内容）
+        hUrl = InternetOpenUrl(hInternet, 文件URL, NULL, 0,
+            INTERNET_FLAG_NO_UI | INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE, 0);
+
+        if (!hUrl)
+        {
+            TRACE(_T("InternetOpenUrl失败，文件可能不存在\n"));
+            return FALSE;
+        }
+
+        // 检查HTTP状态码
+        DWORD 状态码 = 0;
+        DWORD 状态码大小 = sizeof(状态码);
+
+        if (HttpQueryInfo(hUrl, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER,
+            &状态码, &状态码大小, NULL))
+        {
+            TRACE(_T("HTTP状态码: %d\n"), 状态码);
+            文件存在 = (状态码 == 200); // 200表示文件存在
+        }
+        else
+        {
+            TRACE(_T("无法获取HTTP状态码\n"));
+        }
+
+        // 如果状态码是200，还可以获取文件大小等信息
+        if (文件存在)
+        {
+            DWORD 文件大小 = 0;
+            DWORD 大小信息长度 = sizeof(文件大小);
+            if (HttpQueryInfo(hUrl, HTTP_QUERY_CONTENT_LENGTH | HTTP_QUERY_FLAG_NUMBER,
+                &文件大小, &大小信息长度, NULL))
+            {
+                TRACE(_T("文件大小: %lu 字节 (%.2f MB)\n"), 文件大小, 文件大小 / 1024.0 / 1024.0);
+            }
+        }
+    }
+    catch (...)
+    {
+        TRACE(_T("检查远程文件时发生异常\n"));
+        文件存在 = FALSE;
+    }
+
+    // 清理资源
+    if (hUrl)
+        InternetCloseHandle(hUrl);
+    if (hInternet)
+        InternetCloseHandle(hInternet);
+
+    TRACE(_T("文件存在检查结果: %s\n"), 文件存在 ? _T("存在") : _T("不存在"));
+    return 文件存在;
+}
+
+CString NageUPDlg::构建文件URL(const CString& 文件名)
+{
+    CString 完整URL = 更新服务器地址 + 文件名;
+    TRACE(_T("构建文件URL: %s\n"), 完整URL);
+    return 完整URL;
+}
+
+ULONG NageUPDlg::获取文件大小(const CString& 文件路径)
+{
+    WIN32_FILE_ATTRIBUTE_DATA 文件属性;
+    if (GetFileAttributesEx(文件路径, GetFileExInfoStandard, &文件属性))
+    {
+        return 文件属性.nFileSizeLow;
+    }
+    return 0;
 }
 
 BOOL NageUPDlg::通过文件名模式查找(CString& 最新版本号, CString& 更新文件名)
@@ -371,74 +489,79 @@ BOOL NageUPDlg::下载更新文件(const CString& 文件名)
     // 删除已存在的文件
     DeleteFile(本地路径);
 
-    // 方法1：使用WinINet API下载（更可靠）
+    // 先进行下载诊断
+    诊断下载问题(文件URL);
+
+    // 使用WinINet下载
     更新进度(25, _T("正在连接下载服务器..."));
-
     BOOL 下载结果 = 使用WinINet下载文件(文件URL, 本地路径);
-
-    if (!下载结果)
-    {
-        TRACE(_T("WinINet下载失败，尝试备用方法\n"));
-
-        // 方法2：备用方案 - 使用URLDownloadToFile但修复URL
-        下载结果 = 使用URLDownloadToFile下载(文件URL, 本地路径);
-    }
 
     if (下载结果)
     {
         // 验证下载的文件
-        ULONG 文件大小 = 获取文件大小(本地路径);
-        if (文件大小 > 0)
+        ULONG 实际文件大小 = 获取文件大小(本地路径);
+        TRACE(_T("下载完成，实际文件大小: %lu 字节\n"), 实际文件大小);
+
+        if (实际文件大小 > 1024) // 至少1KB才认为是有效文件
         {
             CString 大小信息;
-            大小信息.Format(_T("已下载: %.1f MB"), 文件大小 / 1024.0 / 1024.0);
+            大小信息.Format(_T("已下载: %.1f MB"), 实际文件大小 / 1024.0 / 1024.0);
             更新下载信息(文件名, _T("下载完成"), 大小信息);
-
-            TRACE(_T("文件下载完成，大小: %lu 字节\n"), 文件大小);
             return TRUE;
         }
         else
         {
-            TRACE(_T("下载的文件大小为0\n"));
+            TRACE(_T("下载的文件太小，可能不是有效文件\n"));
             DeleteFile(本地路径);
             return FALSE;
         }
     }
 
-    TRACE(_T("所有下载方法都失败\n"));
+    TRACE(_T("下载失败\n"));
     return FALSE;
 }
 
 // 使用WinINet API下载
 BOOL NageUPDlg::使用WinINet下载文件(const CString& 文件URL, const CString& 本地路径)
 {
-    TRACE(_T("使用WinINet下载文件\n"));
+    TRACE(_T("使用WinINet下载文件: %s -> %s\n"), 文件URL, 本地路径);
 
     HINTERNET hInternet = NULL;
     HINTERNET hUrl = NULL;
     HANDLE hFile = INVALID_HANDLE_VALUE;
     BOOL 结果 = FALSE;
 
+    // 从URL中提取文件名用于显示
+    CString 显示文件名 = 文件URL;
+    int 斜杠位置 = 显示文件名.ReverseFind(_T('/'));
+    if (斜杠位置 != -1)
+    {
+        显示文件名 = 显示文件名.Mid(斜杠位置 + 1);
+    }
+
     try
     {
         // 初始化WinINet
-        hInternet = InternetOpen(_T("NageUpdater"),
+        hInternet = InternetOpen(_T("NageUpdater/1.0"),
             INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
 
         if (!hInternet)
         {
-            TRACE(_T("InternetOpen失败，错误: %d\n"), GetLastError());
+            DWORD 错误 = GetLastError();
+            TRACE(_T("InternetOpen失败，错误: %d\n"), 错误);
             return FALSE;
         }
 
-        // 设置超时 - 使用局部变量
-        DWORD 连接超时 = 30000;  // 30秒
-        DWORD 接收超时 = 30000;  // 30秒
+        TRACE(_T("InternetOpen成功\n"));
 
-        InternetSetOption(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT,
-            &连接超时, sizeof(连接超时));
-        InternetSetOption(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT,
-            &接收超时, sizeof(接收超时));
+        // 设置超时选项
+        DWORD 连接超时 = 30000;
+        DWORD 接收超时 = 120000;  // 增加接收超时到2分钟
+        DWORD 发送超时 = 30000;
+
+        InternetSetOption(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &连接超时, sizeof(连接超时));
+        InternetSetOption(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &接收超时, sizeof(接收超时));
+        InternetSetOption(hInternet, INTERNET_OPTION_SEND_TIMEOUT, &发送超时, sizeof(发送超时));
 
         // 打开URL
         hUrl = InternetOpenUrl(hInternet, 文件URL, NULL, 0,
@@ -447,23 +570,69 @@ BOOL NageUPDlg::使用WinINet下载文件(const CString& 文件URL, const CStrin
         if (!hUrl)
         {
             DWORD 错误 = GetLastError();
-            TRACE(_T("InternetOpenUrl失败，错误: %d, URL: %s\n"), 错误, 文件URL);
+            TRACE(_T("InternetOpenUrl失败，错误: %d\n"), 错误);
             return FALSE;
+        }
+
+        TRACE(_T("InternetOpenUrl成功\n"));
+
+        // 检查HTTP状态码
+        DWORD 状态码 = 0;
+        DWORD 状态码大小 = sizeof(状态码);
+        if (HttpQueryInfo(hUrl, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER,
+            &状态码, &状态码大小, NULL))
+        {
+            TRACE(_T("HTTP状态码: %d\n"), 状态码);
+
+            if (状态码 != 200)
+            {
+                TRACE(_T("HTTP状态码不是200，下载可能失败\n"));
+
+                // 如果是重定向，获取新的URL
+                if (状态码 == 301 || 状态码 == 302)
+                {
+                    TCHAR 重定向URL[2048] = { 0 };
+                    DWORD url大小 = sizeof(重定向URL);
+                    if (HttpQueryInfo(hUrl, HTTP_QUERY_LOCATION, 重定向URL, &url大小, NULL))
+                    {
+                        TRACE(_T("重定向到: %s\n"), 重定向URL);
+                        // 可以在这里处理重定向
+                    }
+                }
+            }
+        }
+
+        // 获取文件大小
+        DWORD 文件大小 = 0;
+        DWORD 大小信息长度 = sizeof(文件大小);
+        if (HttpQueryInfo(hUrl, HTTP_QUERY_CONTENT_LENGTH | HTTP_QUERY_FLAG_NUMBER,
+            &文件大小, &大小信息长度, NULL))
+        {
+            TRACE(_T("服务器报告文件大小: %lu 字节 (%.2f MB)\n"), 文件大小, 文件大小 / 1024.0 / 1024.0);
+        }
+        else
+        {
+            TRACE(_T("无法获取服务器文件大小信息\n"));
         }
 
         // 创建本地文件
         hFile = CreateFile(本地路径, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
         if (hFile == INVALID_HANDLE_VALUE)
         {
-            TRACE(_T("创建文件失败: %s\n"), 本地路径);
+            DWORD 错误 = GetLastError();
+            TRACE(_T("创建文件失败: %s, 错误: %d\n"), 本地路径, 错误);
             return FALSE;
         }
+
+        TRACE(_T("本地文件创建成功\n"));
 
         // 读取数据并写入文件
         DWORD 已读取 = 0;
         DWORD 已写入 = 0;
-        BYTE 缓冲区[8192];
+        BYTE 缓冲区[64 * 1024];  // 增大缓冲区到64KB
         ULONGLONG 总大小 = 0;
+        DWORD 开始时间 = GetTickCount();
+        DWORD 最后更新时间 = 开始时间;
 
         while (InternetReadFile(hUrl, 缓冲区, sizeof(缓冲区), &已读取) && 已读取 > 0)
         {
@@ -473,37 +642,90 @@ BOOL NageUPDlg::使用WinINet下载文件(const CString& 文件URL, const CStrin
                 break;
             }
 
-            WriteFile(hFile, 缓冲区, 已读取, &已写入, NULL);
+            if (!WriteFile(hFile, 缓冲区, 已读取, &已写入, NULL) || 已写入 != 已读取)
+            {
+                TRACE(_T("写入文件失败\n"));
+                break;
+            }
+
             总大小 += 已读取;
 
-            // 更新进度
-            if (总大小 % (1024 * 100) == 0) // 每100KB更新一次
+            // 更新进度和速度（每200ms更新一次显示，避免过于频繁）
+            DWORD 当前时间 = GetTickCount();
+            if (当前时间 - 最后更新时间 > 200) // 每200ms更新一次显示
             {
+                double 耗时秒 = (当前时间 - 开始时间) / 1000.0;
+                double 速度 = (耗时秒 > 0) ? (总大小 / 1024.0) / 耗时秒 : 0;
+
                 CString 状态;
-                状态.Format(_T("正在下载... (%.1f MB)"), 总大小 / 1024.0 / 1024.0);
-                更新进度(25 + (int)(总大小 / (1024 * 1024) * 2), 状态); // 添加显式类型转换
+                状态.Format(_T("正在下载... (%.1f/%.1f MB, 速度: %.1f KB/s)"),
+                    总大小 / 1024.0 / 1024.0,
+                    (文件大小 > 0) ? (文件大小 / 1024.0 / 1024.0) : 0,
+                    速度);
+
+                int 进度 = 25 + (文件大小 > 0 ? (int)((总大小 * 65.0) / 文件大小) : 0);
+                更新进度(min(90, 进度), 状态);
+
+                // 更新下载信息标签
+                CString 速度信息, 大小信息;
+                速度信息.Format(_T("速度: %.1f KB/s"), 速度);
+                大小信息.Format(_T("已下载: %.1f MB / %.1f MB"),
+                    总大小 / 1024.0 / 1024.0,
+                    (文件大小 > 0) ? (文件大小 / 1024.0 / 1024.0) : 0);
+
+                更新下载信息(显示文件名, 速度信息, 大小信息);
+
+                最后更新时间 = 当前时间;
+                TRACE(_T("已下载: %llu/%lu 字节 (%.1f%%) 速度: %.1f KB/s\n"),
+                    总大小, 文件大小,
+                    (文件大小 > 0 ? (总大小 * 100.0 / 文件大小) : 0),
+                    速度);
             }
         }
 
+        // 下载完成后的最终更新
         if (总大小 > 0)
         {
+            CString 最终速度 = _T("下载完成");
+            CString 最终大小;
+            最终大小.Format(_T("已下载: %.1f MB"), 总大小 / 1024.0 / 1024.0);
+            更新下载信息(显示文件名, 最终速度, 最终大小);
+        }
+
+        // 检查是否下载完整
+        if (文件大小 > 0 && 总大小 != 文件大小)
+        {
+            TRACE(_T("文件下载不完整! 期望: %lu 字节, 实际: %llu 字节\n"), 文件大小, 总大小);
+            结果 = FALSE;
+        }
+        else if (总大小 > 0)
+        {
             结果 = TRUE;
-            TRACE(_T("WinINet下载成功，文件大小: %llu 字节\n"), 总大小);
+            TRACE(_T("下载成功，文件大小: %llu 字节 (%.2f MB)\n"), 总大小, 总大小 / 1024.0 / 1024.0);
         }
         else
         {
-            TRACE(_T("WinINet下载失败，未读取到数据\n"));
+            TRACE(_T("下载失败，未读取到数据或数据量为0\n"));
+            结果 = FALSE;
         }
     }
     catch (...)
     {
-        TRACE(_T("WinINet下载过程中发生异常\n"));
+        TRACE(_T("下载过程中发生异常\n"));
         结果 = FALSE;
     }
 
     // 清理资源
     if (hFile != INVALID_HANDLE_VALUE)
+    {
         CloseHandle(hFile);
+        // 如果下载失败或不完整，删除文件
+        if (!结果)
+        {
+            DeleteFile(本地路径);
+            TRACE(_T("已删除不完整的文件\n"));
+        }
+    }
     if (hUrl)
         InternetCloseHandle(hUrl);
     if (hInternet)
@@ -535,6 +757,86 @@ BOOL NageUPDlg::使用URLDownloadToFile下载(const CString& 文件URL, const CS
     TRACE(_T("URLDownloadToFile返回: 0x%X\n"), hr);
 
     return (hr == S_OK);
+}
+
+void NageUPDlg::诊断下载问题(const CString& 文件URL)
+{
+    TRACE(_T("=== 开始下载诊断 ===\n"));
+    TRACE(_T("诊断URL: %s\n"), 文件URL);
+
+    HINTERNET hInternet = InternetOpen(_T("NageUpdater-Diagnostic"),
+        INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+
+    if (!hInternet)
+    {
+        TRACE(_T("✗ InternetOpen失败\n"));
+        return;
+    }
+
+    HINTERNET hUrl = InternetOpenUrl(hInternet, 文件URL, NULL, 0,
+        INTERNET_FLAG_RELOAD, 0);
+
+    if (!hUrl)
+    {
+        DWORD 错误 = GetLastError();
+        TRACE(_T("✗ InternetOpenUrl失败，错误: %d\n"), 错误);
+        InternetCloseHandle(hInternet);
+        return;
+    }
+
+    // 检查HTTP头信息
+    DWORD 状态码 = 0;
+    DWORD 大小 = sizeof(状态码);
+    if (HttpQueryInfo(hUrl, HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER, &状态码, &大小, NULL))
+    {
+        TRACE(_T("✓ HTTP状态码: %d\n"), 状态码);
+    }
+
+    TCHAR 内容类型[256] = { 0 };
+    DWORD 类型大小 = sizeof(内容类型);
+    if (HttpQueryInfo(hUrl, HTTP_QUERY_CONTENT_TYPE, 内容类型, &类型大小, NULL))
+    {
+        TRACE(_T("✓ 内容类型: %s\n"), 内容类型);
+    }
+
+    DWORD 文件大小 = 0;
+    DWORD 文件大小长度 = sizeof(文件大小);
+    if (HttpQueryInfo(hUrl, HTTP_QUERY_CONTENT_LENGTH | HTTP_QUERY_FLAG_NUMBER, &文件大小, &文件大小长度, NULL))
+    {
+        TRACE(_T("✓ 文件大小: %lu 字节 (%.2f MB)\n"), 文件大小, 文件大小 / 1024.0 / 1024.0);
+    }
+    else
+    {
+        TRACE(_T("✗ 无法获取文件大小\n"));
+    }
+
+    // 读取前几个字节检查文件类型
+    BYTE 文件头[8];
+    DWORD 已读取 = 0;
+    if (InternetReadFile(hUrl, 文件头, sizeof(文件头), &已读取) && 已读取 >= 4)
+    {
+        TRACE(_T("✓ 文件头: %02X %02X %02X %02X\n"), 文件头[0], 文件头[1], 文件头[2], 文件头[3]);
+
+        // 检查是否是ZIP文件
+        if (文件头[0] == 0x50 && 文件头[1] == 0x4B && 文件头[2] == 0x03 && 文件头[3] == 0x04)
+        {
+            TRACE(_T("✓ 文件头是有效的ZIP格式\n"));
+        }
+        else
+        {
+            TRACE(_T("✗ 文件头不是有效的ZIP格式\n"));
+
+            // 检查是否是HTML（可能是错误页面）
+            if (文件头[0] == 0x3C && 文件头[1] == 0x21 && 文件头[2] == 0x44 && 文件头[3] == 0x4F) // <!DO
+            {
+                TRACE(_T("⚠ 可能是HTML错误页面\n"));
+            }
+        }
+    }
+
+    InternetCloseHandle(hUrl);
+    InternetCloseHandle(hInternet);
+    TRACE(_T("=== 下载诊断结束 ===\n"));
 }
 
 BOOL NageUPDlg::验证文件完整性(const CString& 文件路径)
@@ -591,20 +893,135 @@ BOOL NageUPDlg::应用更新(const CString& 文件路径)
 {
     TRACE(_T("应用更新: %s\n"), 文件路径);
 
-    // 步骤1: 解压文件
+    // 步骤1: 解压文件到临时目录
     更新进度(91, _T("正在解压更新包..."));
-    if (!解压压缩文件(文件路径, _T(".\\")))
+
+    CString 临时目录 = _T(".\\update_temp\\");
+    CreateDirectory(临时目录, NULL);
+
+    if (!解压压缩文件(文件路径, 临时目录))
     {
         TRACE(_T("解压文件失败\n"));
         return FALSE;
     }
 
-    // 步骤2: 删除压缩包
+    // 步骤2: 复制文件到当前目录
+    更新进度(95, _T("正在替换程序文件..."));
+    if (!复制目录文件(临时目录, _T(".\\")))
+    {
+        TRACE(_T("复制文件失败\n"));
+        return FALSE;
+    }
+
+    // 步骤3: 清理临时文件和目录
     更新进度(98, _T("正在清理临时文件..."));
+
+    // 删除临时目录（需要递归删除）
+    删除目录及其内容(临时目录);
+
+    // 删除压缩包
     DeleteFile(文件路径);
 
     TRACE(_T("更新应用完成\n"));
     return TRUE;
+}
+
+BOOL NageUPDlg::复制目录文件(const CString& 源目录, const CString& 目标目录)
+{
+    TRACE(_T("复制目录文件: %s -> %s\n"), 源目录, 目标目录);
+
+    CString 搜索路径 = 源目录 + _T("*.*");
+    WIN32_FIND_DATA 查找数据;
+    HANDLE 查找句柄 = FindFirstFile(搜索路径, &查找数据);
+
+    if (查找句柄 == INVALID_HANDLE_VALUE)
+    {
+        TRACE(_T("找不到要复制的文件\n"));
+        return FALSE;
+    }
+
+    BOOL 有文件 = TRUE;
+    BOOL 所有文件复制成功 = TRUE;
+
+    while (有文件 && !用户取消)
+    {
+        if (_tcscmp(查找数据.cFileName, _T(".")) != 0 &&
+            _tcscmp(查找数据.cFileName, _T("..")) != 0)
+        {
+            CString 源文件路径 = 源目录 + 查找数据.cFileName;
+            CString 目标文件路径 = 目标目录 + 查找数据.cFileName;
+
+            if (查找数据.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            {
+                // 如果是目录，递归复制
+                CreateDirectory(目标文件路径, NULL);
+                if (!复制目录文件(源文件路径 + _T("\\"), 目标文件路径 + _T("\\")))
+                {
+                    所有文件复制成功 = FALSE;
+                }
+            }
+            else
+            {
+                // 如果是文件，直接复制
+                TRACE(_T("复制文件: %s\n"), 查找数据.cFileName);
+
+                // 先设置文件为普通属性，确保可以覆盖
+                SetFileAttributes(目标文件路径, FILE_ATTRIBUTE_NORMAL);
+
+                if (!CopyFile(源文件路径, 目标文件路径, FALSE))
+                {
+                    TRACE(_T("复制文件失败: %s, 错误: %d\n"), 查找数据.cFileName, GetLastError());
+                    所有文件复制成功 = FALSE;
+                }
+            }
+        }
+
+        有文件 = FindNextFile(查找句柄, &查找数据);
+    }
+
+    FindClose(查找句柄);
+    return 所有文件复制成功;
+}
+
+// 添加递归删除目录函数
+void NageUPDlg::删除目录及其内容(const CString& 目录路径)
+{
+    CString 搜索路径 = 目录路径 + _T("*.*");
+    WIN32_FIND_DATA 查找数据;
+    HANDLE 查找句柄 = FindFirstFile(搜索路径, &查找数据);
+
+    if (查找句柄 != INVALID_HANDLE_VALUE)
+    {
+        BOOL 有文件 = TRUE;
+        while (有文件)
+        {
+            if (_tcscmp(查找数据.cFileName, _T(".")) != 0 &&
+                _tcscmp(查找数据.cFileName, _T("..")) != 0)
+            {
+                CString 文件路径 = 目录路径 + 查找数据.cFileName;
+
+                if (查找数据.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                {
+                    // 递归删除子目录
+                    删除目录及其内容(文件路径 + _T("\\"));
+                    RemoveDirectory(文件路径);
+                }
+                else
+                {
+                    // 删除文件
+                    SetFileAttributes(文件路径, FILE_ATTRIBUTE_NORMAL);
+                    DeleteFile(文件路径);
+                }
+            }
+
+            有文件 = FindNextFile(查找句柄, &查找数据);
+        }
+
+        FindClose(查找句柄);
+    }
+
+    // 删除空目录
+    RemoveDirectory(目录路径);
 }
 
 BOOL NageUPDlg::解压压缩文件(const CString& 压缩文件路径, const CString& 解压目录)
@@ -864,22 +1281,6 @@ void NageUPDlg::OnBnClickedButtonCancel()
     {
         CDialogEx::OnCancel();
     }
-}
-
-// 辅助函数
-CString NageUPDlg::构建文件URL(const CString& 文件名)
-{
-    return 更新服务器地址 + 文件名;
-}
-
-ULONG NageUPDlg::获取文件大小(const CString& 文件路径)
-{
-    WIN32_FILE_ATTRIBUTE_DATA 文件属性;
-    if (GetFileAttributesEx(文件路径, GetFileExInfoStandard, &文件属性))
-    {
-        return 文件属性.nFileSizeLow;
-    }
-    return 0;
 }
 
 void NageUPDlg::更新进度(int 进度, const CString& 状态)
