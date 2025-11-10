@@ -19,7 +19,8 @@ public:
     enum { IDD = IDD_UPDATER_DIALOG };
 #endif
 
-    void 设置当前版本(const CString& 版本号) { 当前版本号 = 版本号; }
+    void 设置当前版本(const CString& 版本号) { 目标版本号 = 版本号; }
+    void 设置目标版本号(const CString& 版本号) { 目标版本号 = 版本号; }
 
 protected:
     virtual void DoDataExchange(CDataExchange* pDX);
@@ -40,10 +41,10 @@ public:
     afx_msg void OnTimer(UINT_PTR nIDEvent);
 
 private:
-    CString 当前版本号;
     BOOL 正在更新;
     BOOL 用户取消;
     CString 更新服务器地址;
+    CString 目标版本号;
 
     // 更新流程
     void 开始更新流程();
@@ -67,6 +68,13 @@ private:
     BOOL 使用命令行解压ZIP文件(const CString& 压缩文件路径, const CString& 解压目录);
     BOOL 使用URLDownloadToFile下载(const CString& 文件URL, const CString& 本地路径);
     BOOL 使用WinINet下载文件(const CString& 文件URL, const CString& 本地路径);
+    void 诊断下载问题(const CString& 文件URL);
+
+    CString 解析命令行目标版本号();
+    BOOL 检查远程文件是否存在(const CString& 文件URL);
+
+    BOOL 复制目录文件(const CString& 源目录, const CString& 目标目录);
+    void 删除目录及其内容(const CString& 目录路径);
 
     // 自定义消息处理
     afx_msg LRESULT OnUpdateProgress(WPARAM wParam, LPARAM lParam);
