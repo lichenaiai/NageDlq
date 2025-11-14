@@ -408,3 +408,96 @@ void 端口转发管理类::转发数据(SOCKET 来源套接字, SOCKET 目标套接字)
         }
     }
 }
+
+// 保存配置到注册表
+BOOL 端口转发管理类::保存配置()
+{
+    std::lock_guard<std::mutex> 锁(规则列表锁);
+
+    HKEY hKey;
+    LONG lResult = RegCreateKeyEx(HKEY_CURRENT_USER,
+        _T("Software\\NageServer\\PortForward"),
+        0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL);
+
+    if (lResult == ERROR_SUCCESS)
+    {
+        CString 配置数据;
+
+        for (const auto& 规则 : 转发规则列表)
+        {
+            CString 单条规则;
+            单条规则.Format(_T("%d|%s|%d|%s|%d"),
+                规则.序号, 规则.输入IP, 规则.输入端口, 规则.输出IP, 规则.输出端口);
+
+            配置数据 += 单条规则 + _T(";");
+        }
+
+        RegSetValueEx(hKey, _T("ForwardRules"), 0, REG_SZ,
+            (const BYTE*)(LPCTSTR)配置数据,
+            (配置数据.GetLength() + 1) * sizeof(TCHAR));
+
+        RegCloseKey(hKey);
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+// 从注册表加载配置
+BOOL 端口转发管理类::加载配置()
+{
+    std::lock_guard<std::mutex> 锁(规则列表锁);
+
+    HKEY hKey;
+    if (RegOpenKeyEx(HKEY_CURRENT_USER,
+        _T("Software\\NageServer\\PortForward"), 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    {
+        DWORD dwType, dwSize = 4096;
+        TCHAR szValue[4096];
+
+        if (RegQueryValueEx(hKey, _T("ForwardRules"), NULL, &dwType,
+            (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS)
+        {
+            CString 配置数据(szValue);
+
+            int 位置 = 0;
+            CString 单条规则 = 配置数据.Tokenize(_T(";"), 位置);
+            while (!单条规则.IsEmpty())
+            {
+                CStringArray 规则数组;
+                int 子位置 = 0;
+                CString 部分 = 单条规则.Tokenize(_T("|"), 子位置);
+                while (!部分.IsEmpty())
+                {
+                    规则数组.Add(部分);
+                    部分 = 单条规则.Tokenize(_T("|"), 子位置);
+                }
+
+                if (规则数组.GetSize() == 5)
+                {
+                    int 序号 = _ttoi(规则数组[0]);
+                    CString 输入IP = 规则数组[1];
+                    int 输入端口 = _ttoi(规则数组[2]);
+                    CString 输出IP = 规则数组[3];
+                    int 输出端口 = _ttoi(规则数组[4]);
+
+                    // 验证数据有效性
+                    if (序号 > 0 && 输入端口 > 0 && 输入端口 <= 65535 &&
+                        输出端口 > 0 && 输出端口 <= 65535)
+                    {
+                        // 重新构建规则列表
+                        转发规则列表.clear();
+                        添加转发规则(输入IP, 输入端口, 输出IP, 输出端口);
+                    }
+                }
+
+                单条规则 = 配置数据.Tokenize(_T(";"), 位置);
+            }
+        }
+
+        RegCloseKey(hKey);
+        return TRUE;
+    }
+
+    return FALSE;
+}

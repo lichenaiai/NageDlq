@@ -2239,3 +2239,52 @@ BOOL NageDlqServerDlg::安全停止端口转发()
 	}
 }
 
+// 保存端口转发配置函数
+BOOL NageDlqServerDlg::保存端口转发配置()
+{
+	try
+	{
+		if (端口转发管理器.保存配置())
+		{
+			添加信息显示(_T("端口转发配置保存成功"));
+			return TRUE;
+		}
+	}
+	catch (const std::exception& e)
+	{
+		TRACE(_T("保存端口转发配置时发生异常: %s\n"), CString(e.what()));
+		添加信息显示(_T("端口转发配置保存失败"));
+	}
+	catch (...)
+	{
+		TRACE(_T("保存端口转发配置时发生未知异常\n"));
+		添加信息显示(_T("端口转发配置保存失败"));
+	}
+
+	return FALSE;
+}
+
+// 加载端口转发配置函数
+BOOL NageDlqServerDlg::加载端口转发配置()
+{
+	try
+	{
+		if (端口转发管理器.加载配置())
+		{
+			添加信息显示(_T("端口转发配置加载成功"));
+			return TRUE;
+		}
+	}
+	catch (const std::exception& e)
+	{
+		TRACE(_T("加载端口转发配置时发生异常: %s\n"), CString(e.what()));
+		添加信息显示(_T("端口转发配置加载失败或没有配置"));
+	}
+	catch (...)
+	{
+		TRACE(_T("加载端口转发配置时发生未知异常\n"));
+		添加信息显示(_T("端口转发配置加载失败"));
+	}
+
+	return FALSE;
+}
