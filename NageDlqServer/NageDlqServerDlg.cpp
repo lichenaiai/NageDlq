@@ -52,6 +52,8 @@ NageDlqServerDlg::~NageDlqServerDlg()
 	if (SQL环境句柄) SQLFreeHandle(SQL_HANDLE_ENV, SQL环境句柄);
 
 	DeleteCriticalSection(&客户端列表锁);
+	
+	安全停止端口转发();
 }
 
 void NageDlqServerDlg::DoDataExchange(CDataExchange* pDX)
@@ -77,6 +79,10 @@ BEGIN_MESSAGE_MAP(NageDlqServerDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_UPDATE_HOOK, &NageDlqServerDlg::OnBnClickedButtonUpdateHook)
 	ON_BN_CLICKED(IDC_BUTTON_SETTINGS, &NageDlqServerDlg::OnBnClickedButtonSettings)
 	ON_BN_CLICKED(IDC_BUTTON_BWLIST, &NageDlqServerDlg::OnBnClickedButtonBwlist)
+	ON_BN_CLICKED(IDC_BUTTON_START_FORWARD, &NageDlqServerDlg::On启动转发按钮点击)
+	ON_BN_CLICKED(IDC_BUTTON_STOP_FORWARD, &NageDlqServerDlg::On停止转发按钮点击)
+	ON_NOTIFY(NM_DBLCLK, IDC_LIST_FORWARD, &NageDlqServerDlg::On列表项双击)
+	ON_NOTIFY(LVN_ENDLABELEDIT, IDC_LIST_FORWARD, &NageDlqServerDlg::On列表结束编辑)
 END_MESSAGE_MAP()
 
 BOOL NageDlqServerDlg::OnInitDialog()
@@ -97,10 +103,11 @@ BOOL NageDlqServerDlg::OnInitDialog()
 		return FALSE;
 	}
 
-	// 加载配置
 	加载配置();
-
 	添加信息显示(_T("程序已初始化"));
+
+	初始化端口转发界面();
+	加载端口转发配置();
 	return TRUE;
 }
 
@@ -1912,3 +1919,323 @@ void NageDlqServerDlg::加载黑白名单()
 	已加载 = TRUE;
 	TRACE(_T("加载黑白名单完成，黑名单数量: %d, 白名单数量: %d\n"), 黑名单列表.size(), 白名单列表.size());
 }
+
+// 端口转发界面初始化
+void NageDlqServerDlg::初始化端口转发界面()
+{
+	// 获取控件
+	端口转发列表控件.SubclassDlgItem(IDC_LIST_FORWARD, this);
+	启动转发按钮.SubclassDlgItem(IDC_BUTTON_START_FORWARD, this);
+	停止转发按钮.SubclassDlgItem(IDC_BUTTON_STOP_FORWARD, this);
+
+	// 设置列表样式
+	端口转发列表控件.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER);
+
+	// 添加列
+	端口转发列表控件.InsertColumn(0, _T("状态"), LVCFMT_LEFT, 60);
+	端口转发列表控件.InsertColumn(1, _T("序号"), LVCFMT_LEFT, 40);
+	端口转发列表控件.InsertColumn(2, _T("输入IP"), LVCFMT_LEFT, 100);
+	端口转发列表控件.InsertColumn(3, _T("输入端口"), LVCFMT_LEFT, 60);
+	端口转发列表控件.InsertColumn(4, _T("输出IP"), LVCFMT_LEFT, 100);
+	端口转发列表控件.InsertColumn(5, _T("输出端口"), LVCFMT_LEFT, 60);
+	端口转发列表控件.InsertColumn(6, _T("连接数"), LVCFMT_LEFT, 60);
+
+	// 添加默认规则
+	添加默认转发规则();
+}
+
+// 启动转发按钮点击处理
+void NageDlqServerDlg::On启动转发按钮点击()
+{
+	if (端口转发管理器.获取规则列表().empty())
+	{
+		添加信息显示(_T("请先添加转发规则")));
+		return;
+	}
+
+	if (启动端口转发())
+	{
+		启动转发按钮.EnableWindow(FALSE);
+		停止转发按钮.EnableWindow(TRUE);
+		添加信息显示(_T("端口转发已启动")));
+	}
+	else
+	{
+		添加信息显示(_T("端口转发启动失败")));
+	}
+}
+
+// 停止转发按钮点击处理
+void NageDlqServerDlg::On停止转发按钮点击()  // 修改函数名
+{
+	if (停止端口转发())
+	{
+		启动转发按钮.EnableWindow(TRUE);
+		停止转发按钮.EnableWindow(FALSE);
+		添加信息显示(_T("端口转发已停止")));
+	}
+}
+
+// 启动端口转发
+BOOL NageDlqServerDlg::启动端口转发()
+{
+	try
+	{
+		if (端口转发管理器.启动所有转发())
+		{
+			刷新端口转发列表();
+			return TRUE;
+		}
+	}
+	catch (const std::exception& e)
+	{
+		TRACE(_T("启动端口转发时发生异常: %s\n"), CString(e.what()));
+		添加信息显示(_T("启动端口转发时发生异常")));
+	}
+	catch (...)
+	{
+		TRACE(_T("启动端口转发时发生未知异常\n"));
+		添加信息显示(_T("启动端口转发时发生未知异常")));
+	}
+
+	return FALSE;
+}
+
+// 停止端口转发
+BOOL NageDlqServerDlg::停止端口转发()
+{
+	try
+	{
+		if (端口转发管理器.停止所有转发())
+		{
+			刷新端口转发列表();
+			return TRUE;
+		}
+	}
+	catch (const std::exception& e)
+	{
+		TRACE(_T("停止端口转发时发生异常: %s\n"), CString(e.what()));
+		添加信息显示(_T("停止端口转发时发生异常")));
+	}
+	catch (...)
+	{
+		TRACE(_T("停止端口转发时发生未知异常\n"));
+		添加信息显示(_T("停止端口转发时发生未知异常")));
+	}
+
+	return FALSE;
+}
+
+// 列表项双击编辑处理
+void NageDlqServerDlg::On列表项双击(NMHDR* pNMHDR, LRESULT* pResult)
+{
+	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
+	if (pNMItemActivate)
+	{
+		int 选中项 = pNMItemActivate->iItem;
+		int 选中列 = pNMItemActivate->iSubItem;
+
+		// 只允许编辑IP和端口列（第2、3、4、5列）
+		if (选中项 >= 0 && 选中列 >= 2 && 选中列 <= 5)
+		{
+			// 开始编辑
+			CEdit* pEdit = 端口转发列表控件.EditLabel(选中项);
+			if (pEdit)
+			{
+				// 获取当前文本
+				CString 当前文本 = 端口转发列表控件.GetItemText(选中项, 选中列);
+
+				// 设置编辑框的初始文本
+				pEdit->SetWindowText(当前文本);
+			}
+
+			*pResult = 0;
+		}
+	}
+}
+
+// 列表结束编辑处理
+void NageDlqServerDlg::On列表结束编辑(NMHDR* pNMHDR, LRESULT* pResult)
+{
+	NMLVDISPINFO* pDispInfo = reinterpret_cast<NMLVDISPINFO*>(pNMHDR);
+
+	if (pDispInfo->item.pszText != NULL)
+	{
+		int 选中项 = pDispInfo->item.iItem;
+		int 选中列 = pDispInfo->item.iSubItem;
+		CString 新文本 = pDispInfo->item.pszText;
+
+		CString 序号文本 = 端口转发列表控件.GetItemText(选中项, 1);
+		int 规则序号 = _ttoi(序号文本);
+
+		// 获取规则列表
+		auto 规则列表 = 端口转发管理器.获取规则列表();
+
+		if (选中项 >= 0 && 选中项 < (int)规则列表.size())
+		{
+			// 缓存当前值用于更新
+			CString 当前输入IP = 端口转发列表控件.GetItemText(选中项, 2);
+			CString 当前输出IP = 端口转发列表控件.GetItemText(选中项, 4);
+
+			// 更新数据
+			switch (选中列)
+			{
+			case 2: // 输入IP
+			{
+				// 检查是否需要自动填充后续行
+				if (选中项 == 0) // 第一行
+				{
+					// 如果编辑的是输入IP，尝试自动填充后续行
+					if (!新文本.IsEmpty())
+					{
+						// 自动填充后续行的输入IP
+						for (int i = 选中项 + 1; i < 端口转发列表控件.GetItemCount(); i++)
+						{
+							CString 当前行输入IP = 端口转发列表控件.GetItemText(i, 2);
+							if (当前行输入IP.IsEmpty() || 当前行输入IP == _T("双击填写"))
+							{
+								端口转发列表控件.SetItemText(i, 2, 新文本);
+							}
+						}
+					}
+				}
+				// 更新当前规则
+				端口转发管理器.更新转发规则(规则序号, 新文本, 规则列表[选中项].输入端口,
+					规则列表[选中项].输出IP, 规则列表[选中项].输出端口);
+			}
+			break;
+
+			case 4: // 输出IP
+			{
+				// 检查是否需要自动填充后续行
+				if (选中项 == 0) // 第一行
+				{
+					// 自动填充后续行的输出IP
+					for (int i = 选中项 + 1; i < 端口转发列表控件.GetItemCount(); i++)
+					{
+						CString 当前行输出IP = 端口转发列表控件.GetItemText(i, 4);
+						if (当前行输出IP.IsEmpty() || 当前行输出IP == _T("双击填写"))
+						{
+							端口转发列表控件.SetItemText(i, 4, 新文本);
+						}
+					}
+				}
+				// 更新当前规则
+				端口转发管理器.更新转发规则(规则序号, 规则列表[选中项].输入IP, 规则列表[选中项].输入端口,
+					新文本, 规则列表[选中项].输出端口);
+			}
+			break;
+
+			case 3: // 输入端口
+			{
+				int 新端口 = _ttoi(新文本);
+				if (新端口 > 0 && 新端口 <= 65535)
+				{
+					端口转发管理器.更新转发规则(规则序号, 当前输入IP, 新端口,
+						当前输出IP, 规则列表[选中项].输出端口);
+				}
+			}
+			break;
+
+			case 5: // 输出端口
+			{
+				int 新端口 = _ttoi(新文本);
+				if (新端口 > 0 && 新端口 <= 65535)
+				{
+					端口转发管理器.更新转发规则(规则序号, 当前输入IP, 规则列表[选中项].输入端口,
+						当前输出IP, 新端口);
+				}
+			}
+			break;
+			}
+
+			// 保存配置
+			保存端口转发配置();
+
+			// 自动刷新显示
+			刷新端口转发列表();
+		}
+	}
+
+	*pResult = 0;
+}
+
+// 添加默认转发规则
+void NageDlqServerDlg::添加默认转发规则()
+{
+	// 添加一条默认规则
+	端口转发管理器.添加转发规则(_T("127.0.0.1"), 9896, _T("192.168.100.1"), 9896);
+
+	// 刷新列表
+	刷新端口转发列表();
+}
+
+// 刷新端口转发列表
+void NageDlqServerDlg::刷新端口转发列表()
+{
+	端口转发列表控件.DeleteAllItems();
+
+	auto 规则列表 = 端口转发管理器.获取规则列表();
+
+	for (size_t i = 0; i < 规则列表.size(); i++)
+	{
+		const auto& 规则 = 规则列表[i];
+
+		int 索引 = 端口转发列表控件.InsertItem(0, 规则.状态);
+
+		// 设置序号
+		CString 序号文本;
+		序号文本.Format(_T("%d"), 规则.序号);
+		端口转发列表控件.SetItemText(索引, 1, 序号文本);
+		端口转发列表控件.SetItemText(索引, 2, 规则.输入IP);
+
+		CString 端口文本;
+		端口文本.Format(_T("%d"), 规则.输入端口);
+		端口转发列表控件.SetItemText(索引, 3, 端口文本);
+		端口转发列表控件.SetItemText(索引, 4, 规则.输出IP);
+
+		端口文本.Format(_T("%d"), 规则.输出端口);
+		端口转发列表控件.SetItemText(索引, 4, 规则.输出IP);
+
+		端口文本.Format(_T("%d"), 规则.输出端口);
+		端口转发列表控件.SetItemText(索引, 5, 端口文本);
+
+		端口文本.Format(_T("%d"), 规则.连接数);
+		端口转发列表控件.SetItemText(索引, 6, 端口文本);
+	}
+
+	// 调整列宽
+	for (int i = 0; i < 7; i++)
+	{
+		端口转发列表控件.SetColumnWidth(i, LVSCW_AUTOSIZE_USEHEADER);
+	}
+}
+
+// 安全的端口转发启动
+BOOL NageDlqServerDlg::安全启动端口转发()
+{
+	__try
+	{
+		return 启动端口转发();
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		添加信息显示(_T("端口转发启动过程中发生异常，但程序继续运行")));
+		return FALSE;
+	}
+}
+
+// 安全的端口转发停止
+BOOL NageDlqServerDlg::安全停止端口转发()
+{
+	__try
+	{
+		return 停止端口转发();
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		添加信息显示(_T("端口转发停止过程中发生异常，但程序继续运行")));
+		return FALSE;
+	}
+}
+
