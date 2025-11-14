@@ -10,15 +10,12 @@
 #define IDR_MAINFRAME                   128
 #define IDD_SETTINGS_DIALOG             129
 #define IDD_BWLIST_DIALOG               131
-#define IDC_EDIT1                       1002
+#define IDD_INPUT_DIALOG                132
 #define IDC_EDIT_DB_USER                1002
-#define IDC_EDIT_INFO1                  1002
 #define IDC_EDIT_DB_PASSWORD            1003
-#define IDC_LIST2                       1004
-#define IDC_EDIT3                       1004
 #define IDC_EDIT_DB_NAME                1004
-#define IDC_BUTTON1                     1005
-#define IDC_BUTTON2                     1006
+#define IDC_BUTTON_STOP_FORWARD         1005
+#define IDC_BUTTON_START_FORWARD        1006
 #define IDC_BUTTON_UPDATE_CLIENT        1007
 #define IDC_BUTTON_UPDATE_HOOK          1008
 #define IDC_BUTTON_START                1009
@@ -29,16 +26,13 @@
 #define IDC_STATIC_CONNECTIONS          1014
 #define IDC_BUTTON_TEST_CONNECTION      1018
 #define IDC_STATIC_CONNECTION_STATUS    1019
-#define IDC_IDC_LIST1                   1020
-#define IDC_EDIT                        1021
+#define IDC_LIST_FORWARD                1020
 #define IDC_EDIT_INFO                   1021
-#define IDC_BUTTON3                     1022
 #define IDC_BUTTON_BWLIST               1022
 #define ID_SAVE_BW                      1030
 #define ID_CLOSE_BW                     1031
 #define IDC_BLIST_BWLIST                1034
 #define IDC_WLIST_BWLIST                1035
-#define IDD_INPUT_DIALOG                132
 #define IDC_EDIT_INPUT                  1036
 #define IDC_STATIC_PROMPT               1037
 

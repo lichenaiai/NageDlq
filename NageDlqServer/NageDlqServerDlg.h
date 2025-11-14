@@ -6,6 +6,7 @@
 #include "NageDlqServerDlg.h"
 #include "afxdialogex.h"
 #include "设置对话框类.h" 
+#include "端口转发.h"  
 #include <map>
 #include <vector> 
 #define WIN32_LEAN_AND_MEAN
@@ -150,4 +151,33 @@ public:
 	void 加载黑白名单();
 
 	CButton 黑白名单按钮;
+
+public:
+	// 端口转发相关成员
+	端口转发管理类 端口转发管理器;
+
+	// 端口转发控件
+	CListCtrl 端口转发列表控件;
+	CButton 启动转发按钮;
+	CButton 停止转发按钮;
+
+	// 端口转发相关方法
+	void 初始化端口转发界面();
+	void 刷新端口转发列表();
+	BOOL 启动端口转发();
+	BOOL 停止端口转发();
+	void 添加默认转发规则();
+	BOOL 保存端口转发配置();  
+	BOOL 加载端口转发配置();
+	BOOL 安全启动端口转发();
+	BOOL 安全停止端口转发();
+
+	// 消息处理函数
+	afx_msg void On启动转发按钮点击();
+	afx_msg void On停止转发按钮点击();
+	afx_msg void On列表项双击(NMHDR* pNMHDR, LRESULT* pResult);
+	afx_msg void On列表结束编辑(NMHDR* pNMHDR, LRESULT* pResult);
+
+	// 重写虚函数
+	virtual BOOL OnInitDialog();
 };

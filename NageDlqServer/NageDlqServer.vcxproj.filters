@@ -39,6 +39,9 @@
     <ClInclude Include="黑白名单对话框类.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="端口转发.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="NageDlqServer.cpp">
@@ -54,6 +57,9 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="黑白名单对话框类.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="端口转发.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
