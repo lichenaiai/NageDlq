@@ -94,7 +94,13 @@ private:
 		CString 功能描述;
 	};
 	std::vector<Hook功能结构> Hook功能列表;
+	
+	// 销毁处理
+	virtual void OnDestroy();
 
+	CEdit* 当前编辑框;
+	int 当前编辑项;
+	int 当前编辑列;
 	
 
 public:
@@ -180,4 +186,6 @@ public:
 
 	// 重写虚函数
 	//virtual BOOL OnInitDialog();
+
+	void On编辑框失去焦点(CWnd* pNewWnd);
 };
