@@ -34,6 +34,9 @@ NageDlqServerDlg::NageDlqServerDlg(CWnd* pParent /*=nullptr*/)
 	, 当前版本号(_T("1.0.0"))
 	, 客户端连接数量(0)
 	, 已初始化显示(FALSE)		// 添加初始化标志
+	, 当前编辑框(nullptr)  
+	, 当前编辑项(-1)      
+	, 当前编辑列(-1)
 {
 	// 数据库配置 - 使用SQL Server默认设置
 	数据库用户名 = _T("sa");           // SQL Server默认管理员
@@ -69,6 +72,11 @@ void NageDlqServerDlg::DoDataExchange(CDataExchange* pDX)
 	DDX_Control(pDX, IDC_STATIC_VERSION, 当前版本号标签);
 	DDX_Control(pDX, IDC_STATIC_CONNECTIONS, 连接数量标签);
 	DDX_Control(pDX, IDC_BUTTON_BWLIST, 黑白名单按钮);
+
+	// 添加端口转发控件的 DDX
+	DDX_Control(pDX, IDC_LIST_FORWARD, 端口转发列表控件);
+	DDX_Control(pDX, IDC_BUTTON_START_FORWARD, 启动转发按钮);
+	DDX_Control(pDX, IDC_BUTTON_STOP_FORWARD, 停止转发按钮);
 }
 
 //消息映射
@@ -83,7 +91,22 @@ BEGIN_MESSAGE_MAP(NageDlqServerDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_STOP_FORWARD, &NageDlqServerDlg::On停止转发按钮点击)
 	ON_NOTIFY(NM_DBLCLK, IDC_LIST_FORWARD, &NageDlqServerDlg::On列表项双击)
 	ON_NOTIFY(LVN_ENDLABELEDIT, IDC_LIST_FORWARD, &NageDlqServerDlg::On列表结束编辑)
+	ON_WM_DESTROY()		//销毁处理
+	ON_WM_KILLFOCUS(1000, &NageDlqServerDlg::On编辑框失去焦点)      // 添加焦点丢失处理
 END_MESSAGE_MAP()
+
+//销毁处理函数
+void NageDlqServerDlg::OnDestroy()
+{
+	if (当前编辑框)
+	{
+		当前编辑框->DestroyWindow();
+		delete 当前编辑框;
+		当前编辑框 = nullptr;
+	}
+
+	CDialogEx::OnDestroy();
+}
 
 BOOL NageDlqServerDlg::OnInitDialog()
 {
@@ -1920,17 +1943,21 @@ void NageDlqServerDlg::加载黑白名单()
 	TRACE(_T("加载黑白名单完成，黑名单数量: %d, 白名单数量: %d\n"), 黑名单列表.size(), 白名单列表.size());
 }
 
-// 端口转发界面初始化
+// 初始化端口转发界面
 void NageDlqServerDlg::初始化端口转发界面()
 {
+	
 	// 获取控件
-	端口转发列表控件.SubclassDlgItem(IDC_LIST_FORWARD, this);
-	启动转发按钮.SubclassDlgItem(IDC_BUTTON_START_FORWARD, this);
-	停止转发按钮.SubclassDlgItem(IDC_BUTTON_STOP_FORWARD, this);
+	//端口转发列表控件.SubclassDlgItem(IDC_LIST_FORWARD, this);
+	// 获取控件 - 使用 Attach 而不是 SubclassDlgItem
+	//端口转发列表控件.Attach(::GetDlgItem(GetSafeHwnd(), IDC_LIST_FORWARD));
+	//启动转发按钮.Attach(::GetDlgItem(GetSafeHwnd(), IDC_BUTTON_START_FORWARD));
+	//停止转发按钮.Attach(::GetDlgItem(GetSafeHwnd(), IDC_BUTTON_STOP_FORWARD));
 
-	// 设置列表样式
+	// 设置列表样式 - 添加 LVS_EDITLABELS 支持编辑
+	DWORD 样式 = LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER;
 	端口转发列表控件.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER);
-
+	
 	// 添加列
 	端口转发列表控件.InsertColumn(0, _T("状态"), LVCFMT_LEFT, 60);
 	端口转发列表控件.InsertColumn(1, _T("序号"), LVCFMT_LEFT, 40);
@@ -2027,6 +2054,7 @@ BOOL NageDlqServerDlg::停止端口转发()
 }
 
 // 列表项双击编辑处理
+/*
 void NageDlqServerDlg::On列表项双击(NMHDR* pNMHDR, LRESULT* pResult)
 {
 	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
@@ -2052,9 +2080,58 @@ void NageDlqServerDlg::On列表项双击(NMHDR* pNMHDR, LRESULT* pResult)
 			*pResult = 0;
 		}
 	}
+}*/
+void NageDlqServerDlg::On列表项双击(NMHDR* pNMHDR, LRESULT* pResult)
+{
+	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
+	if (pNMItemActivate)
+	{
+		int 选中项 = pNMItemActivate->iItem;
+		int 选中列 = pNMItemActivate->iSubItem;
+
+		TRACE(_T("列表项双击: 项=%d, 列=%d\n"), 选中项, 选中列);
+
+		// 只允许编辑IP和端口列（第2、3、4、5列）
+		if (选中项 >= 0 && 选中列 >= 2 && 选中列 <= 5)
+		{
+			if (当前编辑框)
+			{
+				当前编辑框->DestroyWindow();
+				delete 当前编辑框;
+				当前编辑框 = nullptr;
+			}
+			// 手动创建编辑框
+			CRect 矩形;
+			端口转发列表控件.GetSubItemRect(选中项, 选中列, LVIR_LABEL, 矩形);
+
+			// 创建编辑框
+			当前编辑框 = new CEdit();
+			DWORD 样式 = WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL;
+			当前编辑框->Create(样式, 矩形, &端口转发列表控件, 1); // 使用固定ID 1
+
+			// 获取当前文本
+			CString 当前文本 = 端口转发列表控件.GetItemText(选中项, 选中列);
+			当前编辑框->SetWindowText(当前文本);
+			当前编辑框->SetFocus();
+			当前编辑框->SetSel(0, -1); // 全选文本
+
+			// 保存编辑框指针和位置信息
+			当前编辑项 = 选中项;
+			当前编辑列 = 选中列;
+
+			TRACE(_T("创建编辑框: 项=%d, 列=%d, 文本=%s\n"), 选中项, 选中列, 当前文本);
+		}
+		else
+		{
+			TRACE(_T("不允许编辑的列: 项=%d, 列=%d\n"), 选中项, 选中列);
+		}
+
+		*pResult = 0;
+	}
 }
 
 // 列表结束编辑处理
+/*
 void NageDlqServerDlg::On列表结束编辑(NMHDR* pNMHDR, LRESULT* pResult)
 {
 	NMLVDISPINFO* pDispInfo = reinterpret_cast<NMLVDISPINFO*>(pNMHDR);
@@ -2073,6 +2150,9 @@ void NageDlqServerDlg::On列表结束编辑(NMHDR* pNMHDR, LRESULT* pResult)
 
 		if (选中项 >= 0 && 选中项 < (int)规则列表.size())
 		{
+			// 使用指针访问
+			auto* 当前规则 = 规则列表[选中项];
+
 			// 缓存当前值用于更新
 			CString 当前输入IP = 端口转发列表控件.GetItemText(选中项, 2);
 			CString 当前输出IP = 端口转发列表控件.GetItemText(选中项, 4);
@@ -2095,13 +2175,21 @@ void NageDlqServerDlg::On列表结束编辑(NMHDR* pNMHDR, LRESULT* pResult)
 							if (当前行输入IP.IsEmpty() || 当前行输入IP == _T("双击填写"))
 							{
 								端口转发列表控件.SetItemText(i, 2, 新文本);
+
+								// 同时更新对应规则的数据
+								if (i < (int)规则列表.size())
+								{
+									auto* 后续规则 = 规则列表[i];
+									端口转发管理器.更新转发规则(后续规则->序号, 新文本, 后续规则->输入端口,
+										后续规则->输出IP, 后续规则->输出端口);
+								}
 							}
 						}
 					}
 				}
-				// 更新当前规则
-				端口转发管理器.更新转发规则(规则序号, 新文本, 规则列表[选中项].输入端口,
-					规则列表[选中项].输出IP, 规则列表[选中项].输出端口);
+				// 更新当前规则 - 使用指针访问
+				端口转发管理器.更新转发规则(当前规则->序号, 新文本, 当前规则->输入端口,
+					当前规则->输出IP, 当前规则->输出端口);
 			}
 			break;
 
@@ -2117,12 +2205,20 @@ void NageDlqServerDlg::On列表结束编辑(NMHDR* pNMHDR, LRESULT* pResult)
 						if (当前行输出IP.IsEmpty() || 当前行输出IP == _T("双击填写"))
 						{
 							端口转发列表控件.SetItemText(i, 4, 新文本);
+
+							// 同时更新对应规则的数据
+							if (i < (int)规则列表.size())
+							{
+								auto* 后续规则 = 规则列表[i];
+								端口转发管理器.更新转发规则(后续规则->序号, 后续规则->输入IP, 后续规则->输入端口,
+									新文本, 后续规则->输出端口);
+							}
 						}
 					}
 				}
-				// 更新当前规则
-				端口转发管理器.更新转发规则(规则序号, 规则列表[选中项].输入IP, 规则列表[选中项].输入端口,
-					新文本, 规则列表[选中项].输出端口);
+				// 更新当前规则 - 使用指针访问
+				端口转发管理器.更新转发规则(当前规则->序号, 当前规则->输入IP, 当前规则->输入端口,
+					新文本, 当前规则->输出端口);
 			}
 			break;
 
@@ -2131,8 +2227,17 @@ void NageDlqServerDlg::On列表结束编辑(NMHDR* pNMHDR, LRESULT* pResult)
 				int 新端口 = _ttoi(新文本);
 				if (新端口 > 0 && 新端口 <= 65535)
 				{
-					端口转发管理器.更新转发规则(规则序号, 当前输入IP, 新端口,
-						当前输出IP, 规则列表[选中项].输出端口);
+					// 使用指针访问
+					端口转发管理器.更新转发规则(当前规则->序号, 当前输入IP, 新端口,
+						当前输出IP, 当前规则->输出端口);
+				}
+				else
+				{
+					// 端口号无效，恢复原值
+					CString 原端口文本;
+					原端口文本.Format(_T("%d"), 当前规则->输入端口);
+					端口转发列表控件.SetItemText(选中项, 选中列, 原端口文本);
+					添加信息显示(_T("端口号无效，请输入1-65535之间的数字"));
 				}
 			}
 			break;
@@ -2142,21 +2247,276 @@ void NageDlqServerDlg::On列表结束编辑(NMHDR* pNMHDR, LRESULT* pResult)
 				int 新端口 = _ttoi(新文本);
 				if (新端口 > 0 && 新端口 <= 65535)
 				{
-					端口转发管理器.更新转发规则(规则序号, 当前输入IP, 规则列表[选中项].输入端口,
+					// 使用指针访问
+					端口转发管理器.更新转发规则(当前规则->序号, 当前输入IP, 当前规则->输入端口,
 						当前输出IP, 新端口);
+				}
+				else
+				{
+					// 端口号无效，恢复原值
+					CString 原端口文本;
+					原端口文本.Format(_T("%d"), 当前规则->输出端口);
+					端口转发列表控件.SetItemText(选中项, 选中列, 原端口文本);
+					添加信息显示(_T("端口号无效，请输入1-65535之间的数字"));
 				}
 			}
 			break;
+
+			default:
+				// 其他列不允许编辑
+				break;
 			}
 
 			// 保存配置
-			保存端口转发配置();
+			if (保存端口转发配置())
+			{
+				TRACE(_T("端口转发配置保存成功\n"));
+			}
+			else
+			{
+				TRACE(_T("端口转发配置保存失败\n"));
+				添加信息显示(_T("端口转发配置保存失败"));
+			}
 
 			// 自动刷新显示
 			刷新端口转发列表();
+
+			// 添加成功提示
+			CString 成功信息;
+			switch (选中列)
+			{
+			case 2:
+				成功信息.Format(_T("规则 %d 输入IP已更新为: %s"), 规则序号, 新文本);
+				break;
+			case 3:
+				成功信息.Format(_T("规则 %d 输入端口已更新为: %s"), 规则序号, 新文本);
+				break;
+			case 4:
+				成功信息.Format(_T("规则 %d 输出IP已更新为: %s"), 规则序号, 新文本);
+				break;
+			case 5:
+				成功信息.Format(_T("规则 %d 输出端口已更新为: %s"), 规则序号, 新文本);
+				break;
+			default:
+				成功信息.Format(_T("规则 %d 已更新"), 规则序号);
+				break;
+			}
+			添加信息显示(成功信息);
+		}
+		else
+		{
+			// 选中项超出范围
+			TRACE(_T("选中项超出范围: %d, 规则列表大小: %d\n"), 选中项, 规则列表.size());
+			添加信息显示(_T("编辑失败: 选中的规则不存在"));
 		}
 	}
+	else
+	{
+		// 编辑取消
+		TRACE(_T("编辑取消\n"));
+	}
 
+	*pResult = 0;
+}*/
+void NageDlqServerDlg::On列表结束编辑(NMHDR* pNMHDR, LRESULT* pResult)
+{
+	NMLVDISPINFO* pDispInfo = reinterpret_cast<NMLVDISPINFO*>(pNMHDR);
+
+	TRACE(_T("=== 列表结束编辑开始 ===\n"));
+
+	if (pDispInfo->item.pszText != NULL)
+	{
+		int 选中项 = pDispInfo->item.iItem;
+		int 选中列 = pDispInfo->item.iSubItem;
+		CString 新文本 = pDispInfo->item.pszText;
+
+		TRACE(_T("编辑完成: 项=%d, 列=%d, 新文本=%s\n"), 选中项, 选中列, 新文本);
+
+		CString 序号文本 = 端口转发列表控件.GetItemText(选中项, 1);
+		int 规则序号 = _ttoi(序号文本);
+
+		TRACE(_T("规则序号: %d\n"), 规则序号);
+
+		// 获取规则列表
+		auto 规则列表 = 端口转发管理器.获取规则列表();
+
+		TRACE(_T("规则列表大小: %d\n"), 规则列表.size());
+
+		if (选中项 >= 0 && 选中项 < (int)规则列表.size())
+		{
+			// 使用指针访问
+			auto* 当前规则 = 规则列表[选中项];
+
+			// 缓存当前值用于更新
+			CString 当前输入IP = 端口转发列表控件.GetItemText(选中项, 2);
+			CString 当前输出IP = 端口转发列表控件.GetItemText(选中项, 4);
+
+			TRACE(_T("当前输入IP: %s, 当前输出IP: %s\n"), 当前输入IP, 当前输出IP);
+
+			// 更新数据
+			switch (选中列)
+			{
+			case 2: // 输入IP
+			{
+				TRACE(_T("更新输入IP: %s\n"), 新文本);
+				// 检查是否需要自动填充后续行
+				if (选中项 == 0) // 第一行
+				{
+					// 如果编辑的是输入IP，尝试自动填充后续行
+					if (!新文本.IsEmpty())
+					{
+						// 自动填充后续行的输入IP
+						for (int i = 选中项 + 1; i < 端口转发列表控件.GetItemCount(); i++)
+						{
+							CString 当前行输入IP = 端口转发列表控件.GetItemText(i, 2);
+							if (当前行输入IP.IsEmpty() || 当前行输入IP == _T("双击填写"))
+							{
+								端口转发列表控件.SetItemText(i, 2, 新文本);
+
+								// 同时更新对应规则的数据
+								if (i < (int)规则列表.size())
+								{
+									auto* 后续规则 = 规则列表[i];
+									端口转发管理器.更新转发规则(后续规则->序号, 新文本, 后续规则->输入端口,
+										后续规则->输出IP, 后续规则->输出端口);
+								}
+							}
+						}
+					}
+				}
+				// 更新当前规则 - 使用指针访问
+				端口转发管理器.更新转发规则(当前规则->序号, 新文本, 当前规则->输入端口,
+					当前规则->输出IP, 当前规则->输出端口);
+			}
+			break;
+
+			case 4: // 输出IP
+			{
+				TRACE(_T("更新输出IP: %s\n"), 新文本);
+				// 检查是否需要自动填充后续行
+				if (选中项 == 0) // 第一行
+				{
+					// 自动填充后续行的输出IP
+					for (int i = 选中项 + 1; i < 端口转发列表控件.GetItemCount(); i++)
+					{
+						CString 当前行输出IP = 端口转发列表控件.GetItemText(i, 4);
+						if (当前行输出IP.IsEmpty() || 当前行输出IP == _T("双击填写"))
+						{
+							端口转发列表控件.SetItemText(i, 4, 新文本);
+
+							// 同时更新对应规则的数据
+							if (i < (int)规则列表.size())
+							{
+								auto* 后续规则 = 规则列表[i];
+								端口转发管理器.更新转发规则(后续规则->序号, 后续规则->输入IP, 后续规则->输入端口,
+									新文本, 后续规则->输出端口);
+							}
+						}
+					}
+				}
+				// 更新当前规则 - 使用指针访问
+				端口转发管理器.更新转发规则(当前规则->序号, 当前规则->输入IP, 当前规则->输入端口,
+					新文本, 当前规则->输出端口);
+			}
+			break;
+
+			case 3: // 输入端口
+			{
+				int 新端口 = _ttoi(新文本);
+				TRACE(_T("更新输入端口: %d\n"), 新端口);
+				if (新端口 > 0 && 新端口 <= 65535)
+				{
+					// 使用指针访问
+					端口转发管理器.更新转发规则(当前规则->序号, 当前输入IP, 新端口,
+						当前输出IP, 当前规则->输出端口);
+				}
+				else
+				{
+					// 端口号无效，恢复原值
+					CString 原端口文本;
+					原端口文本.Format(_T("%d"), 当前规则->输入端口);
+					端口转发列表控件.SetItemText(选中项, 选中列, 原端口文本);
+					添加信息显示(_T("端口号无效，请输入1-65535之间的数字"));
+				}
+			}
+			break;
+
+			case 5: // 输出端口
+			{
+				int 新端口 = _ttoi(新文本);
+				TRACE(_T("更新输出端口: %d\n"), 新端口);
+				if (新端口 > 0 && 新端口 <= 65535)
+				{
+					// 使用指针访问
+					端口转发管理器.更新转发规则(当前规则->序号, 当前输入IP, 当前规则->输入端口,
+						当前输出IP, 新端口);
+				}
+				else
+				{
+					// 端口号无效，恢复原值
+					CString 原端口文本;
+					原端口文本.Format(_T("%d"), 当前规则->输出端口);
+					端口转发列表控件.SetItemText(选中项, 选中列, 原端口文本);
+					添加信息显示(_T("端口号无效，请输入1-65535之间的数字"));
+				}
+			}
+			break;
+
+			default:
+				TRACE(_T("不允许编辑的列: %d\n"), 选中列);
+				break;
+			}
+
+			// 保存配置
+			if (保存端口转发配置())
+			{
+				TRACE(_T("端口转发配置保存成功\n"));
+			}
+			else
+			{
+				TRACE(_T("端口转发配置保存失败\n"));
+				添加信息显示(_T("端口转发配置保存失败"));
+			}
+
+			// 自动刷新显示
+			刷新端口转发列表();
+
+			// 添加成功提示
+			CString 成功信息;
+			switch (选中列)
+			{
+			case 2:
+				成功信息.Format(_T("规则 %d 输入IP已更新为: %s"), 规则序号, 新文本);
+				break;
+			case 3:
+				成功信息.Format(_T("规则 %d 输入端口已更新为: %s"), 规则序号, 新文本);
+				break;
+			case 4:
+				成功信息.Format(_T("规则 %d 输出IP已更新为: %s"), 规则序号, 新文本);
+				break;
+			case 5:
+				成功信息.Format(_T("规则 %d 输出端口已更新为: %s"), 规则序号, 新文本);
+				break;
+			default:
+				成功信息.Format(_T("规则 %d 已更新"), 规则序号);
+				break;
+			}
+			添加信息显示(成功信息);
+		}
+		else
+		{
+			// 选中项超出范围
+			TRACE(_T("选中项超出范围: %d, 规则列表大小: %d\n"), 选中项, 规则列表.size());
+			添加信息显示(_T("编辑失败: 选中的规则不存在"));
+		}
+	}
+	else
+	{
+		// 编辑取消
+		TRACE(_T("编辑取消\n"));
+	}
+
+	TRACE(_T("=== 列表结束编辑结束 ===\n"));
 	*pResult = 0;
 }
 
@@ -2175,38 +2535,32 @@ void NageDlqServerDlg::刷新端口转发列表()
 {
 	端口转发列表控件.DeleteAllItems();
 
-	auto 规则列表 = 端口转发管理器.获取规则列表();
+	const auto& 规则列表 = 端口转发管理器.获取规则列表();
 
 	for (size_t i = 0; i < 规则列表.size(); i++)
 	{
-		const auto& 规则 = 规则列表[i];
+		const auto* 规则 = 规则列表[i];  // 使用指针
 
-		int 索引 = 端口转发列表控件.InsertItem(0, 规则.状态);
+		int 索引 = 端口转发列表控件.InsertItem(0, 规则->状态);  // 使用 -> 操作符
 
-		// 设置序号
 		CString 序号文本;
-		序号文本.Format(_T("%d"), 规则.序号);
+		序号文本.Format(_T("%d"), 规则->序号);  // 使用 -> 操作符
 		端口转发列表控件.SetItemText(索引, 1, 序号文本);
-		端口转发列表控件.SetItemText(索引, 2, 规则.输入IP);
+		端口转发列表控件.SetItemText(索引, 2, 规则->输入IP);  // 使用 -> 操作符
 
 		CString 端口文本;
-		端口文本.Format(_T("%d"), 规则.输入端口);
+		端口文本.Format(_T("%d"), 规则->输入端口);  // 使用 -> 操作符
 		端口转发列表控件.SetItemText(索引, 3, 端口文本);
-		端口转发列表控件.SetItemText(索引, 4, 规则.输出IP);
+		端口转发列表控件.SetItemText(索引, 4, 规则->输出IP);  // 使用 -> 操作符
 
-		端口文本.Format(_T("%d"), 规则.输出端口);
-		端口转发列表控件.SetItemText(索引, 4, 规则.输出IP);
-
-		端口文本.Format(_T("%d"), 规则.输出端口);
+		端口文本.Format(_T("%d"), 规则->输出端口);  // 使用 -> 操作符
 		端口转发列表控件.SetItemText(索引, 5, 端口文本);
 
-		端口文本.Format(_T("%d"), 规则.连接数);
+		端口文本.Format(_T("%d"), 规则->连接数);  // 使用 -> 操作符
 		端口转发列表控件.SetItemText(索引, 6, 端口文本);
 	}
 
-	// 调整列宽
-	for (int i = 0; i < 7; i++)
-	{
+	for (int i = 0; i < 7; i++) {
 		端口转发列表控件.SetColumnWidth(i, LVSCW_AUTOSIZE_USEHEADER);
 	}
 }
@@ -2214,13 +2568,19 @@ void NageDlqServerDlg::刷新端口转发列表()
 // 安全的端口转发启动
 BOOL NageDlqServerDlg::安全启动端口转发()
 {
-	__try
+	try
 	{
 		return 启动端口转发();
 	}
-	__except (EXCEPTION_EXECUTE_HANDLER)
+	catch (const std::exception& e)
 	{
 		添加信息显示(_T("端口转发启动过程中发生异常，但程序继续运行"));
+		TRACE(_T("端口转发启动异常: %s\n"), CString(e.what()));
+		return FALSE;
+	}
+	catch (...)
+	{
+		添加信息显示(_T("端口转发启动过程中发生未知异常，但程序继续运行"));
 		return FALSE;
 	}
 }
@@ -2228,13 +2588,19 @@ BOOL NageDlqServerDlg::安全启动端口转发()
 // 安全的端口转发停止
 BOOL NageDlqServerDlg::安全停止端口转发()
 {
-	__try
+	try
 	{
 		return 停止端口转发();
 	}
-	__except (EXCEPTION_EXECUTE_HANDLER)
+	catch (const std::exception& e)
 	{
 		添加信息显示(_T("端口转发停止过程中发生异常，但程序继续运行"));
+		TRACE(_T("端口转发停止异常: %s\n"), CString(e.what()));
+		return FALSE;
+	}
+	catch (...)
+	{
+		添加信息显示(_T("端口转发停止过程中发生未知异常，但程序继续运行"));
 		return FALSE;
 	}
 }
@@ -2287,4 +2653,80 @@ BOOL NageDlqServerDlg::加载端口转发配置()
 	}
 
 	return FALSE;
+}
+
+// 编辑框失去焦点处理
+void NageDlqServerDlg::On编辑框失去焦点(CWnd* pNewWnd)
+{
+	// 检查是否是编辑框失去焦点
+	//if (当前编辑框 && pNewWnd != 当前编辑框)
+	if (当前编辑框)
+	{
+		CString 新文本;
+		当前编辑框->GetWindowText(新文本);
+
+		// 调用编辑完成处理
+		if (当前编辑项 >= 0 && 当前编辑列 >= 0)
+		{
+			TRACE(_T("编辑完成: 项=%d, 列=%d, 文本=%s\n"), 当前编辑项, 当前编辑列, 新文本);
+
+			// 更新列表显示
+			端口转发列表控件.SetItemText(当前编辑项, 当前编辑列, 新文本);
+
+			// 这里添加规则更新逻辑
+			CString 序号文本 = 端口转发列表控件.GetItemText(当前编辑项, 1);
+			int 规则序号 = _ttoi(序号文本);
+
+			auto 规则列表 = 端口转发管理器.获取规则列表();
+			if (当前编辑项 >= 0 && 当前编辑项 < (int)规则列表.size())
+			{
+				auto* 当前规则 = 规则列表[当前编辑项];
+
+				switch (当前编辑列)
+				{
+				case 2: // 输入IP
+					端口转发管理器.更新转发规则(当前规则->序号, 新文本, 当前规则->输入端口,
+						当前规则->输出IP, 当前规则->输出端口);
+					break;
+				case 3: // 输入端口
+				{
+					int 新端口 = _ttoi(新文本);
+					if (新端口 > 0 && 新端口 <= 65535)
+					{
+						CString 当前输入IP = 端口转发列表控件.GetItemText(当前编辑项, 2);
+						端口转发管理器.更新转发规则(当前规则->序号, 当前输入IP, 新端口,
+							当前规则->输出IP, 当前规则->输出端口);
+					}
+				}
+				break;
+				case 4: // 输出IP
+					端口转发管理器.更新转发规则(当前规则->序号, 当前规则->输入IP, 当前规则->输入端口,
+						新文本, 当前规则->输出端口);
+					break;
+				case 5: // 输出端口
+				{
+					int 新端口 = _ttoi(新文本);
+					if (新端口 > 0 && 新端口 <= 65535)
+					{
+						CString 当前输出IP = 端口转发列表控件.GetItemText(当前编辑项, 4);
+						端口转发管理器.更新转发规则(当前规则->序号, 当前规则->输入IP, 当前规则->输入端口,
+							当前输出IP, 新端口);
+					}
+				}
+				break;
+				}
+
+				// 保存配置
+				保存端口转发配置();
+				刷新端口转发列表();
+			}
+		}
+
+		// 销毁编辑框
+		当前编辑框->DestroyWindow();
+		delete 当前编辑框;
+		当前编辑框 = nullptr;
+		当前编辑项 = -1;
+		当前编辑列 = -1;
+	}
 }
