@@ -179,5 +179,5 @@ public:
 	afx_msg void On列表结束编辑(NMHDR* pNMHDR, LRESULT* pResult);
 
 	// 重写虚函数
-	virtual BOOL OnInitDialog();
+	//virtual BOOL OnInitDialog();
 };

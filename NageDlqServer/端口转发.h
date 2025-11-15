@@ -1,4 +1,4 @@
-// 端口转发.h - 修正版本
+// 端口转发.h 
 #pragma once
 
 #include <map>
@@ -20,10 +20,11 @@ struct 端口转发规则
     int 输入端口;
     CString 输出IP;
     int 输出端口;
-    std::atomic<int> 连接数;
-    std::atomic<bool> 运行中;
+    int 连接数;
+    bool 运行中;
     SOCKET 监听套接字;
     std::thread* 转发线程;
+    std::mutex 连接数锁;
 
     端口转发规则()
     {
@@ -34,6 +35,37 @@ struct 端口转发规则
         监听套接字 = INVALID_SOCKET;
         转发线程 = nullptr;
         连接数 = 0;
+    }
+
+    // 禁止拷贝
+    端口转发规则(const 端口转发规则&) = delete;
+    端口转发规则& operator=(const 端口转发规则&) = delete;
+
+    // 移动构造
+    端口转发规则(端口转发规则&& other) noexcept
+    {
+        *this = std::move(other);
+    }
+
+    端口转发规则& operator=(端口转发规则&& other) noexcept
+    {
+        if (this != &other)
+        {
+            序号 = other.序号;
+            状态 = std::move(other.状态);
+            输入IP = std::move(other.输入IP);
+            输入端口 = other.输入端口;
+            输出IP = std::move(other.输出IP);
+            输出端口 = other.输出端口;
+            连接数 = other.连接数;
+            运行中 = other.运行中;
+            监听套接字 = other.监听套接字;
+            转发线程 = other.转发线程;
+
+            other.监听套接字 = INVALID_SOCKET;
+            other.转发线程 = nullptr;
+        }
+        return *this;
     }
 };
 

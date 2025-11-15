@@ -1949,7 +1949,7 @@ void NageDlqServerDlg::On启动转发按钮点击()
 {
 	if (端口转发管理器.获取规则列表().empty())
 	{
-		添加信息显示(_T("请先添加转发规则")));
+		添加信息显示(_T("请先添加转发规则"));
 		return;
 	}
 
@@ -1957,11 +1957,11 @@ void NageDlqServerDlg::On启动转发按钮点击()
 	{
 		启动转发按钮.EnableWindow(FALSE);
 		停止转发按钮.EnableWindow(TRUE);
-		添加信息显示(_T("端口转发已启动")));
+		添加信息显示(_T("端口转发已启动"));
 	}
 	else
 	{
-		添加信息显示(_T("端口转发启动失败")));
+		添加信息显示(_T("端口转发启动失败"));
 	}
 }
 
@@ -1972,7 +1972,7 @@ void NageDlqServerDlg::On停止转发按钮点击()  // 修改函数名
 	{
 		启动转发按钮.EnableWindow(TRUE);
 		停止转发按钮.EnableWindow(FALSE);
-		添加信息显示(_T("端口转发已停止")));
+		添加信息显示(_T("端口转发已停止"));
 	}
 }
 
@@ -1990,12 +1990,12 @@ BOOL NageDlqServerDlg::启动端口转发()
 	catch (const std::exception& e)
 	{
 		TRACE(_T("启动端口转发时发生异常: %s\n"), CString(e.what()));
-		添加信息显示(_T("启动端口转发时发生异常")));
+		添加信息显示(_T("启动端口转发时发生异常"));
 	}
 	catch (...)
 	{
 		TRACE(_T("启动端口转发时发生未知异常\n"));
-		添加信息显示(_T("启动端口转发时发生未知异常")));
+		添加信息显示(_T("启动端口转发时发生未知异常"));
 	}
 
 	return FALSE;
@@ -2015,12 +2015,12 @@ BOOL NageDlqServerDlg::停止端口转发()
 	catch (const std::exception& e)
 	{
 		TRACE(_T("停止端口转发时发生异常: %s\n"), CString(e.what()));
-		添加信息显示(_T("停止端口转发时发生异常")));
+		添加信息显示(_T("停止端口转发时发生异常"));
 	}
 	catch (...)
 	{
 		TRACE(_T("停止端口转发时发生未知异常\n"));
-		添加信息显示(_T("停止端口转发时发生未知异常")));
+		添加信息显示(_T("停止端口转发时发生未知异常"));
 	}
 
 	return FALSE;
@@ -2220,7 +2220,7 @@ BOOL NageDlqServerDlg::安全启动端口转发()
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
-		添加信息显示(_T("端口转发启动过程中发生异常，但程序继续运行")));
+		添加信息显示(_T("端口转发启动过程中发生异常，但程序继续运行"));
 		return FALSE;
 	}
 }
@@ -2234,7 +2234,7 @@ BOOL NageDlqServerDlg::安全停止端口转发()
 	}
 	__except (EXCEPTION_EXECUTE_HANDLER)
 	{
-		添加信息显示(_T("端口转发停止过程中发生异常，但程序继续运行")));
+		添加信息显示(_T("端口转发停止过程中发生异常，但程序继续运行"));
 		return FALSE;
 	}
 }
