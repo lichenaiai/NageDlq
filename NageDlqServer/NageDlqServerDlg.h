@@ -16,8 +16,9 @@
 #include <sqltypes.h>
 
 
-#ifdef _DEBUG
-#define new DEBUG_NEW
+#ifndef INCLUDED_端口转发
+#define INCLUDED_端口转发
+#include "端口转发.h"
 #endif
 
 class 黑白名单对话框类;
@@ -33,6 +34,9 @@ public:
 
 	enum { IDD = IDD_NAGEDLQSERVER_DIALOG };
 	BOOL 已初始化显示;
+
+	afx_msg LRESULT On延迟加载端口转发数据(WPARAM wParam, LPARAM lParam);
+	afx_msg void On自定义绘制列表(NMHDR* pNMHDR, LRESULT* pResult);
 
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);
@@ -94,14 +98,6 @@ private:
 		CString 功能描述;
 	};
 	std::vector<Hook功能结构> Hook功能列表;
-	
-	// 销毁处理
-	virtual void OnDestroy();
-
-	CEdit* 当前编辑框;
-	int 当前编辑项;
-	int 当前编辑列;
-	
 
 public:
 	// 线程函数
@@ -184,8 +180,4 @@ public:
 	afx_msg void On列表项双击(NMHDR* pNMHDR, LRESULT* pResult);
 	afx_msg void On列表结束编辑(NMHDR* pNMHDR, LRESULT* pResult);
 
-	// 重写虚函数
-	//virtual BOOL OnInitDialog();
-
-	void On编辑框失去焦点(CWnd* pNewWnd);
 };
