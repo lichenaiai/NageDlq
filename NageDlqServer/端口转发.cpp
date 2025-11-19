@@ -1,3 +1,4 @@
+//¶Ë¿Ú×ª·¢.cpp
 #include "pch.h"
 #include "¶Ë¿Ú×ª·¢.h"
 #include <winsock2.h>
@@ -22,17 +23,26 @@
 // Æô¶¯ËùÓĞ×ª·¢¹æÔò
 BOOL ¶Ë¿Ú×ª·¢¹ÜÀíÀà::Æô¶¯ËùÓĞ×ª·¢()
 {
-    std::lock_guard<std::mutex> Ëø(¹æÔòÁĞ±íËø);
+    std::vector<¶Ë¿Ú×ª·¢¹æÔò*> ÁÙÊ±¹æÔòÁĞ±í;
 
-    for (auto* ¹æÔò : ×ª·¢¹æÔòÁĞ±í)
+    {
+        std::lock_guard<std::mutex> Ëø(¹æÔòÁĞ±íËø);
+        ÁÙÊ±¹æÔòÁĞ±í = ×ª·¢¹æÔòÁĞ±í; // »ñÈ¡¸±±¾
+    }
+
+    BOOL È«²¿³É¹¦ = TRUE;
+    for (auto* ¹æÔò : ÁÙÊ±¹æÔòÁĞ±í)
     {
         if (!¹æÔò->ÔËĞĞÖĞ)
         {
-            Æô¶¯×ª·¢¹æÔò(¹æÔò->ĞòºÅ);
+            if (!Æô¶¯×ª·¢¹æÔò(¹æÔò->ĞòºÅ))
+            {
+                È«²¿³É¹¦ = FALSE;
+            }
         }
     }
 
-    return TRUE;
+    return È«²¿³É¹¦;
 }
 
 // Í£Ö¹ËùÓĞ×ª·¢¹æÔò
@@ -86,78 +96,101 @@ BOOL ¶Ë¿Ú×ª·¢¹ÜÀíÀà::Í£Ö¹ËùÓĞ×ª·¢()
 // Æô¶¯µ¥¸ö×ª·¢¹æÔò
 BOOL ¶Ë¿Ú×ª·¢¹ÜÀíÀà::Æô¶¯×ª·¢¹æÔò(int ¹æÔòĞòºÅ)
 {
-    std::lock_guard<std::mutex> Ëø(¹æÔòÁĞ±íËø);
-
-    for (auto* ¹æÔò : ×ª·¢¹æÔòÁĞ±í)
+    // ÏÈÕÒµ½¹æÔò£¬²»³ÖÓĞËø
+    ¶Ë¿Ú×ª·¢¹æÔò* Ä¿±ê¹æÔò = nullptr;
     {
-        if (¹æÔò->ĞòºÅ == ¹æÔòĞòºÅ)
+        std::lock_guard<std::mutex> Ëø(¹æÔòÁĞ±íËø);
+        for (auto* ¹æÔò : ×ª·¢¹æÔòÁĞ±í)
         {
-            if (¹æÔò->ÔËĞĞÖĞ) return TRUE;
-
-            try
+            if (¹æÔò->ĞòºÅ == ¹æÔòĞòºÅ)
             {
-                // ´´½¨¼àÌısocket
-                ¹æÔò->¼àÌıÌ×½Ó×Ö = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-                if (¹æÔò->¼àÌıÌ×½Ó×Ö == INVALID_SOCKET)
-                {
-                    TRACE(_T("´´½¨socketÊ§°Ü£¬´íÎóÂë: %d\n"), WSAGetLastError());
-                    return FALSE;
-                }
-
-                // ÉèÖÃsocketÑ¡Ïî
-                int Ñ¡ÏîÖµ = 1;
-                setsockopt(¹æÔò->¼àÌıÌ×½Ó×Ö, SOL_SOCKET, SO_REUSEADDR, (char*)&Ñ¡ÏîÖµ, sizeof(Ñ¡ÏîÖµ));
-
-                // °ó¶¨µØÖ·
-                sockaddr_in ·şÎñÆ÷µØÖ·;
-                ·şÎñÆ÷µØÖ·.sin_family = AF_INET;
-
-                // ×ª»»IPµØÖ·
-                USES_CONVERSION;
-                char* ÊäÈëIP = T2A(¹æÔò->ÊäÈëIP);
-                inet_pton(AF_INET, ÊäÈëIP, &(·şÎñÆ÷µØÖ·.sin_addr));
-
-                ·şÎñÆ÷µØÖ·.sin_port = htons(¹æÔò->ÊäÈë¶Ë¿Ú);
-
-                if (bind(¹æÔò->¼àÌıÌ×½Ó×Ö, (sockaddr*)&·şÎñÆ÷µØÖ·, sizeof(·şÎñÆ÷µØÖ·)) == SOCKET_ERROR)
-                {
-                    TRACE(_T("°ó¶¨¶Ë¿ÚÊ§°Ü£¬´íÎóÂë: %d\n"), WSAGetLastError());
-                    closesocket(¹æÔò->¼àÌıÌ×½Ó×Ö);
-                    ¹æÔò->¼àÌıÌ×½Ó×Ö = INVALID_SOCKET;
-                    return FALSE;
-                }
-
-                // ¿ªÊ¼¼àÌı
-                if (listen(¹æÔò->¼àÌıÌ×½Ó×Ö, 10) == SOCKET_ERROR)
-                {
-                    TRACE(_T("¼àÌıÊ§°Ü£¬´íÎóÂë: %d\n"), WSAGetLastError());
-                    closesocket(¹æÔò->¼àÌıÌ×½Ó×Ö);
-                    ¹æÔò->¼àÌıÌ×½Ó×Ö = INVALID_SOCKET;
-                    return FALSE;
-                }
-
-                // ÉèÖÃ·Ç×èÈûÄ£Ê½
-                u_long ·Ç×èÈûÄ£Ê½ = 1;
-                ioctlsocket(¹æÔò->¼àÌıÌ×½Ó×Ö, FIONBIO, &·Ç×èÈûÄ£Ê½);
-
-                // Æô¶¯×ª·¢Ïß³Ì
-                ¹æÔò->ÔËĞĞÖĞ = true;
-                ¹æÔò->×´Ì¬ = _T("ÔËĞĞÖĞ");
-                ¹æÔò->×ª·¢Ïß³Ì = new std::thread(×ª·¢Ïß³Ìº¯Êı, ¹æÔò);
-
-                TRACE(_T("¶Ë¿Ú×ª·¢¹æÔò %d Æô¶¯³É¹¦: %s:%d -> %s:%d\n"),
-                    ¹æÔò->ĞòºÅ, ¹æÔò->ÊäÈëIP, ¹æÔò->ÊäÈë¶Ë¿Ú, ¹æÔò->Êä³öIP, ¹æÔò->Êä³ö¶Ë¿Ú);
-
-                return TRUE;
-            }
-            catch (const std::exception& e)
-            {
-                TRACE(_T("Æô¶¯×ª·¢¹æÔòÊ±·¢ÉúÒì³£: %s\n"), CString(e.what()));
-                return FALSE;
+                Ä¿±ê¹æÔò = ¹æÔò;
+                break;
             }
         }
     }
-    return FALSE;
+
+    if (!Ä¿±ê¹æÔò) return FALSE;
+    if (Ä¿±ê¹æÔò->ÔËĞĞÖĞ) return TRUE;
+
+    try
+    {
+        // ´´½¨¼àÌısocket
+        Ä¿±ê¹æÔò->¼àÌıÌ×½Ó×Ö = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (Ä¿±ê¹æÔò->¼àÌıÌ×½Ó×Ö == INVALID_SOCKET)
+        {
+            TRACE(_T("´´½¨socketÊ§°Ü£¬´íÎóÂë: %d\n"), WSAGetLastError());
+            return FALSE;
+        }
+
+        // ÉèÖÃsocketÑ¡Ïî
+        int Ñ¡ÏîÖµ = 1;
+        setsockopt(Ä¿±ê¹æÔò->¼àÌıÌ×½Ó×Ö, SOL_SOCKET, SO_REUSEADDR, (char*)&Ñ¡ÏîÖµ, sizeof(Ñ¡ÏîÖµ));
+
+        // °ó¶¨µØÖ·
+        sockaddr_in ·şÎñÆ÷µØÖ·;
+        ·şÎñÆ÷µØÖ·.sin_family = AF_INET;
+
+        // ×ª»»IPµØÖ·
+        USES_CONVERSION;
+        char* ÊäÈëIP = T2A(Ä¿±ê¹æÔò->ÊäÈëIP);
+        if (inet_pton(AF_INET, ÊäÈëIP, &(·şÎñÆ÷µØÖ·.sin_addr)) != 1)
+        {
+            TRACE(_T("IPµØÖ·×ª»»Ê§°Ü: %s\n"), Ä¿±ê¹æÔò->ÊäÈëIP);
+            closesocket(Ä¿±ê¹æÔò->¼àÌıÌ×½Ó×Ö);
+            Ä¿±ê¹æÔò->¼àÌıÌ×½Ó×Ö = INVALID_SOCKET;
+            return FALSE;
+        }
+
+        ·şÎñÆ÷µØÖ·.sin_port = htons(Ä¿±ê¹æÔò->ÊäÈë¶Ë¿Ú);
+
+        if (bind(Ä¿±ê¹æÔò->¼àÌıÌ×½Ó×Ö, (sockaddr*)&·şÎñÆ÷µØÖ·, sizeof(·şÎñÆ÷µØÖ·)) == SOCKET_ERROR)
+        {
+            TRACE(_T("°ó¶¨¶Ë¿ÚÊ§°Ü£¬´íÎóÂë: %d\n"), WSAGetLastError());
+            closesocket(Ä¿±ê¹æÔò->¼àÌıÌ×½Ó×Ö);
+            Ä¿±ê¹æÔò->¼àÌıÌ×½Ó×Ö = INVALID_SOCKET;
+            return FALSE;
+        }
+
+        // ¿ªÊ¼¼àÌı
+        if (listen(Ä¿±ê¹æÔò->¼àÌıÌ×½Ó×Ö, 10) == SOCKET_ERROR)
+        {
+            TRACE(_T("¼àÌıÊ§°Ü£¬´íÎóÂë: %d\n"), WSAGetLastError());
+            closesocket(Ä¿±ê¹æÔò->¼àÌıÌ×½Ó×Ö);
+            Ä¿±ê¹æÔò->¼àÌıÌ×½Ó×Ö = INVALID_SOCKET;
+            return FALSE;
+        }
+
+        // ÉèÖÃ·Ç×èÈûÄ£Ê½
+        u_long ·Ç×èÈûÄ£Ê½ = 1;
+        ioctlsocket(Ä¿±ê¹æÔò->¼àÌıÌ×½Ó×Ö, FIONBIO, &·Ç×èÈûÄ£Ê½);
+
+        // Æô¶¯×ª·¢Ïß³Ì
+        Ä¿±ê¹æÔò->ÔËĞĞÖĞ = true;
+        Ä¿±ê¹æÔò->×´Ì¬ = _T("ÔËĞĞÖĞ");
+        Ä¿±ê¹æÔò->×ª·¢Ïß³Ì = new std::thread(×ª·¢Ïß³Ìº¯Êı, Ä¿±ê¹æÔò);
+
+        TRACE(_T("¶Ë¿Ú×ª·¢¹æÔò %d Æô¶¯³É¹¦: %s:%d -> %s:%d\n"),
+            Ä¿±ê¹æÔò->ĞòºÅ, Ä¿±ê¹æÔò->ÊäÈëIP, Ä¿±ê¹æÔò->ÊäÈë¶Ë¿Ú,
+            Ä¿±ê¹æÔò->Êä³öIP, Ä¿±ê¹æÔò->Êä³ö¶Ë¿Ú);
+
+        return TRUE;
+    }
+    catch (const std::exception& e)
+    {
+        TRACE(_T("Æô¶¯×ª·¢¹æÔòÊ±·¢ÉúÒì³£: %s\n"), CString(e.what()));
+
+        // ÇåÀí×ÊÔ´
+        if (Ä¿±ê¹æÔò->¼àÌıÌ×½Ó×Ö != INVALID_SOCKET)
+        {
+            closesocket(Ä¿±ê¹æÔò->¼àÌıÌ×½Ó×Ö);
+            Ä¿±ê¹æÔò->¼àÌıÌ×½Ó×Ö = INVALID_SOCKET;
+        }
+        Ä¿±ê¹æÔò->ÔËĞĞÖĞ = false;
+        Ä¿±ê¹æÔò->×´Ì¬ = _T("Æô¶¯Ê§°Ü");
+
+        return FALSE;
+    }
 }
 
 // Í£Ö¹µ¥¸ö×ª·¢¹æÔò
@@ -271,13 +304,9 @@ BOOL ¶Ë¿Ú×ª·¢¹ÜÀíÀà::¸üĞÂ×ª·¢¹æÔò(int ¹æÔòĞòºÅ, const CString& ÊäÈëIP, int ÊäÈë¶
             {
                 Æô¶¯×ª·¢¹æÔò(¹æÔòĞòºÅ);
             }
-
-            TRACE(_T("¸üĞÂ×ª·¢¹æÔò %d: %s:%d -> %s:%d\n"),
-                ¹æÔòĞòºÅ, ÊäÈëIP, ÊäÈë¶Ë¿Ú, Êä³öIP, Êä³ö¶Ë¿Ú);
             return TRUE;
         }
     }
-
     return FALSE;
 }
 
@@ -548,5 +577,17 @@ BOOL ¶Ë¿Ú×ª·¢¹ÜÀíÀà::»ñÈ¡¹æÔòÁĞ±í¸±±¾(std::vector<¶Ë¿Ú×ª·¢¹æÔò*>& ¹æÔòÁĞ±í¸±±¾) 
 {
     std::lock_guard<std::mutex> Ëø(¹æÔòÁĞ±íËø);
     ¹æÔòÁĞ±í¸±±¾ = ×ª·¢¹æÔòÁĞ±í;
+    return TRUE;
+}
+
+BOOL ¶Ë¿Ú×ª·¢¹ÜÀíÀà::ÑéÖ¤¹æÔò²ÎÊı(const CString& ÊäÈëIP, int ÊäÈë¶Ë¿Ú, const CString& Êä³öIP, int Êä³ö¶Ë¿Ú)
+{
+    if (ÊäÈë¶Ë¿Ú <= 0 || ÊäÈë¶Ë¿Ú > 65535 || Êä³ö¶Ë¿Ú <= 0 || Êä³ö¶Ë¿Ú > 65535)
+        return FALSE;
+
+    // ¼òµ¥µÄIPÑéÖ¤
+    if (ÊäÈëIP.IsEmpty() || Êä³öIP.IsEmpty())
+        return FALSE;
+
     return TRUE;
 }

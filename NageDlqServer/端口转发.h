@@ -41,16 +41,17 @@ public:
     BOOL 更新转发规则(int 规则序号, const CString& 输入IP, int 输入端口,
         const CString& 输出IP, int 输出端口);
 
-    // 修改为返回副本而不是引用
+    // 安全的获取规则列表方法
     std::vector<端口转发规则*> 获取规则列表() const;
     BOOL 获取规则列表副本(std::vector<端口转发规则*>& 规则列表副本) const;
 
     BOOL 保存配置();
     BOOL 加载配置();
+    BOOL 验证规则参数(const CString& 输入IP, int 输入端口, const CString& 输出IP, int 输出端口);
 
 private:
     std::vector<端口转发规则*> 转发规则列表;
-    mutable std::mutex 规则列表锁;  // 添加 mutable
+    mutable std::mutex 规则列表锁;
 
     static void 转发线程函数(端口转发规则* 规则);
     static void 客户端处理线程(SOCKET 客户端套接字, SOCKET 目标套接字, 端口转发规则* 规则);
