@@ -178,6 +178,10 @@ public:
 	BOOL 安全启动端口转发();
 	BOOL 安全停止端口转发();
 	BOOL 验证IP地址(const CString& IP地址);
+	void 开始编辑单元格(int 行, int 列);
+	void 结束编辑单元格();
+	void On编辑框失去焦点();
+	void 更新规则数据(int 行, int 列, const CString& 新值);
 
 	// 消息处理函数
 	afx_msg void On启动转发按钮点击();
