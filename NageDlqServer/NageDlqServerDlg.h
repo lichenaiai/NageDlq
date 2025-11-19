@@ -35,15 +35,15 @@ public:
 	enum { IDD = IDD_NAGEDLQSERVER_DIALOG };
 	BOOL 已初始化显示;
 
-	afx_msg LRESULT On延迟加载端口转发数据(WPARAM wParam, LPARAM lParam);
-	afx_msg void On自定义绘制列表(NMHDR* pNMHDR, LRESULT* pResult);
+	
 
 protected:
 	virtual void DoDataExchange(CDataExchange* pDX);
 	virtual BOOL OnInitDialog();
 
 	DECLARE_MESSAGE_MAP()
-
+	afx_msg LRESULT On延迟加载端口转发数据(WPARAM wParam, LPARAM lParam);
+	afx_msg void On自定义绘制列表(NMHDR* pNMHDR, LRESULT* pResult);
 public:
 	// 按钮点击事件 - 保持英文函数名
 	afx_msg void OnBnClickedButtonStart();        // 启动服务器
@@ -98,6 +98,10 @@ private:
 		CString 功能描述;
 	};
 	std::vector<Hook功能结构> Hook功能列表;
+
+	int 当前编辑行 = -1;
+	int 当前编辑列 = -1;
+	CEdit 编辑控件;
 
 public:
 	// 线程函数
@@ -173,6 +177,7 @@ public:
 	BOOL 加载端口转发配置();
 	BOOL 安全启动端口转发();
 	BOOL 安全停止端口转发();
+	BOOL 验证IP地址(const CString& IP地址);
 
 	// 消息处理函数
 	afx_msg void On启动转发按钮点击();
