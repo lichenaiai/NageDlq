@@ -102,6 +102,7 @@ private:
 	int 当前编辑行 = -1;
 	int 当前编辑列 = -1;
 	CEdit 编辑控件;
+	BOOL 正在编辑 = FALSE;
 
 public:
 	// 线程函数
@@ -179,14 +180,18 @@ public:
 	BOOL 安全停止端口转发();
 	BOOL 验证IP地址(const CString& IP地址);
 	void 开始编辑单元格(int 行, int 列);
-	void 结束编辑单元格();
-	void On编辑框失去焦点();
+	void 结束编辑单元格(BOOL 保存更改 = TRUE);
 	void 更新规则数据(int 行, int 列, const CString& 新值);
+	void 添加新规则行();
+	void 处理新增规则(int 行);
 
 	// 消息处理函数
 	afx_msg void On启动转发按钮点击();
 	afx_msg void On停止转发按钮点击();
 	afx_msg void On列表项双击(NMHDR* pNMHDR, LRESULT* pResult);
 	afx_msg void On列表结束编辑(NMHDR* pNMHDR, LRESULT* pResult);
-
+	afx_msg void On列表单击(NMHDR* pNMHDR, LRESULT* pResult);
+	afx_msg	void On编辑框失去焦点();
+	//afx_msg void On编辑框回车();
+	afx_msg	void On编辑框内容改变();
 };

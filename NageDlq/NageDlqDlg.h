@@ -1,4 +1,5 @@
-﻿#pragma once
+﻿// NageDlqDlg.h
+#pragma once
 #include "pch.h"
 #include "afxdialogex.h"
 #include "登录页面类.h"

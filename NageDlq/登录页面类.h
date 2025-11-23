@@ -1,4 +1,5 @@
-﻿#pragma once
+﻿// 登录页面类.h
+#pragma once
 
 #include "afxdialogex.h"
 #include <windows.h>

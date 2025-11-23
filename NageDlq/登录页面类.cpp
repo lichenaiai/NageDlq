@@ -1,4 +1,5 @@
-﻿#include "pch.h"
+﻿// 登录页面类.cpp
+#include "pch.h"
 #include "framework.h"
 #include "NageDlq.h"
 #include "登录页面类.h"
@@ -318,7 +319,7 @@ void 登录页面类::等待并安装IP钩子(const wchar_t* 监控进程名)
 
 			// 1. 首先写入钩子代码到远程内存
 			BYTE IP钩子代码[] = {
-				0xB8, 0x2F, 0x74, 0xA7, 0x63,	// mov eax,63A7742F
+				0xB8, 0x7C, 0xDC, 0x52, 0x57,	// mov eax,63A7742F  5752DC7C
 				0x89, 0x45, 0xE8,				// mov dword ptr ss:[ebp-18],eax
 				0x8B, 0x4D, 0xE8,				// mov ecx,dword ptr ss:[ebp-18]
 				0xE9, 0xD2, 0xBB, 0x50, 0x00,	// jmp 6ABBE2

@@ -1,4 +1,5 @@
-﻿#include "pch.h"
+﻿// 注册页面类.cpp
+#include "pch.h"
 #include "framework.h"
 #include "NageDlq.h"
 #include "注册页面类.h"

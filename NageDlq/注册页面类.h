@@ -1,4 +1,5 @@
-﻿#pragma once
+﻿// 注册页面类.h
+#pragma once
 #include "pch.h"
 #include "afxdialogex.h"
 
