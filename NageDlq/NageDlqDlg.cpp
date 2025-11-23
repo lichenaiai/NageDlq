@@ -1,4 +1,5 @@
-﻿#include "pch.h"
+﻿// NageDlqDlg.cpp
+#include "pch.h"
 #include "framework.h"
 #include "NageDlq.h"
 #include "NageDlqDlg.h"
@@ -100,7 +101,7 @@ void NageDlqDlg::OnTimer(UINT_PTR nIDEvent)
 			TRACE(_T("重试发送连接请求\n"));
 
 			CString 连接请求;
-			连接请求.Format(_T("CONNECT:%s:127.0.0.1"), _T(CLIENT_VERSION));  // 使用全局变量控制版本号
+			连接请求.Format(_T("CONNECT:%s:%s"), _T(CLIENT_VERSION), _T(SERVER_IP));  // 使用全局变量控制版本号
 
 			if (网络通信.发送数据(连接请求))
 			{
@@ -251,13 +252,13 @@ BOOL NageDlqDlg::初始化网络通信()
 	TRACE(_T("设置状态为连接中...\n"));
 
 	// 尝试连接服务端 - 连接请求会在OnConnect中自动发送
-	if (网络通信.连接服务端(_T("127.0.0.1"), 9896))
+	if (网络通信.连接服务端(_T(SERVER_IP), SERVER_PORT))
 	{
 		TRACE(_T("连接服务端调用成功\n"));
 
 		// 立即发送连接请求，使用版本常量
 		CString 连接请求;
-		连接请求.Format(_T("CONNECT:%s:127.0.0.1"), _T(CLIENT_VERSION));  // 修复：使用版本常量
+		连接请求.Format(_T("CONNECT:%s:%s"), _T(CLIENT_VERSION), _T(SERVER_IP));  // 修复：使用版本常量
 
 		TRACE(_T("立即发送连接请求: %s\n"), 连接请求);
 

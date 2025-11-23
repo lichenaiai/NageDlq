@@ -1,3 +1,4 @@
+// 网络通信类.cpp
 #include "pch.h"
 #include "网络通信类.h"
 #include "NageDlqDlg.h"
@@ -156,7 +157,7 @@ void 网络通信类::OnConnect(int 错误代码)
 
         // 连接成功后立即发送连接请求
         CString 连接请求;
-        连接请求.Format(_T("CONNECT:%s:127.0.0.1\n"), _T(CLIENT_VERSION));  //全局变量控制版本号
+        连接请求.Format(_T("CONNECT:%s:%s"), _T(CLIENT_VERSION), _T(SERVER_IP));  //全局变量控制版本号
 
         TRACE(_T("连接成功，发送连接请求: %s\n"), 连接请求);
 

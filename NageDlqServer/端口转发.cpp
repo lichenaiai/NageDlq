@@ -23,24 +23,58 @@
 // 启动所有转发规则
 BOOL 端口转发管理类::启动所有转发()
 {
+    TRACE(_T("=== 启动所有转发开始 ===\n"));
+
     std::vector<端口转发规则*> 临时规则列表;
 
     {
         std::lock_guard<std::mutex> 锁(规则列表锁);
-        临时规则列表 = 转发规则列表; // 获取副本
+        临时规则列表 = 转发规则列表;
+        TRACE(_T("总规则数量: %d\n"), 临时规则列表.size());
+
+        // 详细输出每个规则
+        for (int i = 0; i < 临时规则列表.size(); i++)
+        {
+            auto* 规则 = 临时规则列表[i];
+            TRACE(_T("规则[%d]: 序号=%d, IP=%s:%d -> %s:%d, 运行中=%d\n"),
+                i, 规则->序号, 规则->输入IP, 规则->输入端口,
+                规则->输出IP, 规则->输出端口, 规则->运行中);
+        }
     }
 
     BOOL 全部成功 = TRUE;
     for (auto* 规则 : 临时规则列表)
     {
+        TRACE(_T("\n--- 处理规则 %d ---\n"), 规则->序号);
+
         if (!规则->运行中)
         {
+            TRACE(_T("规则未运行，尝试启动...\n"));
             if (!启动转发规则(规则->序号))
             {
+                TRACE(_T("!!! 规则 %d 启动失败 !!!\n"), 规则->序号);
                 全部成功 = FALSE;
             }
+            else
+            {
+                TRACE(_T("规则 %d 启动成功\n"), 规则->序号);
+            }
+        }
+        else
+        {
+            TRACE(_T("规则 %d 已在运行中，跳过\n"), 规则->序号);
         }
     }
+
+    // 统计结果
+    int 成功数量 = 0;
+    for (auto* 规则 : 临时规则列表)
+    {
+        if (规则->运行中) 成功数量++;
+    }
+
+    TRACE(_T("=== 启动所有转发结束 === 成功: %d/%d, 总体结果: %s\n"),
+        成功数量, 临时规则列表.size(), 全部成功 ? _T("成功") : _T("失败"));
 
     return 全部成功;
 }
@@ -96,8 +130,9 @@ BOOL 端口转发管理类::停止所有转发()
 // 启动单个转发规则
 BOOL 端口转发管理类::启动转发规则(int 规则序号)
 {
-    // 先找到规则，不持有锁
     端口转发规则* 目标规则 = nullptr;
+
+    // 先找到规则
     {
         std::lock_guard<std::mutex> 锁(规则列表锁);
         for (auto* 规则 : 转发规则列表)
@@ -110,8 +145,17 @@ BOOL 端口转发管理类::启动转发规则(int 规则序号)
         }
     }
 
-    if (!目标规则) return FALSE;
-    if (目标规则->运行中) return TRUE;
+    if (!目标规则)
+    {
+        TRACE(_T("启动规则失败: 找不到规则 %d\n"), 规则序号);
+        return FALSE;
+    }
+
+    if (目标规则->运行中)
+    {
+        TRACE(_T("规则 %d 已经在运行中\n"), 规则序号);
+        return TRUE;
+    }
 
     try
     {
@@ -165,9 +209,14 @@ BOOL 端口转发管理类::启动转发规则(int 规则序号)
         u_long 非阻塞模式 = 1;
         ioctlsocket(目标规则->监听套接字, FIONBIO, &非阻塞模式);
 
+        // 更新状态
+        {
+            std::lock_guard<std::mutex> 锁(规则列表锁);
+            目标规则->运行中 = true;
+            目标规则->状态 = _T("运行中");
+        }
+
         // 启动转发线程
-        目标规则->运行中 = true;
-        目标规则->状态 = _T("运行中");
         目标规则->转发线程 = new std::thread(转发线程函数, 目标规则);
 
         TRACE(_T("端口转发规则 %d 启动成功: %s:%d -> %s:%d\n"),
@@ -186,8 +235,12 @@ BOOL 端口转发管理类::启动转发规则(int 规则序号)
             closesocket(目标规则->监听套接字);
             目标规则->监听套接字 = INVALID_SOCKET;
         }
-        目标规则->运行中 = false;
-        目标规则->状态 = _T("启动失败");
+
+        {
+            std::lock_guard<std::mutex> 锁(规则列表锁);
+            目标规则->运行中 = false;
+            目标规则->状态 = _T("启动失败");
+        }
 
         return FALSE;
     }
@@ -196,34 +249,54 @@ BOOL 端口转发管理类::启动转发规则(int 规则序号)
 // 停止单个转发规则
 BOOL 端口转发管理类::停止转发规则(int 规则序号)
 {
-    std::lock_guard<std::mutex> 锁(规则列表锁);
+    端口转发规则* 目标规则 = nullptr;
 
-    for (auto* 规则 : 转发规则列表)
+    // 先找到规则
     {
-        if (规则->序号 == 规则序号 && 规则->运行中)
+        std::lock_guard<std::mutex> 锁(规则列表锁);
+        for (auto* 规则 : 转发规则列表)
         {
-            规则->运行中 = false;
-            规则->状态 = _T("已停止");
-
-            if (规则->监听套接字 != INVALID_SOCKET)
+            if (规则->序号 == 规则序号)
             {
-                closesocket(规则->监听套接字);
-                规则->监听套接字 = INVALID_SOCKET;
+                目标规则 = 规则;
+                break;
             }
-
-            if (规则->转发线程 && 规则->转发线程->joinable())
-            {
-                规则->转发线程->join();
-                delete 规则->转发线程;
-                规则->转发线程 = nullptr;
-            }
-
-            TRACE(_T("端口转发规则 %d 已停止\n"), 规则序号);
-            return TRUE;
         }
     }
 
-    return FALSE;
+    if (!目标规则 || !目标规则->运行中)
+    {
+        return FALSE;
+    }
+
+    TRACE(_T("停止转发规则: %d\n"), 规则序号);
+
+    // 设置停止标志
+    目标规则->运行中 = false;
+    目标规则->状态 = _T("已停止");
+
+    // 关闭监听套接字
+    if (目标规则->监听套接字 != INVALID_SOCKET)
+    {
+        closesocket(目标规则->监听套接字);
+        目标规则->监听套接字 = INVALID_SOCKET;
+    }
+
+    // 等待线程结束
+    if (目标规则->转发线程 && 目标规则->转发线程->joinable())
+    {
+        目标规则->转发线程->join();
+    }
+
+    // 释放线程对象
+    if (目标规则->转发线程)
+    {
+        delete 目标规则->转发线程;
+        目标规则->转发线程 = nullptr;
+    }
+
+    TRACE(_T("端口转发规则 %d 已停止\n"), 规则序号);
+    return TRUE;
 }
 
 // 添加转发规则
@@ -280,34 +353,66 @@ BOOL 端口转发管理类::删除转发规则(int 规则序号)
 BOOL 端口转发管理类::更新转发规则(int 规则序号, const CString& 输入IP, int 输入端口,
     const CString& 输出IP, int 输出端口)
 {
-    std::lock_guard<std::mutex> 锁(规则列表锁);
+    // 先找到要更新的规则
+    端口转发规则* 目标规则 = nullptr;
+    BOOL 正在运行 = FALSE;
 
-    for (auto* 规则 : 转发规则列表)
     {
-        if (规则->序号 == 规则序号)
+        std::lock_guard<std::mutex> 锁(规则列表锁);
+        for (auto* 规则 : 转发规则列表)
         {
-            // 如果规则正在运行，先停止再更新
-            BOOL 正在运行 = 规则->运行中;
-
-            if (正在运行)
+            if (规则->序号 == 规则序号)
             {
-                停止转发规则(规则序号);
+                目标规则 = 规则;
+                正在运行 = 规则->运行中;
+                break;
             }
-
-            规则->输入IP = 输入IP;
-            规则->输入端口 = 输入端口;
-            规则->输出IP = 输出IP;
-            规则->输出端口 = 输出端口;
-
-            // 如果之前是运行状态，重新启动
-            if (正在运行)
-            {
-                启动转发规则(规则序号);
-            }
-            return TRUE;
         }
     }
-    return FALSE;
+
+    if (!目标规则)
+    {
+        TRACE(_T("更新规则失败: 找不到规则 %d\n"), 规则序号);
+        return FALSE;
+    }
+
+    TRACE(_T("更新规则 %d: %s:%d -> %s:%d, 当前状态: %s\n"),
+        规则序号, 输入IP, 输入端口, 输出IP, 输出端口,
+        正在运行 ? _T("运行中") : _T("已停止"));
+
+    // 如果规则正在运行，先停止
+    if (正在运行)
+    {
+        TRACE(_T("规则正在运行，先停止规则\n"));
+        停止转发规则(规则序号);
+    }
+
+    // 更新规则数据
+    {
+        std::lock_guard<std::mutex> 锁(规则列表锁);
+        目标规则->输入IP = 输入IP;
+        目标规则->输入端口 = 输入端口;
+        目标规则->输出IP = 输出IP;
+        目标规则->输出端口 = 输出端口;
+    }
+
+    // 如果之前是运行状态，重新启动
+    if (正在运行)
+    {
+        TRACE(_T("重新启动规则\n"));
+        启动转发规则(规则序号);
+    }
+    else
+    {
+        // 更新状态显示
+        std::lock_guard<std::mutex> 锁(规则列表锁);
+        目标规则->状态 = _T("已停止");
+    }
+
+    TRACE(_T("规则更新完成，立即保存配置\n"));
+
+    // 立即保存配置
+    return 保存配置();
 }
 
 // 获取规则列表
@@ -460,8 +565,6 @@ void 端口转发管理类::转发数据(SOCKET 来源套接字, SOCKET 目标套接字)
 // 保存配置到注册表
 BOOL 端口转发管理类::保存配置()
 {
-    std::lock_guard<std::mutex> 锁(规则列表锁);
-
     HKEY hKey;
     LONG lResult = RegCreateKeyEx(HKEY_CURRENT_USER,
         _T("Software\\NageServer\\PortForward"),
@@ -471,26 +574,48 @@ BOOL 端口转发管理类::保存配置()
     {
         CString 配置数据;
 
-        for (const auto* 规则 : 转发规则列表)
         {
-            CString 单条规则;
-            单条规则.Format(_T("%d|%s|%d|%s|%d"),
-                规则->序号, 规则->输入IP, 规则->输入端口, 规则->输出IP, 规则->输出端口);
+            std::lock_guard<std::mutex> 锁(规则列表锁);
+            for (const auto* 规则 : 转发规则列表)
+            {
+                CString 单条规则;
+                单条规则.Format(_T("%d|%s|%d|%s|%d|%s"),
+                    规则->序号,
+                    规则->输入IP,
+                    规则->输入端口,
+                    规则->输出IP,
+                    规则->输出端口,
+                    规则->状态);
 
-            配置数据 += 单条规则 + _T(";");
+                配置数据 += 单条规则 + _T(";");
+
+                TRACE(_T("保存规则: %s\n"), 单条规则);
+            }
         }
 
-        RegSetValueEx(hKey, _T("ForwardRules"), 0, REG_SZ,
-            (const BYTE*)(LPCTSTR)配置数据,
-            (配置数据.GetLength() + 1) * sizeof(TCHAR));
+        TRACE(_T("保存的完整配置: %s\n"), 配置数据);
+
+        // 保存到注册表
+        LSTATUS 设置结果 = RegSetValueEx(hKey, _T("ForwardRules"), 0, REG_SZ,
+            (const BYTE*)(LPCTSTR)配置数据, (配置数据.GetLength() + 1) * sizeof(TCHAR));
 
         RegCloseKey(hKey);
 
-        TRACE(_T("端口转发配置保存成功，规则数量: %d\n"), 转发规则列表.size());
-        return TRUE;
+        if (设置结果 == ERROR_SUCCESS)
+        {
+            TRACE(_T("端口转发配置保存成功\n"));
+            return TRUE;
+        }
+        else
+        {
+            TRACE(_T("RegSetValueEx失败，错误码: %d\n"), 设置结果);
+        }
+    }
+    else
+    {
+        TRACE(_T("RegCreateKeyEx失败，错误码: %d\n"), lResult);
     }
 
-    TRACE(_T("端口转发配置保存失败\n"));
     return FALSE;
 }
 
@@ -507,66 +632,135 @@ BOOL 端口转发管理类::加载配置()
     }
     转发规则列表.clear();
 
+    CString 注册表路径 = _T("Software\\NageServer\\PortForward");
+    TRACE(_T("尝试从注册表加载: HKEY_CURRENT_USER\\%s\n"), 注册表路径);
+
     HKEY hKey;
-    if (RegOpenKeyEx(HKEY_CURRENT_USER,
-        _T("Software\\NageServer\\PortForward"), 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    if (RegOpenKeyEx(HKEY_CURRENT_USER, 注册表路径, 0, KEY_READ, &hKey) == ERROR_SUCCESS)
     {
-        DWORD dwType, dwSize = 4096;
-        TCHAR szValue[4096];
+        TRACE(_T("成功打开注册表键\n"));
 
-        if (RegQueryValueEx(hKey, _T("ForwardRules"), NULL, &dwType,
-            (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS)
+        DWORD dwType, dwSize = 0;
+
+        // 先获取数据大小
+        if (RegQueryValueEx(hKey, _T("ForwardRules"), NULL, &dwType, NULL, &dwSize) == ERROR_SUCCESS)
         {
-            CString 配置数据(szValue);
-            TRACE(_T("读取配置数据: %s\n"), 配置数据);
+            TRACE(_T("找到ForwardRules值，大小: %d 字节\n"), dwSize);
 
-            int 位置 = 0;
-            CString 单条规则 = 配置数据.Tokenize(_T(";"), 位置);
-            while (!单条规则.IsEmpty())
+            if (dwSize > 0 && dwType == REG_SZ)
             {
-                CStringArray 规则数组;
-                int 子位置 = 0;
-                CString 部分 = 单条规则.Tokenize(_T("|"), 子位置);
-                while (!部分.IsEmpty())
-                {
-                    规则数组.Add(部分);
-                    部分 = 单条规则.Tokenize(_T("|"), 子位置);
-                }
+                TCHAR* szValue = new TCHAR[dwSize / sizeof(TCHAR) + 1];
+                ZeroMemory(szValue, (dwSize / sizeof(TCHAR) + 1) * sizeof(TCHAR));
 
-                if (规则数组.GetSize() == 5)
+                if (RegQueryValueEx(hKey, _T("ForwardRules"), NULL, &dwType,
+                    (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS)
                 {
-                    int 序号 = _ttoi(规则数组[0]);
-                    CString 输入IP = 规则数组[1];
-                    int 输入端口 = _ttoi(规则数组[2]);
-                    CString 输出IP = 规则数组[3];
-                    int 输出端口 = _ttoi(规则数组[4]);
+                    CString 配置数据(szValue);
+                    TRACE(_T("读取配置数据: %s\n"), 配置数据);
 
-                    // 验证数据有效性
-                    if (序号 > 0 && 输入端口 > 0 && 输入端口 <= 65535 &&
-                        输出端口 > 0 && 输出端口 <= 65535)
+                    int 位置 = 0;
+                    CString 单条规则 = 配置数据.Tokenize(_T(";"), 位置);
+                    int 规则计数 = 0;
+
+                    while (!单条规则.IsEmpty())
                     {
-                        // 直接创建规则对象
-                        auto* 新规则 = new 端口转发规则();
-                        新规则->序号 = 序号;
-                        新规则->输入IP = 输入IP;
-                        新规则->输入端口 = 输入端口;
-                        新规则->输出IP = 输出IP;
-                        新规则->输出端口 = 输出端口;
-                        新规则->状态 = _T("已停止");
+                        TRACE(_T("处理单条规则[%d]: %s\n"), 规则计数, 单条规则);
 
-                        转发规则列表.push_back(新规则);
-                        TRACE(_T("添加规则: %s:%d -> %s:%d\n"), 输入IP, 输入端口, 输出IP, 输出端口);
+                        CStringArray 规则数组;
+                        int 子位置 = 0;
+                        CString 部分 = 单条规则.Tokenize(_T("|"), 子位置);
+
+                        while (!部分.IsEmpty())
+                        {
+                            规则数组.Add(部分);
+                            TRACE(_T("规则字段[%d]: %s\n"), 规则数组.GetSize() - 1, 部分);
+                            部分 = 单条规则.Tokenize(_T("|"), 子位置);
+                        }
+
+                        // 现在应该有6个部分：序号|输入IP|输入端口|输出IP|输出端口|状态
+                        if (规则数组.GetSize() >= 5)  // 至少要有前5个必需字段
+                        {
+                            int 序号 = _ttoi(规则数组[0]);
+                            CString 输入IP = 规则数组[1];
+                            int 输入端口 = _ttoi(规则数组[2]);
+                            CString 输出IP = 规则数组[3];
+                            int 输出端口 = _ttoi(规则数组[4]);
+
+                            CString 状态;
+                            if (规则数组.GetSize() >= 6)
+                            {
+                                状态 = 规则数组[5];
+                            }
+                            else
+                            {
+                                状态 = _T("已停止");
+                            }
+
+                            // 验证数据有效性
+                            if (序号 > 0 && 输入端口 > 0 && 输入端口 <= 65535 &&
+                                输出端口 > 0 && 输出端口 <= 65535)
+                            {
+                                // 直接创建规则对象
+                                auto* 新规则 = new 端口转发规则();
+                                新规则->序号 = 序号;
+                                新规则->输入IP = 输入IP;
+                                新规则->输入端口 = 输入端口;
+                                新规则->输出IP = 输出IP;
+                                新规则->输出端口 = 输出端口;
+                                新规则->状态 = 状态;
+                                新规则->运行中 = (状态 == _T("运行中"));
+
+                                转发规则列表.push_back(新规则);
+                                规则计数++;
+
+                                TRACE(_T("成功加载规则[%d]: %s:%d -> %s:%d, 状态: %s\n"),
+                                    序号, 输入IP, 输入端口, 输出IP, 输出端口, 状态);
+                            }
+                            else
+                            {
+                                TRACE(_T("规则数据无效，跳过: %s\n"), 单条规则);
+                            }
+                        }
+                        else
+                        {
+                            TRACE(_T("规则格式错误，字段数: %d\n"), 规则数组.GetSize());
+                        }
+
+                        单条规则 = 配置数据.Tokenize(_T(";"), 位置);
                     }
+
+                    TRACE(_T("成功加载 %d 条规则\n"), 规则计数);
+                }
+                else
+                {
+                    TRACE(_T("读取注册表值失败\n"));
                 }
 
-                单条规则 = 配置数据.Tokenize(_T(";"), 位置);
+                delete[] szValue;
             }
+            else
+            {
+                TRACE(_T("配置数据大小为0或类型错误\n"));
+            }
+        }
+        else
+        {
+            TRACE(_T("查询注册表值大小失败\n"));
         }
 
         RegCloseKey(hKey);
 
-        TRACE(_T("端口转发配置加载成功，规则数量: %d\n"), 转发规则列表.size());
-        return TRUE;
+        TRACE(_T("端口转发配置加载完成，规则数量: %d\n"), 转发规则列表.size());
+
+        // 如果成功加载了规则，返回TRUE
+        if (!转发规则列表.empty())
+        {
+            return TRUE;
+        }
+    }
+    else
+    {
+        TRACE(_T("无法打开注册表键，错误码: %d\n"), GetLastError());
     }
 
     TRACE(_T("端口转发配置加载失败或没有配置\n"));
