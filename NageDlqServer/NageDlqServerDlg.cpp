@@ -34,6 +34,7 @@ NageDlqServerDlg::NageDlqServerDlg(CWnd* pParent /*=nullptr*/)
 	, 当前版本号(_T("1.0.0"))
 	, 客户端连接数量(0)
 	, 已初始化显示(FALSE)		// 添加初始化标志
+	, 日志文件已打开(FALSE)
 {
 	// 数据库配置 - 使用SQL Server默认设置
 	数据库用户名 = _T("sa");           // SQL Server默认管理员
@@ -41,6 +42,8 @@ NageDlqServerDlg::NageDlqServerDlg(CWnd* pParent /*=nullptr*/)
 	数据库名称 = _T("nagelogin");      // 您的数据库名
 
 	InitializeCriticalSection(&客户端列表锁);
+	
+	初始化日志文件();
 }
 
 NageDlqServerDlg::~NageDlqServerDlg()
@@ -50,6 +53,8 @@ NageDlqServerDlg::~NageDlqServerDlg()
 	if (SQL连接句柄) SQLDisconnect(SQL连接句柄);
 	if (SQL连接句柄) SQLFreeHandle(SQL_HANDLE_DBC, SQL连接句柄);
 	if (SQL环境句柄) SQLFreeHandle(SQL_HANDLE_ENV, SQL环境句柄);
+
+	关闭日志文件();
 
 	DeleteCriticalSection(&客户端列表锁);
 	
@@ -93,6 +98,8 @@ BEGIN_MESSAGE_MAP(NageDlqServerDlg, CDialogEx)
 	ON_NOTIFY(NM_CUSTOMDRAW, IDC_LIST_FORWARD, &NageDlqServerDlg::On自定义绘制列表)
 	ON_EN_KILLFOCUS(IDC_EDIT_CONTROL, &NageDlqServerDlg::On编辑框失去焦点)
 	ON_EN_CHANGE(IDC_EDIT_CONTROL, &NageDlqServerDlg::On编辑框内容改变)
+	ON_NOTIFY(NM_RCLICK, IDC_LIST_FORWARD, &NageDlqServerDlg::On右键菜单)
+	ON_COMMAND(ID_MENU_DELETE_RULE, &NageDlqServerDlg::On删除规则)
 END_MESSAGE_MAP()
 
 BOOL NageDlqServerDlg::OnInitDialog()
@@ -136,6 +143,16 @@ BOOL NageDlqServerDlg::OnInitDialog()
 
 	// 刷新显示
 	刷新端口转发列表();
+
+	if (初始化日志文件())
+	{
+		TRACE(_T("日志文件初始化成功\n"));
+	}
+	else
+	{
+		TRACE(_T("日志文件初始化失败\n"));
+	}
+
 
 	添加信息显示(_T("程序已初始化"));
 
@@ -1206,7 +1223,7 @@ void NageDlqServerDlg::添加信息显示(const CString& 信息)
 {
 	CString 时间信息 = CTime::GetCurrentTime().Format(_T("%H:%M:%S"));
 	CString 完整信息 = 时间信息 + _T(" - ") + 信息;
-	
+
 	// 添加到List Box
 	CListBox* pListBox = (CListBox*)GetDlgItem(IDC_EDIT_INFO);
 	if (pListBox)
@@ -1214,6 +1231,9 @@ void NageDlqServerDlg::添加信息显示(const CString& 信息)
 		pListBox->AddString(完整信息);
 		pListBox->SetCurSel(pListBox->GetCount() - 1); // 滚动到最后
 	}
+
+	// 写入日志文件
+	写入日志文件(信息);
 }
 
 // 更新状态显示
@@ -1973,14 +1993,15 @@ void NageDlqServerDlg::初始化端口转发界面()
 	}
 
 	// 添加列
-	端口转发列表控件.InsertColumn(0, _T("状态"), LVCFMT_LEFT, 60);
+	端口转发列表控件.InsertColumn(0, _T("状态"), LVCFMT_LEFT, 0);
 	端口转发列表控件.InsertColumn(1, _T("序号"), LVCFMT_LEFT, 40);
-	端口转发列表控件.InsertColumn(2, _T("输入IP"), LVCFMT_LEFT, 120);
-	端口转发列表控件.InsertColumn(3, _T("输入端口"), LVCFMT_LEFT, 80);
-	端口转发列表控件.InsertColumn(4, _T("输出IP"), LVCFMT_LEFT, 120);
-	端口转发列表控件.InsertColumn(5, _T("输出端口"), LVCFMT_LEFT, 80);
+	端口转发列表控件.InsertColumn(2, _T("输入IP"), LVCFMT_LEFT, 100);
+	端口转发列表控件.InsertColumn(3, _T("输入端口"), LVCFMT_LEFT, 60);
+	端口转发列表控件.InsertColumn(4, _T("输出IP"), LVCFMT_LEFT, 100);
+	端口转发列表控件.InsertColumn(5, _T("输出端口"), LVCFMT_LEFT, 60);
 	端口转发列表控件.InsertColumn(6, _T("连接数"), LVCFMT_LEFT, 60);
 
+	端口转发列表控件.EnableScrollBar(SB_BOTH, ESB_ENABLE_BOTH);
 }
 
 // 启动转发按钮点击处理
@@ -2080,20 +2101,41 @@ void NageDlqServerDlg::On列表项双击(NMHDR* pNMHDR, LRESULT* pResult)
 		// 检查是否在有效范围内
 		if (选中项 >= 0 && 选中项 < 端口转发列表控件.GetItemCount())
 		{
+			// 检查是否是空白行（没有状态的行）
+			CString 状态 = 端口转发列表控件.GetItemText(选中项, 0);
+			BOOL 是空白行 = 状态.IsEmpty();
+
 			// 只允许编辑IP和端口列（第2、3、4、5列）
 			if (选中列 >= 2 && 选中列 <= 5)
 			{
+				// 如果是空白行，先设置默认值
+				if (是空白行)
+				{
+					设置空白行默认值(选中项);
+				}
+
 				开始编辑单元格(选中项, 选中列);
 			}
 		}
-		else if (选中项 == -1) // 空白区域双击
-		{
-			// 在最后添加新行
-			添加新规则行();
-		}
 	}
 
+
 	*pResult = 0;
+
+}
+
+// 设置空白行的默认值
+void NageDlqServerDlg::设置空白行默认值(int 行索引)
+{
+	// 设置默认状态
+	端口转发列表控件.SetItemText(行索引, 0, _T("已停止"));
+
+	// 设置默认IP和端口
+	端口转发列表控件.SetItemText(行索引, 2, _T("127.0.0.1"));
+	端口转发列表控件.SetItemText(行索引, 3, _T("9896"));
+	端口转发列表控件.SetItemText(行索引, 4, _T("192.168.100.1"));
+	端口转发列表控件.SetItemText(行索引, 5, _T("9896"));
+	端口转发列表控件.SetItemText(行索引, 6, _T("0"));
 }
 
 // 单击处理 - 防止误操作
@@ -2335,10 +2377,35 @@ void NageDlqServerDlg::刷新端口转发列表()
 		端口转发列表控件.SetItemText(索引, 6, 文本);
 	}
 
+	// 始终添加一个空白行用于新增
+	添加空白行();
+
 	// 启用重绘
 	端口转发列表控件.SetRedraw(TRUE);
 	端口转发列表控件.Invalidate();
 	端口转发列表控件.UpdateWindow();
+}
+
+// 添加空白行用于新增规则
+void NageDlqServerDlg::添加空白行()
+{
+	// 获取当前行数
+	int 当前行数 = 端口转发列表控件.GetItemCount();
+
+	// 插入空白行
+	int 空白行索引 = 端口转发列表控件.InsertItem(当前行数, _T(""));
+
+	// 设置空白行的序号
+	CString 序号文本;
+	序号文本.Format(_T("%d"), 当前行数 + 1);
+	端口转发列表控件.SetItemText(空白行索引, 1, 序号文本);
+
+	// 其他列留空
+	端口转发列表控件.SetItemText(空白行索引, 2, _T(""));
+	端口转发列表控件.SetItemText(空白行索引, 3, _T(""));
+	端口转发列表控件.SetItemText(空白行索引, 4, _T(""));
+	端口转发列表控件.SetItemText(空白行索引, 5, _T(""));
+	端口转发列表控件.SetItemText(空白行索引, 6, _T(""));
 }
 
 // 安全的端口转发启动
@@ -2596,6 +2663,7 @@ void NageDlqServerDlg::更新规则数据(int 行, int 列, const CString& 新�
 		auto 规则列表 = 端口转发管理器.获取规则列表();
 		BOOL 是现有规则 = (行 < (int)规则列表.size());
 
+
 		if (是现有规则 && 行 >= 0)
 		{
 			// 更新现有规则
@@ -2699,4 +2767,319 @@ void NageDlqServerDlg::处理新增规则(int 行)
 		添加信息显示(_T("新规则添加失败"));
 		端口转发列表控件.DeleteItem(行);
 	}
+}
+
+// 右键菜单功能
+void NageDlqServerDlg::On右键菜单(NMHDR* pNMHDR, LRESULT* pResult)
+{
+	LPNMITEMACTIVATE pNMItemActivate = reinterpret_cast<LPNMITEMACTIVATE>(pNMHDR);
+
+	// 检查是否点击在有效项上
+	if (pNMItemActivate->iItem >= 0)
+	{
+		// 结束任何正在进行的编辑
+		结束编辑单元格(TRUE);
+
+		// 创建右键菜单
+		if (右键菜单.GetSafeHmenu())
+			右键菜单.DestroyMenu();
+
+		右键菜单.CreatePopupMenu();
+		右键菜单.AppendMenu(MF_STRING, ID_MENU_DELETE_RULE, _T("删除规则"));
+
+		// 获取鼠标位置并显示菜单
+		CPoint 鼠标位置;
+		GetCursorPos(&鼠标位置);
+
+		// 设置当前选中项
+		端口转发列表控件.SetItemState(pNMItemActivate->iItem, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+		端口转发列表控件.SetSelectionMark(pNMItemActivate->iItem);
+
+		// 显示菜单
+		右键菜单.TrackPopupMenu(TPM_LEFTALIGN | TPM_RIGHTBUTTON, 鼠标位置.x, 鼠标位置.y, this);
+	}
+
+	*pResult = 0;
+}
+
+// 删除规则功能
+void NageDlqServerDlg::On删除规则()
+{
+	// 获取当前选中项
+	int 选中项 = 端口转发列表控件.GetSelectionMark();
+
+	if (选中项 < 0)
+	{
+		// 如果没有选中项，尝试获取第一个选中项
+		POSITION 位置 = 端口转发列表控件.GetFirstSelectedItemPosition();
+		if (位置 == NULL)
+		{
+			AfxMessageBox(_T("请先选择要删除的规则"));
+			return;
+		}
+		选中项 = 端口转发列表控件.GetNextSelectedItem(位置);
+	}
+
+	if (选中项 >= 0)
+	{
+		// 获取规则序号
+		CString 序号文本 = 端口转发列表控件.GetItemText(选中项, 1);
+		int 规则序号 = _ttoi(序号文本);
+
+		// 获取规则详情用于确认对话框
+		CString 输入IP = 端口转发列表控件.GetItemText(选中项, 2);
+		CString 输入端口 = 端口转发列表控件.GetItemText(选中项, 3);
+		CString 输出IP = 端口转发列表控件.GetItemText(选中项, 4);
+		CString 输出端口 = 端口转发列表控件.GetItemText(选中项, 5);
+
+		CString 确认信息;
+		确认信息.Format(_T("确定要删除以下规则吗？\n\n规则 %d: %s:%s → %s:%s"),
+			规则序号, 输入IP, 输入端口, 输出IP, 输出端口);
+
+		if (AfxMessageBox(确认信息, MB_YESNO | MB_ICONQUESTION) == IDYES)
+		{
+			// 删除规则
+			if (端口转发管理器.删除转发规则(规则序号))
+			{
+				// 保存配置
+				保存端口转发配置();
+
+				// 刷新显示
+				刷新端口转发列表();
+
+				CString 成功信息;
+				成功信息.Format(_T("规则 %d 删除成功"), 规则序号);
+				添加信息显示(成功信息);
+
+				AfxMessageBox(_T("规则删除成功"), MB_OK | MB_ICONINFORMATION);
+			}
+			else
+			{
+				AfxMessageBox(_T("规则删除失败"), MB_OK | MB_ICONERROR);
+			}
+		}
+	}
+	else
+	{
+		AfxMessageBox(_T("请先选择要删除的规则"));
+	}
+}
+
+// 初始化日志文件
+BOOL NageDlqServerDlg::初始化日志文件()
+{
+	// 创建日志目录
+	CString 日志目录 = _T(".\\logs\\");
+	if (!PathFileExists(日志目录))
+	{
+		if (!CreateDirectory(日志目录, NULL))
+		{
+			TRACE(_T("创建日志目录失败\n"));
+			return FALSE;
+		}
+	}
+
+	// 检查并修复现有日志文件的编码
+	CString 今日日志文件 = 生成日志文件名();
+	if (PathFileExists(今日日志文件))
+	{
+		修复日志文件编码(今日日志文件);
+	}
+
+	return 创建日志文件();
+}
+
+// 创建日志文件  使用UTF-8编码
+BOOL NageDlqServerDlg::创建日志文件()
+{
+	// 关闭已打开的文件
+	if (日志文件已打开)
+	{
+		关闭日志文件();
+	}
+
+	// 生成新的日志文件名
+	当前日志文件名 = 生成日志文件名();
+
+	try
+	{
+		// 尝试打开日志文件
+		CFileException 文件异常;
+		if (日志文件.Open(当前日志文件名,
+			CFile::modeCreate | CFile::modeNoTruncate | CFile::modeWrite | CFile::shareDenyNone,
+			&文件异常))
+		{
+			// 移动到文件末尾
+			日志文件.SeekToEnd();
+
+			// 检查文件是否为空（新文件）
+			if (日志文件.GetLength() == 0)
+			{
+				// 写入UTF-8 BOM头
+				BYTE utf8BOM[] = { 0xEF, 0xBB, 0xBF };
+				日志文件.Write(utf8BOM, sizeof(utf8BOM));
+
+				CString 文件头;
+				文件头.Format(_T("=== Nage服务器日志 ===\r\n")
+					_T("启动时间: %s\r\n")
+					_T("==========================================\r\n\r\n"),
+					CTime::GetCurrentTime().Format(_T("%Y-%m-%d %H:%M:%S")));
+
+				// 使用安全的UTF-8转换
+				int 所需长度 = WideCharToMultiByte(CP_UTF8, 0, 文件头, -1, NULL, 0, NULL, NULL);
+				if (所需长度 > 0)
+				{
+					CStringA utf8文件头;
+					char* 缓冲区 = utf8文件头.GetBuffer(所需长度);
+					WideCharToMultiByte(CP_UTF8, 0, 文件头, -1, 缓冲区, 所需长度, NULL, NULL);
+					utf8文件头.ReleaseBuffer();
+
+					日志文件.Write(utf8文件头, utf8文件头.GetLength());
+					日志文件.Flush();
+				}
+			}
+
+			日志文件已打开 = TRUE;
+			return TRUE;
+		}
+		else
+		{
+			TRACE(_T("无法创建日志文件: %s, 错误代码: %d\n"),
+				当前日志文件名, 文件异常.m_cause);
+			return FALSE;
+		}
+	}
+	catch (...)
+	{
+		TRACE(_T("创建日志文件时发生异常\n"));
+		return FALSE;
+	}
+}
+
+// 关闭日志文件
+void NageDlqServerDlg::关闭日志文件()
+{
+	if (日志文件已打开 && 日志文件.m_hFile != CFile::hFileNull)
+	{
+		try
+		{
+			CString 结束信息 = _T("\r\n=== 会话结束 ===\r\n\r\n");
+			CT2A utf8结束信息(结束信息, CP_UTF8);
+			日志文件.Write(utf8结束信息, strlen(utf8结束信息));
+			日志文件.Flush();
+			日志文件.Close();
+		}
+		catch (...)
+		{
+			// 忽略关闭时的异常
+			TRACE(_T("关闭日志文件时发生异常\n"));
+		}
+		日志文件已打开 = FALSE;
+	}
+}
+
+// 生成日志文件名
+CString NageDlqServerDlg::生成日志文件名()
+{
+	CString 日志文件名;
+	日志文件名.Format(_T(".\\logs\\server_%s.log"),
+		CTime::GetCurrentTime().Format(_T("%Y%m%d")));
+	return 日志文件名;
+}
+
+// 写入日志文件 - 使用UTF-8编码
+void NageDlqServerDlg::写入日志文件(const CString& 信息)
+{
+	// 检查是否需要创建新的日志文件（按日期）
+	CString 新日志文件名 = 生成日志文件名();
+	if (新日志文件名 != 当前日志文件名)
+	{
+		// 日期已变化，创建新的日志文件
+		创建日志文件();
+	}
+
+	// 确保日志文件已打开且有效
+	if (!日志文件已打开 || 日志文件.m_hFile == CFile::hFileNull)
+	{
+		// 尝试重新打开
+		if (!创建日志文件())
+		{
+			TRACE(_T("无法打开日志文件进行写入: %s\n"), 信息);
+			return;
+		}
+	}
+
+	try
+	{
+		// 构建带时间戳的完整信息
+		CString 时间戳信息 = CTime::GetCurrentTime().Format(_T("[%Y-%m-%d %H:%M:%S] ")) + 信息 + _T("\r\n");
+
+		// 使用安全的UTF-8转换方法
+		int 所需长度 = WideCharToMultiByte(CP_UTF8, 0, 时间戳信息, -1, NULL, 0, NULL, NULL);
+		if (所需长度 > 0)
+		{
+			CStringA utf8信息;
+			char* 缓冲区 = utf8信息.GetBuffer(所需长度);
+			WideCharToMultiByte(CP_UTF8, 0, 时间戳信息, -1, 缓冲区, 所需长度, NULL, NULL);
+			utf8信息.ReleaseBuffer();
+
+			// 写入文件
+			日志文件.Write(utf8信息, utf8信息.GetLength());
+			日志文件.Flush();
+		}
+	}
+	catch (CFileException* e)
+	{
+		TRACE(_T("日志写入失败，错误代码: %d\n"), e->m_cause);
+		e->Delete();
+		日志文件已打开 = FALSE;
+	}
+	catch (...)
+	{
+		TRACE(_T("日志写入发生未知异常\n"));
+		日志文件已打开 = FALSE;
+	}
+}
+
+// 检测文件编码并修复
+BOOL NageDlqServerDlg::修复日志文件编码(const CString& 文件名)
+{
+	try
+	{
+		CFile 文件;
+		if (文件.Open(文件名, CFile::modeRead))
+		{
+			BYTE 头信息[3];
+			ULONGLONG 文件大小 = 文件.GetLength();
+
+			if (文件大小 >= 3)
+			{
+				文件.Read(头信息, 3);
+
+				// 检查是否是UTF-8 BOM
+				if (头信息[0] == 0xEF && 头信息[1] == 0xBB && 头信息[2] == 0xBF)
+				{
+					文件.Close();
+					return TRUE; // 已经是UTF-8
+				}
+			}
+			文件.Close();
+
+			// 重新创建文件并添加UTF-8 BOM
+			CStdioFile 新文件;
+			if (新文件.Open(文件名, CFile::modeCreate | CFile::modeWrite))
+			{
+				BYTE utf8BOM[] = { 0xEF, 0xBB, 0xBF };
+				新文件.Write(utf8BOM, sizeof(utf8BOM));
+				新文件.Close();
+				return TRUE;
+			}
+		}
+	}
+	catch (...)
+	{
+		TRACE(_T("修复日志文件编码失败: %s\n"), 文件名);
+	}
+
+	return FALSE;
 }
