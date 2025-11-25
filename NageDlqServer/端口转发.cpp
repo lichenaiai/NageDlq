@@ -329,23 +329,62 @@ BOOL 端口转发管理类::删除转发规则(int 规则序号)
 {
     std::lock_guard<std::mutex> 锁(规则列表锁);
 
+    TRACE(_T("=== 删除转发规则开始 === 序号: %d\n"), 规则序号);
+
     for (auto it = 转发规则列表.begin(); it != 转发规则列表.end(); ++it)
     {
         if ((*it)->序号 == 规则序号)
         {
+            TRACE(_T("找到要删除的规则: %s:%d -> %s:%d\n"),
+                (*it)->输入IP, (*it)->输入端口, (*it)->输出IP, (*it)->输出端口);
+
             // 如果规则正在运行，先停止
             if ((*it)->运行中)
             {
-                停止转发规则(规则序号);
+                TRACE(_T("规则正在运行，先停止规则\n"));
+
+                // 设置停止标志
+                (*it)->运行中 = false;
+
+                // 关闭监听套接字
+                if ((*it)->监听套接字 != INVALID_SOCKET)
+                {
+                    closesocket((*it)->监听套接字);
+                    (*it)->监听套接字 = INVALID_SOCKET;
+                }
+
+                // 等待线程结束
+                if ((*it)->转发线程 && (*it)->转发线程->joinable())
+                {
+                    (*it)->转发线程->join();
+                }
+
+                // 释放线程对象
+                if ((*it)->转发线程)
+                {
+                    delete (*it)->转发线程;
+                    (*it)->转发线程 = nullptr;
+                }
             }
 
+            // 删除规则对象
             delete* it;
             转发规则列表.erase(it);
 
-            TRACE(_T("删除转发规则: %d\n"), 规则序号);
+            TRACE(_T("规则删除成功\n"));
+
+            // 重新编号剩余的规则
+            for (size_t i = 0; i < 转发规则列表.size(); i++)
+            {
+                转发规则列表[i]->序号 = static_cast<int>(i) + 1;
+            }
+
+            TRACE(_T("规则重新编号完成，当前规则数量: %d\n"), 转发规则列表.size());
             return TRUE;
         }
     }
+
+    TRACE(_T("未找到要删除的规则: %d\n"), 规则序号);
     return FALSE;
 }
 

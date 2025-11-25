@@ -54,8 +54,7 @@ public:
 	afx_msg void OnBnClickedButtonBwlist();		//黑白名单按钮
 
 private:
-	// 控件变量 - 使用中文
-	// 控件变量 - 使用中文
+	// 控件变量
 	CButton 启动服务器按钮;
 	CButton 停止服务器按钮;
 	CButton 推送登录器更新按钮;
@@ -74,6 +73,18 @@ private:
 	// 客户端连接管理
 	std::map<SOCKET, CString> 客户端连接列表;
 	CRITICAL_SECTION 客户端列表锁;
+
+	// 日志文件相关
+	CStdioFile 日志文件;
+	CString 当前日志文件名;
+	BOOL 日志文件已打开;
+
+	// 日志文件方法
+	BOOL 初始化日志文件();
+	BOOL 创建日志文件();
+	void 关闭日志文件();
+	CString 生成日志文件名();
+	void 写入日志文件(const CString& 信息);
 
 	// 数据库配置 - 使用ODBC连接SQL Server
 	CString 数据库用户名;
@@ -99,10 +110,12 @@ private:
 	};
 	std::vector<Hook功能结构> Hook功能列表;
 
+	// 端口转发
 	int 当前编辑行 = -1;
 	int 当前编辑列 = -1;
 	CEdit 编辑控件;
 	BOOL 正在编辑 = FALSE;
+	CMenu 右键菜单;
 
 public:
 	// 线程函数
@@ -184,6 +197,9 @@ public:
 	void 更新规则数据(int 行, int 列, const CString& 新值);
 	void 添加新规则行();
 	void 处理新增规则(int 行);
+	void 添加空白行();
+	void 设置空白行默认值(int 行索引);
+	BOOL 修复日志文件编码(const CString& 文件名);
 
 	// 消息处理函数
 	afx_msg void On启动转发按钮点击();
@@ -194,4 +210,6 @@ public:
 	afx_msg	void On编辑框失去焦点();
 	//afx_msg void On编辑框回车();
 	afx_msg	void On编辑框内容改变();
+	afx_msg void On右键菜单(NMHDR* pNMHDR, LRESULT* pResult);
+	afx_msg void On删除规则();
 };
