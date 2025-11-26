@@ -39,6 +39,7 @@ BEGIN_MESSAGE_MAP(NageDlqDlg, CDialogEx)
 	ON_WM_QUERYDRAGICON()
 	ON_NOTIFY(TCN_SELCHANGE, IDC_TAB_MAIN, &NageDlqDlg::OnTcnSelchangeTabMain)
 	ON_MESSAGE(WM_USER + 100, &NageDlqDlg::OnNetworkMessage)
+	ON_WM_TIMER()
 END_MESSAGE_MAP()
 IMPLEMENT_DYNAMIC(NageDlqDlg, CDialogEx)
 
@@ -172,8 +173,8 @@ void NageDlqDlg::OnTcnSelchangeTabMain(NMHDR* pNMHDR, LRESULT* pResult)
 	{
 	case 0: 登录页面.ShowWindow(SW_SHOW); break;
 	case 1: 注册页面.ShowWindow(SW_SHOW); break;
-	case 2: 转生页面.ShowWindow(SW_SHOW); break;
-	case 3: 加点页面.ShowWindow(SW_SHOW); break;
+	case 2: 转生页面.ShowWindow(SW_SHOW); 转生页面.刷新角色列表(); break;	// 切换到转生页面时刷新角色列表
+	case 3: 加点页面.ShowWindow(SW_SHOW); 加点页面.刷新角色列表(); break;	// 切换到加点页面时刷新角色列表
 	case 4: 排行榜页面.ShowWindow(SW_SHOW); break;
 	case 5: 注入页面.ShowWindow(SW_SHOW); break;
 	}
@@ -346,11 +347,90 @@ void NageDlqDlg::处理网络消息(CString 消息)
 		TRACE(_T("检测到登录响应消息\n"));
 		// 处理登录响应
 		登录页面.处理登录响应(消息);
+
+		// 登录成功后刷新角色列表
+		if (消息.Find(_T("LOGIN_SUCCESS")) == 0)
+		{
+			转生页面.刷新角色列表();
+			加点页面.刷新角色列表();
+		}
 	}
 	else if (消息 == _T("VERSION_OUTDATED"))
 	{
 		TRACE(_T("检测到版本过时消息\n"));
 		AfxMessageBox(_T("客户端版本过时，请更新到最新版本！"), MB_ICONWARNING);
+	}
+	// 添加角色列表响应处理
+	else if (消息.Find(_T("ROLES_LIST")) == 0)
+	{
+		TRACE(_T("检测到角色列表响应消息\n"));
+
+		// 根据当前激活的页面分发消息
+		int 当前选中页 = 分页控件.GetCurSel();
+		switch (当前选中页)
+		{
+		case 2: // 转生页面
+			转生页面.处理角色列表响应(消息);
+			break;
+		case 3: // 加点页面
+			加点页面.处理角色列表响应(消息);
+			break;
+		default:
+			// 如果两个页面都不活跃，暂时不处理
+			break;
+		}
+	}
+	// 添加角色在线状态响应处理
+	else if (消息.Find(_T("CHAR_ONLINE")) == 0)
+	{
+		TRACE(_T("检测到角色在线状态响应消息\n"));
+
+		// 根据当前激活的页面分发消息
+		int 当前选中页 = 分页控件.GetCurSel();
+		switch (当前选中页)
+		{
+		case 2: // 转生页面
+			转生页面.处理角色在线状态响应(消息);
+			break;
+		case 3: // 加点页面
+			加点页面.处理角色在线状态响应(消息);
+			break;
+		default:
+			// 如果两个页面都不活跃，暂时不处理
+			break;
+		}
+	}
+	// 添加转生相关消息处理
+	else if (消息.Find(_T("REBORN_")) == 0)
+	{
+		TRACE(_T("检测到转生响应消息\n"));
+		转生页面.处理转生响应(消息);
+	}
+	// 添加加点相关消息处理
+	else if (消息.Find(_T("ADD_POINTS_")) == 0)
+	{
+		TRACE(_T("检测到加点响应消息\n"));
+		加点页面.处理加点响应(消息);
+	}
+	// 添加角色信息查询响应处理
+	else if (消息.Find(_T("CHAR_INFO")) == 0)
+	{
+		TRACE(_T("检测到角色信息响应消息\n"));
+
+		// 根据当前激活的页面分发消息
+		int 当前选中页 = 分页控件.GetCurSel();
+		switch (当前选中页)
+		{
+		case 2: // 转生页面
+			转生页面.处理角色信息响应(消息);
+			break;
+		case 3: // 加点页面
+			加点页面.处理角色信息响应(消息);
+			break;
+		default:
+			// 如果两个页面都不活跃，暂时不处理
+			break;
+		}
 	}
 	else
 	{

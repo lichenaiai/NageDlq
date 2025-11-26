@@ -160,6 +160,8 @@ public:
 	BOOL 检测账号是否在线(const CString& 用户名);
 	void 获取职业初始属性(int 职业代码, int 累计等级, int& Lv, int& Exp, int& HP, int& SP, int& STM,
 		int& Str, int& Dex, int& Esp, int& Spt, int& cmap, int& lvpoint, int& relvC);
+	BOOL 检测角色是否在线(const CString& 角色名);
+	void 获取用户角色列表(const CString& 用户名, CStringArray& 角色列表);
 
 	// IP黑白名单相关
 	std::vector<CString> 黑名单列表;
