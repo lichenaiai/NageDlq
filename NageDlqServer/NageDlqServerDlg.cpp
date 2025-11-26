@@ -814,6 +814,57 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				}
 			}
 		}
+		//角色列表处理
+		else if (客户端请求.Find(_T("GET_ROLES:")) == 0)
+		{
+			// 处理获取角色列表请求 - 格式: GET_ROLES:username
+			CString 用户名 = 客户端请求.Mid(10); // 去掉"GET_ROLES:"
+
+			TRACE(_T("获取角色列表请求，用户名: %s\n"), 用户名);
+
+			// 获取角色列表
+			CStringArray 角色列表;
+			对话框指针->获取用户角色列表(用户名, 角色列表);
+
+			// 构建响应
+			CString 响应数据 = _T("ROLES_LIST:");
+			for (int i = 0; i < 角色列表.GetSize(); i++)
+			{
+				if (i > 0)
+					响应数据 += _T(";");
+				响应数据 += 角色列表[i];
+			}
+
+			TRACE(_T("发送角色列表: %s\n"), 响应数据);
+			对话框指针->发送到客户端(客户端套接字, 响应数据);
+			对话框指针->添加信息显示(客户端IP + _T(" 请求角色列表 - 用户名: ") + 用户名);
+			}
+		else if (客户端请求.Find(_T("CHECK_CHAR_ONLINE:")) == 0)
+		{
+			// 处理检查角色在线状态请求 - 格式: CHECK_CHAR_ONLINE:charname
+			CString 角色名 = 客户端请求.Mid(18); // 去掉"CHECK_CHAR_ONLINE:"
+
+			TRACE(_T("检查角色在线状态，角色名: %s\n"), 角色名);
+
+			// 检查角色在线状态
+			BOOL 在线状态 = 对话框指针->检测角色是否在线(角色名);
+
+			// 构建响应
+			CString 响应数据;
+			if (在线状态)
+			{
+				响应数据 = _T("CHAR_ONLINE:1");
+				TRACE(_T("角色在线: %s\n"), 角色名);
+			}
+			else
+			{
+				响应数据 = _T("CHAR_ONLINE:0");
+				TRACE(_T("角色离线: %s\n"), 角色名);
+			}
+
+			对话框指针->发送到客户端(客户端套接字, 响应数据);
+			对话框指针->添加信息显示(客户端IP + _T(" 检查角色在线状态 - 角色: ") + 角色名 + (在线状态 ? _T(" 在线") : _T(" 离线")));
+			}
 		else
 		{
 			TRACE(_T("=== weizhiqingqiu ===\n"));
@@ -1545,9 +1596,9 @@ void NageDlqServerDlg::获取职业初始属性(int 职业代码, int 累计等�
 BOOL NageDlqServerDlg::处理角色转生(const CString& 用户名, const CString& 角色名)
 {
 	// 检测账号是否在线
-	if (检测账号是否在线(用户名))
+	if (检测角色是否在线(角色名))
 	{
-		添加信息显示(_T("转生失败: 账号在线 - ") + 用户名);
+		添加信息显示(_T("转生失败: 角色在线 - ") + 角色名);
 		return FALSE;
 	}
 
@@ -1668,9 +1719,9 @@ BOOL NageDlqServerDlg::处理角色转生(const CString& 用户名, const CStrin
 BOOL NageDlqServerDlg::处理角色加点(const CString& 用户名, const CString& 角色名, int 力量, int 敏捷, int 意念, int 灵力)
 {
 	// 检测账号是否在线
-	if (检测账号是否在线(用户名))
+	if (检测角色是否在线(角色名))
 	{
-		添加信息显示(_T("加点失败: 账号在线 - ") + 用户名);
+		添加信息显示(_T("加点失败: 角色在线 - ") + 角色名);
 		return FALSE;
 	}
 
@@ -3082,4 +3133,72 @@ BOOL NageDlqServerDlg::修复日志文件编码(const CString& 文件名)
 	}
 
 	return FALSE;
+}
+
+// 检测角色是否在线
+BOOL NageDlqServerDlg::检测角色是否在线(const CString& 角色名)
+{
+	SQLRETURN retcode;
+	CString 查询语句;
+
+	// 查询角色的在线状态 - Status字段表示角色是否在线
+	查询语句.Format(_T("SELECT Status FROM CharInfo WHERE charname = '%s'"), 角色名);
+
+	TRACE(_T("检测角色在线状态: %s\n"), 查询语句);
+
+	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
+	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO)
+	{
+		TRACE(_T("查询角色在线状态失败\n"));
+		return FALSE; // 查询失败，默认认为在线
+	}
+
+	retcode = SQLFetch(SQL语句句柄);
+	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+	{
+		SQLINTEGER 在线状态;
+		SQLLEN 状态指示器;
+
+		SQLGetData(SQL语句句柄, 1, SQL_C_LONG, &在线状态, sizeof(在线状态), &状态指示器);
+		SQLCloseCursor(SQL语句句柄);
+
+		TRACE(_T("角色 %s 在线状态: %d\n"), 角色名, 在线状态);
+
+		// Status字段：1表示在线，0表示离线
+		return (在线状态 == 1);
+	}
+	else
+	{
+		SQLCloseCursor(SQL语句句柄);
+		TRACE(_T("未找到角色: %s\n"), 角色名);
+		return FALSE; // 角色不存在，默认认为不在线
+	}
+}
+
+// 添加获取角色列表函数
+void NageDlqServerDlg::获取用户角色列表(const CString& 用户名, CStringArray& 角色列表)
+{
+	角色列表.RemoveAll(); // 清空数组
+	SQLRETURN retcode;
+
+	// 根据用户名获取角色列表
+	CString 查询语句;
+	查询语句.Format(_T("SELECT charname FROM CharInfo WHERE account = '%s'"), 用户名);
+
+	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
+	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+	{
+		while (SQLFetch(SQL语句句柄) == SQL_SUCCESS)
+		{
+			SQLWCHAR 角色名[256];
+			SQLLEN 角色名长度;
+
+			SQLGetData(SQL语句句柄, 1, SQL_C_WCHAR, 角色名, sizeof(角色名), &角色名长度);
+			if (角色名长度 != SQL_NULL_DATA)
+			{
+				角色列表.Add(CString(角色名));
+			}
+		}
+		SQLCloseCursor(SQL语句句柄);
+	}
 }
