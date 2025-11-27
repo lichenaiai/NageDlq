@@ -175,7 +175,7 @@ void NageDlqDlg::OnTcnSelchangeTabMain(NMHDR* pNMHDR, LRESULT* pResult)
 	case 1: 注册页面.ShowWindow(SW_SHOW); break;
 	case 2: 转生页面.ShowWindow(SW_SHOW); 转生页面.刷新角色列表(); break;	// 切换到转生页面时刷新角色列表
 	case 3: 加点页面.ShowWindow(SW_SHOW); 加点页面.刷新角色列表(); break;	// 切换到加点页面时刷新角色列表
-	case 4: 排行榜页面.ShowWindow(SW_SHOW); break;
+	case 4: 排行榜页面.ShowWindow(SW_SHOW); 排行榜页面.刷新排行榜数据(); break;	// 切换到排行榜页面时刷新数据
 	case 5: 注入页面.ShowWindow(SW_SHOW); break;
 	}
 
@@ -380,20 +380,20 @@ void NageDlqDlg::处理网络消息(CString 消息)
 			break;
 		}
 	}
-	// 添加角色在线状态响应处理
-	else if (消息.Find(_T("CHAR_ONLINE")) == 0)
+	// 修改为账号在线状态响应处理
+	else if (消息.Find(_T("ACCOUNT_ONLINE")) == 0)
 	{
-		TRACE(_T("检测到角色在线状态响应消息\n"));
+		TRACE(_T("检测到账号在线状态响应消息\n"));
 
 		// 根据当前激活的页面分发消息
 		int 当前选中页 = 分页控件.GetCurSel();
 		switch (当前选中页)
 		{
 		case 2: // 转生页面
-			转生页面.处理角色在线状态响应(消息);
+			转生页面.处理账号在线状态响应(消息);
 			break;
 		case 3: // 加点页面
-			加点页面.处理角色在线状态响应(消息);
+			加点页面.处理账号在线状态响应(消息);
 			break;
 		default:
 			// 如果两个页面都不活跃，暂时不处理
@@ -432,6 +432,17 @@ void NageDlqDlg::处理网络消息(CString 消息)
 			break;
 		}
 	}
+	// 添加排行榜数据响应处理
+	else if (消息.Find(_T("RANKING_DATA")) == 0)
+	{
+		TRACE(_T("检测到排行榜数据响应消息\n"));
+		排行榜页面.处理排行榜数据响应(消息);
+		}
+	else if (消息.Find(_T("RANKING_FAILED")) == 0)
+	{
+		TRACE(_T("检测到排行榜数据获取失败消息\n"));
+		排行榜页面.处理排行榜数据响应(消息);
+		}
 	else
 	{
 		TRACE(_T("未知消息类型: %s\n"), 消息);

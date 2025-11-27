@@ -56,7 +56,7 @@
 #define IDC_STATIC_S_PI                 1041
 #define IDC_STATIC_RI_LV                1042
 #define IDC_RANKING_TITLE               1043
-#define IDC_LIST1                       1045
+#define IDC_BUTTON_REFRESH				1044
 #define IDC_RANKING_LIST                1045
 
 // Next default values for new objects

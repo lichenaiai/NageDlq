@@ -203,7 +203,7 @@ void 加点页面类::OnBnClickedButtonAddPoints()
     }
 
     // 先检查角色是否在线
-    检查角色在线状态(角色名, 力量, 敏捷, 意念, 灵力);
+    检查账号在线状态(角色名, 力量, 敏捷, 意念, 灵力);
 }
 
 void 加点页面类::OnEnChangeEditS_L()
@@ -595,7 +595,7 @@ void 加点页面类::处理角色列表响应(const CString& 响应数据)
     TRACE(_T("=== 加点页面处理角色列表响应结束 ===\n"));
 }
 
-void 加点页面类::检查角色在线状态(const CString& 角色名, int 力量, int 敏捷, int 意念, int 灵力)
+void 加点页面类::检查账号在线状态(const CString& 角色名, int 力量, int 敏捷, int 意念, int 灵力)
 {
     // 通过主对话框发送检查请求
     CWnd* 主窗口 = AfxGetMainWnd();
@@ -628,39 +628,39 @@ void 加点页面类::检查角色在线状态(const CString& 角色名, int 力
     }
 }
 
-void 加点页面类::处理角色在线状态响应(const CString& 响应数据)
+void 加点页面类::处理账号在线状态响应(const CString& 响应数据)
 {
-    TRACE(_T("=== 加点页面处理角色在线状态响应开始 ===\n"));
+    TRACE(_T("=== 加点页面处理账号在线状态响应开始 ===\n"));
     TRACE(_T("响应数据: %s\n"), 响应数据);
 
     // 停止超时定时器
     KillTimer(1);
 
-    if (响应数据.Find(_T("CHAR_ONLINE:")) == 0)
+    if (响应数据.Find(_T("ACCOUNT_ONLINE:")) == 0)
     {
-        CString 在线状态数据 = 响应数据.Mid(12); // 去掉"CHAR_ONLINE:"
+        CString 在线状态数据 = 响应数据.Mid(15); // 去掉"ACCOUNT_ONLINE:"
         int 在线状态 = _ttoi(在线状态数据);
 
         if (在线状态 == 1)
         {
-            // 角色在线，不允许加点
-            MessageBox(_T("该角色当前在线，无法进行加点操作"), _T("提示"), MB_ICONWARNING);
-            角色标签.SetWindowText(_T("角色在线，无法加点"));
+            // 账号在线，不允许加点
+            MessageBox(_T("账号当前在线，无法进行加点操作"), _T("提示"), MB_ICONWARNING);
+            角色标签.SetWindowText(_T("账号在线，无法加点"));
         }
         else
         {
-            // 角色离线，继续加点流程
+            // 账号离线，继续加点流程
             确认加点操作(待处理角色名, 待处理力量, 待处理敏捷, 待处理意念, 待处理灵力);
         }
     }
     else
     {
-        // 未收到正确响应，默认认为角色在线
-        MessageBox(_T("无法确定角色状态，请确保角色已离线"), _T("提示"), MB_ICONWARNING);
+        // 未收到正确响应，默认认为账号在线
+        MessageBox(_T("无法确定账号状态，请确保账号已离线"), _T("提示"), MB_ICONWARNING);
         角色标签.SetWindowText(_T("状态检查失败"));
     }
 
-    TRACE(_T("=== 加点页面处理角色在线状态响应结束 ===\n"));
+    TRACE(_T("=== 加点页面处理账号在线状态响应结束 ===\n"));
 }
 
 void 加点页面类::确认加点操作(const CString& 角色名, int 力量, int 敏捷, int 意念, int 灵力)
