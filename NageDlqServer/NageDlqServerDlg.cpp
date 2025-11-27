@@ -839,32 +839,51 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			对话框指针->发送到客户端(客户端套接字, 响应数据);
 			对话框指针->添加信息显示(客户端IP + _T(" 请求角色列表 - 用户名: ") + 用户名);
 			}
-		else if (客户端请求.Find(_T("CHECK_CHAR_ONLINE:")) == 0)
+		else if (客户端请求.Find(_T("CHECK_ACCOUNT_ONLINE:")) == 0)
 		{
-			// 处理检查角色在线状态请求 - 格式: CHECK_CHAR_ONLINE:charname
-			CString 角色名 = 客户端请求.Mid(18); // 去掉"CHECK_CHAR_ONLINE:"
+			// 处理检查账号在线状态请求 - 格式: CHECK_ACCOUNT_ONLINE:username
+			CString 用户名 = 客户端请求.Mid(20); // 去掉"CHECK_ACCOUNT_ONLINE:"
 
-			TRACE(_T("检查角色在线状态，角色名: %s\n"), 角色名);
+			TRACE(_T("检查账号在线状态，用户名: %s\n"), 用户名);
 
-			// 检查角色在线状态
-			BOOL 在线状态 = 对话框指针->检测角色是否在线(角色名);
+			// 检查账号在线状态
+			BOOL 在线状态 = 对话框指针->检测账号是否在线(用户名);
 
 			// 构建响应
 			CString 响应数据;
 			if (在线状态)
 			{
-				响应数据 = _T("CHAR_ONLINE:1");
-				TRACE(_T("角色在线: %s\n"), 角色名);
+				响应数据 = _T("ACCOUNT_ONLINE:1");
+				TRACE(_T("账号在线: %s\n"), 用户名);
 			}
 			else
 			{
-				响应数据 = _T("CHAR_ONLINE:0");
-				TRACE(_T("角色离线: %s\n"), 角色名);
+				响应数据 = _T("ACCOUNT_ONLINE:0");
+				TRACE(_T("账号离线: %s\n"), 用户名);
 			}
 
 			对话框指针->发送到客户端(客户端套接字, 响应数据);
-			对话框指针->添加信息显示(客户端IP + _T(" 检查角色在线状态 - 角色: ") + 角色名 + (在线状态 ? _T(" 在线") : _T(" 离线")));
-			}
+			对话框指针->添加信息显示(客户端IP + _T(" 检查账号在线状态 - 用户: ") + 用户名 + (在线状态 ? _T(" 在线") : _T(" 离线")));
+		}
+		else if (客户端请求.Find(_T("GET_RANKING:")) == 0)
+		{
+			// 处理获取排行榜请求 - 格式: GET_RANKING:数量
+			CString 数量文本 = 客户端请求.Mid(12); // 去掉"GET_RANKING:"
+			int 数量 = _ttoi(数量文本);
+			if (数量 <= 0) 数量 = 20; // 默认20个
+
+			TRACE(_T("获取排行榜请求，数量: %d\n"), 数量);
+
+			// 获取排行榜数据
+			CString 排行榜数据 = 对话框指针->获取排行榜数据(数量);
+
+			// 构建响应
+			CString 响应数据 = _T("RANKING_DATA:") + 排行榜数据;
+
+			TRACE(_T("发送排行榜数据: %s\n"), 响应数据);
+			对话框指针->发送到客户端(客户端套接字, 响应数据);
+			对话框指针->添加信息显示(客户端IP + _T(" 请求排行榜数据"));
+		}
 		else
 		{
 			TRACE(_T("=== weizhiqingqiu ===\n"));
@@ -1523,7 +1542,7 @@ BOOL NageDlqServerDlg::检测账号是否在线(const CString& 用户名)
 {
 	SQLRETURN retcode;
 	CString 查询语句;
-	查询语句.Format(_T("SELECT COUNT(*) FROM Chr_Log_Info WHERE id_loginid = '%s' AND online = 1"), 用户名);
+	查询语句.Format(_T("SELECT status FROM Chr_Log_Info WHERE id_loginid = '%s'"), 用户名);
 
 	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
@@ -1531,15 +1550,18 @@ BOOL NageDlqServerDlg::检测账号是否在线(const CString& 用户名)
 		retcode = SQLFetch(SQL语句句柄);
 		if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
 		{
-			SQLINTEGER 在线数量;
-			SQLGetData(SQL语句句柄, 1, SQL_C_LONG, &在线数量, sizeof(在线数量), NULL);
+			SQLINTEGER 在线状态;
+			SQLGetData(SQL语句句柄, 1, SQL_C_LONG, &在线状态, sizeof(在线状态), NULL);
 			SQLCloseCursor(SQL语句句柄);
-			return 在线数量 > 0;
+
+			TRACE(_T("账号 %s 在线状态: %d\n"), 用户名, 在线状态);
+			return (在线状态 == 1); // 1为在线，0为离线
 		}
 		SQLCloseCursor(SQL语句句柄);
 	}
 
-	return FALSE;
+	TRACE(_T("无法获取账号 %s 的在线状态，默认认为在线\n"), 用户名);
+	return TRUE; // 如果查询失败，默认认为在线，禁止使用功能
 }
 
 // 获取职业初始属性
@@ -1596,9 +1618,9 @@ void NageDlqServerDlg::获取职业初始属性(int 职业代码, int 累计等�
 BOOL NageDlqServerDlg::处理角色转生(const CString& 用户名, const CString& 角色名)
 {
 	// 检测账号是否在线
-	if (检测角色是否在线(角色名))
+	if (检测账号是否在线(用户名))
 	{
-		添加信息显示(_T("转生失败: 角色在线 - ") + 角色名);
+		添加信息显示(_T("转生失败: 账号在线或状态检查失败 - ") + 用户名);
 		return FALSE;
 	}
 
@@ -1719,9 +1741,9 @@ BOOL NageDlqServerDlg::处理角色转生(const CString& 用户名, const CStrin
 BOOL NageDlqServerDlg::处理角色加点(const CString& 用户名, const CString& 角色名, int 力量, int 敏捷, int 意念, int 灵力)
 {
 	// 检测账号是否在线
-	if (检测角色是否在线(角色名))
+	if (检测账号是否在线(用户名))
 	{
-		添加信息显示(_T("加点失败: 角色在线 - ") + 角色名);
+		添加信息显示(_T("加点失败: 账号在线 - ") + 用户名);
 		return FALSE;
 	}
 
@@ -3135,46 +3157,6 @@ BOOL NageDlqServerDlg::修复日志文件编码(const CString& 文件名)
 	return FALSE;
 }
 
-// 检测角色是否在线
-BOOL NageDlqServerDlg::检测角色是否在线(const CString& 角色名)
-{
-	SQLRETURN retcode;
-	CString 查询语句;
-
-	// 查询角色的在线状态 - Status字段表示角色是否在线
-	查询语句.Format(_T("SELECT Status FROM CharInfo WHERE charname = '%s'"), 角色名);
-
-	TRACE(_T("检测角色在线状态: %s\n"), 查询语句);
-
-	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
-	if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO)
-	{
-		TRACE(_T("查询角色在线状态失败\n"));
-		return FALSE; // 查询失败，默认认为在线
-	}
-
-	retcode = SQLFetch(SQL语句句柄);
-	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
-	{
-		SQLINTEGER 在线状态;
-		SQLLEN 状态指示器;
-
-		SQLGetData(SQL语句句柄, 1, SQL_C_LONG, &在线状态, sizeof(在线状态), &状态指示器);
-		SQLCloseCursor(SQL语句句柄);
-
-		TRACE(_T("角色 %s 在线状态: %d\n"), 角色名, 在线状态);
-
-		// Status字段：1表示在线，0表示离线
-		return (在线状态 == 1);
-	}
-	else
-	{
-		SQLCloseCursor(SQL语句句柄);
-		TRACE(_T("未找到角色: %s\n"), 角色名);
-		return FALSE; // 角色不存在，默认认为不在线
-	}
-}
-
 // 添加获取角色列表函数
 void NageDlqServerDlg::获取用户角色列表(const CString& 用户名, CStringArray& 角色列表)
 {
@@ -3201,4 +3183,55 @@ void NageDlqServerDlg::获取用户角色列表(const CString& 用户名, CStrin
 		}
 		SQLCloseCursor(SQL语句句柄);
 	}
+}
+
+CString NageDlqServerDlg::获取排行榜数据(int 数量)
+{
+	CString 排行榜数据;
+	SQLRETURN retcode;
+
+	// 构建SQL查询语句
+	CString 查询语句;
+	查询语句.Format(_T("SELECT TOP %d charname, baseskill, recount, Lv, relvC, (Lv + relvC) AS total_level ")
+		_T("FROM CharInfo ")
+		_T("ORDER BY total_level DESC"), 数量);
+
+	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
+	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+	{
+		while (SQLFetch(SQL语句句柄) == SQL_SUCCESS)
+		{
+			SQLWCHAR 角色名[256];
+			SQLINTEGER 职业代码, 转生次数, 等级, 转生等级, 累计等级;
+			SQLLEN 角色名长度, 职业代码长度, 转生次数长度, 等级长度, 转生等级长度;
+
+			SQLGetData(SQL语句句柄, 1, SQL_C_WCHAR, 角色名, sizeof(角色名), &角色名长度);
+			SQLGetData(SQL语句句柄, 2, SQL_C_LONG, &职业代码, sizeof(职业代码), &职业代码长度);
+			SQLGetData(SQL语句句柄, 3, SQL_C_LONG, &转生次数, sizeof(转生次数), &转生次数长度);
+			SQLGetData(SQL语句句柄, 4, SQL_C_LONG, &等级, sizeof(等级), &等级长度);
+			SQLGetData(SQL语句句柄, 5, SQL_C_LONG, &转生等级, sizeof(转生等级), &转生等级长度);
+			SQLGetData(SQL语句句柄, 6, SQL_C_LONG, &累计等级, sizeof(累计等级), NULL);
+
+			if (角色名长度 != SQL_NULL_DATA)
+			{
+				// 添加分隔符（第一个数据前不加）
+				if (!排行榜数据.IsEmpty())
+					排行榜数据 += _T("|");
+
+				// 格式：角色名,职业代码,转生次数,累计等级
+				CString 角色数据;
+				角色数据.Format(_T("%s,%d,%d,%d"),
+					CString(角色名), 职业代码, 转生次数, 累计等级);
+
+				排行榜数据 += 角色数据;
+			}
+		}
+		SQLCloseCursor(SQL语句句柄);
+	}
+	else
+	{
+		TRACE(_T("获取排行榜数据失败\n"));
+	}
+
+	return 排行榜数据;
 }

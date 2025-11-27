@@ -147,8 +147,8 @@ void 转生页面类::OnBnClickedRebirthR()
         return;
     }
 
-    // 先检查角色是否在线
-    检查角色在线状态(角色名);
+    // 先检查账号是否在线
+    检查账号在线状态(角色名);
 }
 
 void 转生页面类::OnTimer(UINT_PTR nIDEvent)
@@ -166,7 +166,7 @@ void 转生页面类::OnTimer(UINT_PTR nIDEvent)
     }
     else if (nIDEvent == 2)
     {
-        // 检查角色在线状态超时
+        // 检查账号在线状态超时，认为在线
         KillTimer(2);
         MessageBox(_T("检查角色状态超时，请重试"), _T("提示"), MB_ICONWARNING);
         状态标签.SetWindowText(_T("状态检查超时"));
@@ -381,7 +381,7 @@ void 转生页面类::处理角色列表响应(const CString& 响应数据)
     TRACE(_T("=== 处理角色列表响应结束 ===\n"));
 }
 
-void 转生页面类::检查角色在线状态(const CString& 角色名)
+void 转生页面类::检查账号在线状态(const CString& 角色名)
 {
     // 通过主对话框发送检查请求
     CWnd* 主窗口 = AfxGetMainWnd();
@@ -390,13 +390,13 @@ void 转生页面类::检查角色在线状态(const CString& 角色名)
     NageDlqDlg* 主对话框 = dynamic_cast<NageDlqDlg*>(主窗口);
     if (!主对话框) return;
 
-    // 构建检查请求
+    // 构建检查请求（使用当前用户名）
     CString 检查请求;
-    检查请求.Format(_T("CHECK_CHAR_ONLINE:%s"), 角色名);
+    检查请求.Format(_T("CHECK_ACCOUNT_ONLINE:%s"), 当前用户名);
 
     if (主对话框->发送请求到服务端(检查请求))
     {
-        状态标签.SetWindowText(_T("检查角色在线状态..."));
+        状态标签.SetWindowText(_T("检查账号在线状态..."));
 
         // 设置临时变量记录当前要处理的角色名
         待处理角色名 = 角色名;
@@ -406,44 +406,44 @@ void 转生页面类::检查角色在线状态(const CString& 角色名)
     }
     else
     {
-        MessageBox(_T("检查角色在线状态失败"), _T("错误"), MB_ICONERROR);
+        MessageBox(_T("检查账号在线状态失败"), _T("错误"), MB_ICONERROR);
     }
 }
 
 // 添加处理角色在线状态响应函数
-void 转生页面类::处理角色在线状态响应(const CString& 响应数据)
+void 转生页面类::处理账号在线状态响应(const CString& 响应数据)
 {
-    TRACE(_T("=== 处理角色在线状态响应开始 ===\n"));
+    TRACE(_T("=== 处理账号在线状态响应开始 ===\n"));
     TRACE(_T("响应数据: %s\n"), 响应数据);
 
     // 停止超时定时器
     KillTimer(2);
 
-    if (响应数据.Find(_T("CHAR_ONLINE:")) == 0)
+    if (响应数据.Find(_T("ACCOUNT_ONLINE:")) == 0)
     {
-        CString 在线状态数据 = 响应数据.Mid(12); // 去掉"CHAR_ONLINE:"
+        CString 在线状态数据 = 响应数据.Mid(15); 
         int 在线状态 = _ttoi(在线状态数据);
 
         if (在线状态 == 1)
         {
-            // 角色在线，不允许转生
-            MessageBox(_T("该角色当前在线，无法进行转生操作"), _T("提示"), MB_ICONWARNING);
-            状态标签.SetWindowText(_T("角色在线，无法转生"));
+            // 账号在线，不允许转生
+            MessageBox(_T("账号当前在线，无法进行转生操作"), _T("提示"), MB_ICONWARNING);
+            状态标签.SetWindowText(_T("账号在线，无法转生"));
         }
         else
         {
-            // 角色离线，继续转生流程
+            // 账号离线，继续转生流程
             确认转生操作(待处理角色名);
         }
     }
     else
     {
-        // 未收到正确响应，默认认为角色在线
-        MessageBox(_T("无法确定角色状态，请确保角色已离线"), _T("提示"), MB_ICONWARNING);
+        // 未收到正确响应，默认认为账号在线
+        MessageBox(_T("无法确定账号状态，请确保账号已离线"), _T("提示"), MB_ICONWARNING);
         状态标签.SetWindowText(_T("状态检查失败"));
     }
 
-    TRACE(_T("=== 处理角色在线状态响应结束 ===\n"));
+    TRACE(_T("=== 处理账号在线状态响应结束 ===\n"));
 }
 
 // 添加确认转生操作函数

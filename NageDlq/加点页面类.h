@@ -59,8 +59,8 @@ public:
     void 根据职业调整输入框(int 职业代码);
     BOOL 验证加点输入(int 力量, int 敏捷, int 意念, int 灵力, int 剩余点数, int 职业代码);
     void 处理角色列表响应(const CString& 响应数据);
-    void 检查角色在线状态(const CString& 角色名, int 力量, int 敏捷, int 意念, int 灵力);
-    void 处理角色在线状态响应(const CString& 响应数据);
+    void 检查账号在线状态(const CString& 角色名, int 力量, int 敏捷, int 意念, int 灵力);
+    void 处理账号在线状态响应(const CString& 响应数据);
     void 确认加点操作(const CString& 角色名, int 力量, int 敏捷, int 意念, int 灵力);
 
 private:

@@ -174,6 +174,9 @@ public:
 
 	CButton 黑白名单按钮;
 
+	CString 获取排行榜数据(int 数量);
+
+
 public:
 	// 端口转发相关成员
 	端口转发管理类 端口转发管理器;
