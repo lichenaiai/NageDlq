@@ -1,4 +1,5 @@
-﻿#include "pch.h"
+﻿// 加点页面类.cpp
+#include "pch.h"
 #include "framework.h"
 #include "NageDlq.h"
 #include "加点页面类.h"
@@ -95,12 +96,12 @@ BOOL 加点页面类::OnInitDialog()
 
     // 设置角色标签字体
     CFont 大字体;
-    大字体.CreatePointFont(180, _T("微软雅黑")); // 18号字体
+    大字体.CreatePointFont(180, _T("微软雅黑")); // 18号字体IDC_BUTTON_ADD_POINTS
     角色标签.SetFont(&大字体);
     大字体.Detach();
 
     // 设置提示标签颜色为绿色
-    提示标签.SetWindowText(_T("提示：根据职业不同，可加点的属性有所限制"));
+    提示标签.SetWindowText(_T("提示：账号需离线，否则可能造成损失"));
 
     // 初始状态
     加点按钮.EnableWindow(FALSE);
@@ -447,7 +448,7 @@ void 加点页面类::更新属性显示(int 职业代码, int 剩余点数, int
     }
 
     CString 角色信息;
-    角色信息.Format(_T("角色信息 - %s (剩余点数: %d)"), 职业名称, 剩余点数);
+    角色信息.Format(_T("批量加点"));
     角色标签.SetWindowText(角色信息);
 }
 

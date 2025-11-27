@@ -1,4 +1,5 @@
-﻿#include "pch.h"
+﻿// 转生页面类.cpp
+#include "pch.h"
 #include "framework.h"
 #include "NageDlq.h"
 #include "转生页面类.h"
@@ -65,7 +66,7 @@ BOOL 转生页面类::OnInitDialog()
     大字体.Detach();
 
     // 设置提示标签文本（颜色在OnCtlColor中设置）
-    提示标签.SetWindowText(_T("提示：角色等级达到130级方可转生，每次转生后需等待7天"));
+    提示标签.SetWindowText(_T("提示：账号需离线，否则可能造成损失"));
 
     // 初始状态
     转生按钮.EnableWindow(FALSE);

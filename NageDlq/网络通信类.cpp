@@ -27,10 +27,18 @@ IMPLEMENT_DYNAMIC(网络通信类, CAsyncSocket)
 // 连接服务端
 BOOL 网络通信类::连接服务端(const CString& 地址, UINT 端口)
 {
-    // 如果已连接，先关闭
+    // 如果已连接，直接返回成功
     if (是否已连接())
     {
-        关闭连接();
+        TRACE(_T("已经连接到服务端\n"));
+        return TRUE;
+    }
+
+    // 如果Socket已创建但未连接，先关闭
+    if (m_hSocket != INVALID_SOCKET)
+    {
+        TRACE(_T("关闭已存在的Socket\n"));
+        Close();
     }
 
     服务端地址 = 地址;
@@ -54,6 +62,7 @@ BOOL 网络通信类::连接服务端(const CString& 地址, UINT 端口)
         if (错误码 != WSAEWOULDBLOCK)
         {
             TRACE(_T("连接服务端失败，错误码: %d\n"), 错误码);
+            Close();
             return FALSE;
         }
         else
@@ -134,13 +143,6 @@ BOOL 网络通信类::是否已连接() const
 }
 
 // 设置消息回调函数
-/*
-void 网络通信类::设置消息回调函数(消息回调函数类型 回调函数, CWnd* 窗口指针)
-{
-    消息回调函数 = 回调函数;
-    回调窗口指针 = 窗口指针;
-}
-*/
 void 网络通信类::设置消息回调函数(消息回调函数类型 回调函数, NageDlqDlg* 窗口指针)
 {
     消息回调函数 = 回调函数;
@@ -157,7 +159,7 @@ void 网络通信类::OnConnect(int 错误代码)
 
         // 连接成功后立即发送连接请求
         CString 连接请求;
-        连接请求.Format(_T("CONNECT:%s:%s"), _T(CLIENT_VERSION), _T(SERVER_IP));  //全局变量控制版本号
+        连接请求.Format(_T("CONNECT:%s:%s\n"), _T(CLIENT_VERSION), 服务端地址);  
 
         TRACE(_T("连接成功，发送连接请求: %s\n"), 连接请求);
 

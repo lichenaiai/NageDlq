@@ -416,6 +416,13 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		// 接收客户端请求
 		CString 客户端请求 = 对话框指针->从客户端接收(客户端套接字);
 
+		//清理发送的字符串防止有回车或者空格
+		if (!客户端请求.IsEmpty())
+		{
+			客户端请求 = 对话框指针->清理请求(客户端请求); // 添加这行
+			TRACE(_T("清理后的客户端请求: [%s]\n"), 客户端请求);
+		}
+
 		// 检查连接是否关闭或出错
 		if (客户端请求.IsEmpty())
 		{
@@ -702,6 +709,14 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				CString 用户名 = 转生数据.Left(分隔符);
 				CString 角色名 = 转生数据.Mid(分隔符 + 1);
 
+				// 清理用户名和角色名
+				用户名.Remove(_T('\r'));
+				用户名.Remove(_T('\n'));
+				用户名.Trim();
+				角色名.Remove(_T('\r'));
+				角色名.Remove(_T('\n'));
+				角色名.Trim();
+
 				BOOL 转生结果 = 对话框指针->处理角色转生(用户名, 角色名);
 
 				if (转生结果)
@@ -724,7 +739,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		else if (客户端请求.Find(_T("ADD_POINTS:")) == 0)
 		{
 			// 处理加点请求 - 格式: ADD_POINTS:username:charname:str:dex:esp:spt
-			CString 加点数据 = 客户端请求.Mid(11); // 去掉"ADD_POINTS:"
+			CString 加点数据 = 客户端请求.Mid(11); 
 
 			CStringArray 参数数组;
 			int 起始位置 = 0;
@@ -739,6 +754,15 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			{
 				CString 用户名 = 参数数组[0];
 				CString 角色名 = 参数数组[1];
+
+				// 清理用户名和角色名
+				用户名.Remove(_T('\r'));
+				用户名.Remove(_T('\n'));
+				用户名.Trim();
+				角色名.Remove(_T('\r'));
+				角色名.Remove(_T('\n'));
+				角色名.Trim();
+
 				int 力量 = _ttoi(参数数组[2]);
 				int 敏捷 = _ttoi(参数数组[3]);
 				int 意念 = _ttoi(参数数组[4]);
@@ -774,9 +798,21 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				CString 用户名 = 查询数据.Left(分隔符);
 				CString 角色名 = 查询数据.Mid(分隔符 + 1);
 
-				// 查询角色信息
+				// 清理用户名和角色名
+				用户名.Remove(_T('\r'));
+				用户名.Remove(_T('\n'));
+				用户名.Trim();
+				角色名.Remove(_T('\r'));
+				角色名.Remove(_T('\n'));
+				角色名.Trim();
+
+				TRACE(_T("查询角色信息，用户: %s, 角色: %s\n"), 用户名, 角色名);
+
+				// 跨数据库查询：从nage数据库的CharInfo表获取角色详细信息
 				CString 查询语句;
-				查询语句.Format(_T("SELECT baseskill, Lv, lv + relvC AS total_lv, lvpoint, Str, Dex, Esp, Spt FROM CharInfo WHERE charname = '%s'"), 角色名);
+				查询语句.Format(_T("SELECT baseskill, Lv, lv + relvC AS total_lv, lvpoint, Str, Dex, Esp, Spt FROM nage.dbo.CharInfo WHERE charName = '%s'"), 角色名);
+
+				TRACE(_T("执行角色信息SQL: %s\n"), 查询语句);
 
 				SQLRETURN retcode = SQLExecDirectW(对话框指针->SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 				if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
@@ -801,16 +837,19 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 
 						对话框指针->发送到客户端(客户端套接字, 响应数据);
 						对话框指针->添加信息显示(客户端IP + _T(" 查询角色信息: ") + 角色名);
+						TRACE(_T("角色信息查询成功: %s\n"), 响应数据);
 					}
 					else
 					{
 						对话框指针->发送到客户端(客户端套接字, _T("CHAR_INFO_FAILED:角色不存在"));
+						TRACE(_T("角色不存在: %s\n"), 角色名);
 					}
 					SQLCloseCursor(对话框指针->SQL语句句柄);
 				}
 				else
 				{
 					对话框指针->发送到客户端(客户端套接字, _T("CHAR_INFO_FAILED:查询失败"));
+					TRACE(_T("角色信息查询失败\n"));
 				}
 			}
 		}
@@ -818,7 +857,12 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		else if (客户端请求.Find(_T("GET_ROLES:")) == 0)
 		{
 			// 处理获取角色列表请求 - 格式: GET_ROLES:username
-			CString 用户名 = 客户端请求.Mid(10); // 去掉"GET_ROLES:"
+			CString 用户名 = 客户端请求.Mid(10); 
+
+			// 清理用户名
+			用户名.Remove(_T('\r'));
+			用户名.Remove(_T('\n'));
+			用户名.Trim();
 
 			TRACE(_T("获取角色列表请求，用户名: %s\n"), 用户名);
 
@@ -978,7 +1022,7 @@ BOOL NageDlqServerDlg::连接数据库()
 
 	// 连接字符串
 	CString 连接字符串;
-	连接字符串.Format(_T("DRIVER={SQL Server};SERVER=127.0.0.1;DATABASE=%s;UID=%s;PWD=%s;"),
+	连接字符串.Format(_T("DRIVER={SQL Server};SERVER=124.220.82.87;DATABASE=%s;UID=%s;PWD=%s;"),
 		数据库名称, 数据库用户名, 数据库密码);
 
 	SQLWCHAR* wszConnStr = (SQLWCHAR*)连接字符串.GetBuffer();
@@ -1542,7 +1586,7 @@ BOOL NageDlqServerDlg::检测账号是否在线(const CString& 用户名)
 {
 	SQLRETURN retcode;
 	CString 查询语句;
-	查询语句.Format(_T("SELECT status FROM Chr_Log_Info WHERE id_loginid = '%s'"), 用户名);
+	查询语句.Format(_T("SELECT status FROM nagelogin.dbo.Chr_Log_Info WHERE id_loginid = '%s'"), 用户名);
 
 	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
@@ -1630,7 +1674,7 @@ BOOL NageDlqServerDlg::处理角色转生(const CString& 用户名, const CStrin
 	{
 		// 查询角色信息
 		CString 查询语句;
-		查询语句.Format(_T("SELECT Lv, baseskill, relvCtime, lv + relvC AS total_lv, recount FROM CharInfo WHERE charname = '%s'"), 角色名);
+		查询语句.Format(_T("SELECT Lv, baseskill, relvCtime, lv + relvC AS total_lv, recount FROM nage.dbo.CharInfo WHERE charName = '%s'"), 角色名);
 
 		retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 		if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO)
@@ -1706,7 +1750,7 @@ BOOL NageDlqServerDlg::处理角色转生(const CString& 用户名, const CStrin
 			CString 更新语句;
 			更新语句.Format(_T("UPDATE CharInfo SET Lv = %d, Exp = %d, HP = %d, SP = %d, STM = %d, ")
 				_T("Str = %d, Dex = %d, Esp = %d, Spt = %d, cmap = %d, lvpoint = %d, ")
-				_T("relvC = %d, relvCtime = GETDATE(), recount = %d WHERE charname = '%s'"),
+				_T("relvC = %d, relvCtime = GETDATE(), recount = %d WHERE charName = '%s'"),
 				Lv, Exp, HP, SP, STM, Str, Dex, Esp, Spt, cmap, lvpoint, relvC, 转生次数 + 1, 角色名);
 
 			retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)更新语句.GetString(), SQL_NTS);
@@ -1753,7 +1797,7 @@ BOOL NageDlqServerDlg::处理角色加点(const CString& 用户名, const CStrin
 	{
 		// 查询角色的剩余点数
 		CString 查询语句;
-		查询语句.Format(_T("SELECT lvpoint, baseskill FROM CharInfo WHERE charname = '%s'"), 角色名);
+		查询语句.Format(_T("SELECT lvpoint, baseskill FROM nage.dbo.CharInfo WHERE charName = '%s'"), 角色名);
 
 		retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 		if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO)
@@ -1800,7 +1844,7 @@ BOOL NageDlqServerDlg::处理角色加点(const CString& 用户名, const CStrin
 
 			// 更新角色属性
 			CString 更新语句;
-			更新语句.Format(_T("UPDATE CharInfo SET Str = Str + %d, Dex = Dex + %d, Esp = Esp + %d, Spt = Spt + %d, lvpoint = lvpoint - %d WHERE charname = '%s'"),
+			更新语句.Format(_T("UPDATE CharInfo SET Str = Str + %d, Dex = Dex + %d, Esp = Esp + %d, Spt = Spt + %d, lvpoint = lvpoint - %d WHERE charName = '%s'"),
 				力量, 敏捷, 意念, 灵力, 总点数, 角色名);
 
 			retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)更新语句.GetString(), SQL_NTS);
@@ -3160,16 +3204,27 @@ BOOL NageDlqServerDlg::修复日志文件编码(const CString& 文件名)
 // 添加获取角色列表函数
 void NageDlqServerDlg::获取用户角色列表(const CString& 用户名, CStringArray& 角色列表)
 {
-	角色列表.RemoveAll(); // 清空数组
+	角色列表.RemoveAll();
 	SQLRETURN retcode;
 
-	// 根据用户名获取角色列表
+	// 清理用户名：去除换行符、回车符和首尾空格
+	CString 清理后的用户名 = 用户名;
+	清理后的用户名.Remove(_T('\r'));
+	清理后的用户名.Remove(_T('\n'));
+	清理后的用户名.Trim();
+
+	TRACE(_T("开始获取用户角色列表，原始用户名: [%s], 清理后: [%s]\n"), 用户名, 清理后的用户名);
+
+	// 跨数据库查询：从nagelogin的CharName表获取角色名列表
 	CString 查询语句;
-	查询语句.Format(_T("SELECT charname FROM CharInfo WHERE account = '%s'"), 用户名);
+	查询语句.Format(_T("SELECT charname FROM nagelogin.dbo.CharName WHERE id_loginid = '%s'"), 清理后的用户名);
+
+	TRACE(_T("执行角色列表SQL: %s\n"), 查询语句);
 
 	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
 	{
+		int 角色数量 = 0;
 		while (SQLFetch(SQL语句句柄) == SQL_SUCCESS)
 		{
 			SQLWCHAR 角色名[256];
@@ -3178,10 +3233,52 @@ void NageDlqServerDlg::获取用户角色列表(const CString& 用户名, CStrin
 			SQLGetData(SQL语句句柄, 1, SQL_C_WCHAR, 角色名, sizeof(角色名), &角色名长度);
 			if (角色名长度 != SQL_NULL_DATA)
 			{
-				角色列表.Add(CString(角色名));
+				CString 角色名字符串(角色名);
+				// 清理角色名中的特殊字符
+				角色名字符串.Remove(_T('\r'));
+				角色名字符串.Remove(_T('\n'));
+				角色名字符串.Trim();
+
+				角色列表.Add(角色名字符串);
+				角色数量++;
+				TRACE(_T("找到角色: [%s]\n"), 角色名字符串);
 			}
 		}
 		SQLCloseCursor(SQL语句句柄);
+
+		TRACE(_T("共找到 %d 个角色\n"), 角色数量);
+
+		if (角色数量 == 0)
+		{
+			TRACE(_T("警告：用户 [%s] 在CharName表中没有找到角色\n"), 清理后的用户名);
+
+			// 调试：检查数据库中是否存在该用户
+			CString 调试查询;
+			调试查询.Format(_T("SELECT COUNT(*) FROM nagelogin.dbo.CharName WHERE id_loginid = '%s'"), 清理后的用户名);
+			retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)调试查询.GetString(), SQL_NTS);
+			if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+			{
+				retcode = SQLFetch(SQL语句句柄);
+				if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+				{
+					SQLINTEGER 用户数量;
+					SQLGetData(SQL语句句柄, 1, SQL_C_LONG, &用户数量, sizeof(用户数量), NULL);
+					TRACE(_T("调试：CharName表中用户 %s 的记录数: %d\n"), 清理后的用户名, 用户数量);
+				}
+				SQLCloseCursor(SQL语句句柄);
+			}
+		}
+	}
+	else
+	{
+		TRACE(_T("查询角色列表失败\n"));
+		// 获取错误信息
+		SQLWCHAR sqlState[6], message[SQL_MAX_MESSAGE_LENGTH];
+		SQLINTEGER nativeError;
+		SQLSMALLINT msgLen;
+		SQLGetDiagRecW(SQL_HANDLE_STMT, SQL语句句柄, 1, sqlState, &nativeError,
+			message, SQL_MAX_MESSAGE_LENGTH, &msgLen);
+		TRACE(_T("SQL错误: %s - %s\n"), CString(sqlState), CString(message));
 	}
 }
 
@@ -3190,15 +3287,20 @@ CString NageDlqServerDlg::获取排行榜数据(int 数量)
 	CString 排行榜数据;
 	SQLRETURN retcode;
 
-	// 构建SQL查询语句
+	TRACE(_T("开始获取排行榜数据，数量: %d\n"), 数量);
+
+	// 修改排序方式：从 DESC（降序）改为 ASC（升序）
 	CString 查询语句;
-	查询语句.Format(_T("SELECT TOP %d charname, baseskill, recount, Lv, relvC, (Lv + relvC) AS total_level ")
-		_T("FROM CharInfo ")
-		_T("ORDER BY total_level DESC"), 数量);
+	查询语句.Format(_T("SELECT TOP %d charName, baseskill, recount, Lv, relvC, (Lv + relvC) AS total_level ")
+		_T("FROM nage.dbo.CharInfo ")
+		_T("ORDER BY total_level DESC"), 数量);  // 保持 DESC 降序
+
+	TRACE(_T("执行排行榜SQL: %s\n"), 查询语句);
 
 	retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 	if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
 	{
+		int 记录数量 = 0;
 		while (SQLFetch(SQL语句句柄) == SQL_SUCCESS)
 		{
 			SQLWCHAR 角色名[256];
@@ -3224,14 +3326,24 @@ CString NageDlqServerDlg::获取排行榜数据(int 数量)
 					CString(角色名), 职业代码, 转生次数, 累计等级);
 
 				排行榜数据 += 角色数据;
+				记录数量++;
 			}
 		}
 		SQLCloseCursor(SQL语句句柄);
+		TRACE(_T("排行榜查询成功，找到 %d 条记录\n"), 记录数量);
 	}
 	else
 	{
 		TRACE(_T("获取排行榜数据失败\n"));
+		// 获取错误信息
+		SQLWCHAR sqlState[6], message[SQL_MAX_MESSAGE_LENGTH];
+		SQLINTEGER nativeError;
+		SQLSMALLINT msgLen;
+		SQLGetDiagRecW(SQL_HANDLE_STMT, SQL语句句柄, 1, sqlState, &nativeError,
+			message, SQL_MAX_MESSAGE_LENGTH, &msgLen);
+		TRACE(_T("SQL错误: %s - %s\n"), CString(sqlState), CString(message));
 	}
 
+	TRACE(_T("最终排行榜数据: %s\n"), 排行榜数据);
 	return 排行榜数据;
 }

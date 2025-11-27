@@ -1,4 +1,5 @@
-﻿#include "pch.h"
+﻿// 排行榜页面类.cpp
+#include "pch.h"
 #include "framework.h"
 #include "NageDlq.h"
 #include "排行榜页面类.h"
@@ -29,7 +30,7 @@ void 排行榜页面类::DoDataExchange(CDataExchange* pDX)
 }
 
 BEGIN_MESSAGE_MAP(排行榜页面类, CDialogEx)
-    ON_BN_CLICKED(IDC_BUTTON_REFRESH, &排行榜页面类::OnBnClickedButtonRefresh)
+    //ON_BN_CLICKED(IDC_BUTTON_REFRESH, &排行榜页面类::OnBnClickedButtonRefresh)
 END_MESSAGE_MAP()
 
 BOOL 排行榜页面类::OnInitDialog()
@@ -57,12 +58,26 @@ BOOL 排行榜页面类::OnInitDialog()
 // 初始化列表控件
 void 排行榜页面类::初始化列表控件()
 {
+    // 确保控件窗口已创建
+    if (!排行榜列表控件.GetSafeHwnd())
+    {
+        TRACE(_T("初始化列表控件：排行榜列表控件窗口尚未创建\n"));
+        return;
+    }
+
+    // 确保列表为报表模式（有表头）
+    if ((排行榜列表控件.GetStyle() & LVS_REPORT) == 0)
+    {
+        排行榜列表控件.ModifyStyle(0, LVS_REPORT);
+    }
+
     // 设置列表控件样式
     排行榜列表控件.SetExtendedStyle(LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES | LVS_EX_DOUBLEBUFFER);
 
-    // 清空现有列
-    int 列数 = 排行榜列表控件.GetHeaderCtrl()->GetItemCount();
-    for (int i = 列数 - 1; i >= 0; i--)
+    // 安全地获取表头并删除现有列
+    CHeaderCtrl* pHeader = 排行榜列表控件.GetHeaderCtrl();
+    int 列数 = (pHeader != nullptr) ? pHeader->GetItemCount() : 0;
+    for (int i = 列数 - 1; i >= 0; --i)
     {
         排行榜列表控件.DeleteColumn(i);
     }
@@ -70,7 +85,7 @@ void 排行榜页面类::初始化列表控件()
     // 添加列
     排行榜列表控件.InsertColumn(0, _T("排名"), LVCFMT_CENTER, 60);
     排行榜列表控件.InsertColumn(1, _T("角色名字"), LVCFMT_CENTER, 150);
-    排行榜列表控件.InsertColumn(2, _T("职业"), LVCFMT_CENTER, 100);
+    排行榜列表控件.InsertColumn(2, _T("职业"), LVCFMT_CENTER, 60);
     排行榜列表控件.InsertColumn(3, _T("转生次数"), LVCFMT_CENTER, 80);
     排行榜列表控件.InsertColumn(4, _T("累计等级"), LVCFMT_CENTER, 80);
 
@@ -148,30 +163,43 @@ void 排行榜页面类::处理排行榜数据响应(const CString& 响应数据
         int 起始位置 = 0;
         CString 角色数据 = 排行榜数据.Tokenize(_T("|"), 起始位置);
 
-        int 排名 = 1;
+        // 先收集所有数据
+        CStringArray 所有角色数据;
         while (!角色数据.IsEmpty())
         {
+            所有角色数据.Add(角色数据);
+            角色数据 = 排行榜数据.Tokenize(_T("|"), 起始位置);
+        }
+
+        // 按升序显示：从第1名开始（最高等级）
+        int 总角色数 = 所有角色数据.GetSize();
+        int 排名 = 1;
+
+        for (int i = 0; i < 总角色数; i++)
+        {
+            CString 当前角色数据 = 所有角色数据[i];
+
             // 解析单个角色数据：角色名,职业代码,转生次数,累计等级
             CStringArray 角色字段数组;
             int 字段位置 = 0;
-            CString 字段 = 角色数据.Tokenize(_T(","), 字段位置);
+            CString 字段 = 当前角色数据.Tokenize(_T(","), 字段位置);
 
             CString 角色名, 职业代码文本, 转生次数文本, 累计等级文本;
 
             if (!字段.IsEmpty())
             {
                 角色名 = 字段;
-                字段 = 角色数据.Tokenize(_T(","), 字段位置);
+                字段 = 当前角色数据.Tokenize(_T(","), 字段位置);
             }
             if (!字段.IsEmpty())
             {
                 职业代码文本 = 字段;
-                字段 = 角色数据.Tokenize(_T(","), 字段位置);
+                字段 = 当前角色数据.Tokenize(_T(","), 字段位置);
             }
             if (!字段.IsEmpty())
             {
                 转生次数文本 = 字段;
-                字段 = 角色数据.Tokenize(_T(","), 字段位置);
+                字段 = 当前角色数据.Tokenize(_T(","), 字段位置);
             }
             if (!字段.IsEmpty())
             {
@@ -187,12 +215,10 @@ void 排行榜页面类::处理排行榜数据响应(const CString& 响应数据
 
                 CString 职业名称 = 获取职业名称(职业代码);
 
-                // 添加到列表
+                // 添加到列表（排名从1开始递增）
                 添加排行榜项(排名, 角色名, 职业名称, 转生次数, 累计等级);
                 排名++;
             }
-
-            角色数据 = 排行榜数据.Tokenize(_T("|"), 起始位置);
         }
 
         if (排名 == 1)
@@ -229,7 +255,9 @@ void 排行榜页面类::清空列表数据()
 // 添加排行榜项
 void 排行榜页面类::添加排行榜项(int 排名, const CString& 角色名字, const CString& 职业, int 转生次数, int 累计等级)
 {
-    int 项索引 = 排行榜列表控件.InsertItem(0, _T(""));
+    // 获取当前列表项数量，新项插入到末尾
+    int 当前项数 = 排行榜列表控件.GetItemCount();
+    int 项索引 = 排行榜列表控件.InsertItem(当前项数, _T(""));
 
     CString 排名文本;
     排名文本.Format(_T("%d"), 排名);
@@ -244,6 +272,8 @@ void 排行榜页面类::添加排行榜项(int 排名, const CString& 角色名
     CString 累计等级文本;
     累计等级文本.Format(_T("%d"), 累计等级);
     排行榜列表控件.SetItemText(项索引, 4, 累计等级文本);
+
+    TRACE(_T("添加排行榜项: 排名%d, 角色%s, 等级%d\n"), 排名, 角色名字, 累计等级);
 }
 
 // 获取职业名称
@@ -262,14 +292,4 @@ CString 排行榜页面类::获取职业名称(int 职业代码)
     default:
         return _T("未知");
     }
-}
-
-// 刷新按钮点击事件
-void 排行榜页面类::OnBnClickedButtonRefresh()
-{
-    // 刷新排行榜数据
-    刷新排行榜数据();
-
-    // 显示刷新提示
-    AfxMessageBox(_T("排行榜数据已刷新"), MB_OK | MB_ICONINFORMATION);
 }
