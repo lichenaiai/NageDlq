@@ -85,33 +85,38 @@ BOOL NageDlqDlg::OnInitDialog()
 
 void NageDlqDlg::OnTimer(UINT_PTR nIDEvent)
 {
-	if (nIDEvent == 1)
+	if (nIDEvent == 1)  // 延迟初始化定时器
 	{
 		KillTimer(1);
+		TRACE(_T("=== 延迟初始化网络通信 ===\n"));
 		if (!初始化网络通信())
 		{
 			TRACE(_T("网络初始化失败，使用本地功能\n"));
 		}
 	}
-	else if (nIDEvent == 2)  // 重试发送连接请求
+	else if (nIDEvent == 2)  // 重试发送连接请求定时器
 	{
-		KillTimer(2);
-
+		// 检查是否已经连接成功
 		if (网络通信.是否已连接())
 		{
-			TRACE(_T("重试发送连接请求\n"));
+			TRACE(_T("已经连接成功，停止重试定时器\n"));
+			KillTimer(2);
+			return;
+		}
 
-			CString 连接请求;
-			连接请求.Format(_T("CONNECT:%s:%s"), _T(CLIENT_VERSION), _T(SERVER_IP));  // 使用全局变量控制版本号
+		TRACE(_T("重试发送连接请求\n"));
 
-			if (网络通信.发送数据(连接请求))
-			{
-				TRACE(_T("连接请求发送成功\n"));
-			}
+		CString 连接请求;
+		连接请求.Format(_T("CONNECT:%s:%s"), _T(CLIENT_VERSION), _T(SERVER_IP));
+
+		if (网络通信.发送数据(连接请求))
+		{
+			TRACE(_T("连接请求发送成功\n"));
 		}
 		else
 		{
-			SetTimer(2, 1000, nullptr); // 继续重试
+			TRACE(_T("连接请求发送失败，继续重试\n"));
+			// 继续重试，不停止定时器
 		}
 	}
 
@@ -236,7 +241,7 @@ LRESULT NageDlqDlg::OnNetworkMessage(WPARAM wParam, LPARAM lParam)
 // 初始化网络通信
 BOOL NageDlqDlg::初始化网络通信()
 {
-	// 检查是否已经初始化过
+	// 检查是否已经连接
 	if (网络通信.是否已连接())
 	{
 		TRACE(_T("网络通信已连接\n"));
@@ -248,32 +253,17 @@ BOOL NageDlqDlg::初始化网络通信()
 	// 设置消息回调
 	网络通信.设置消息回调函数(&NageDlqDlg::处理网络消息, this);
 
-	// 先更新状态为连接中
+	// 更新状态为连接中
 	登录页面.权限状态.SetWindowText(_T("状态：连接中..."));
 	TRACE(_T("设置状态为连接中...\n"));
 
-	// 尝试连接服务端 - 连接请求会在OnConnect中自动发送
+	// 尝试连接服务端
 	if (网络通信.连接服务端(_T(SERVER_IP), SERVER_PORT))
 	{
 		TRACE(_T("连接服务端调用成功\n"));
 
-		// 立即发送连接请求，使用版本常量
-		CString 连接请求;
-		连接请求.Format(_T("CONNECT:%s:%s"), _T(CLIENT_VERSION), _T(SERVER_IP));  // 修复：使用版本常量
-
-		TRACE(_T("立即发送连接请求: %s\n"), 连接请求);
-
-		if (网络通信.发送数据(连接请求))
-		{
-			TRACE(_T("连接请求发送成功\n"));
-		}
-		else
-		{
-			TRACE(_T("发送连接请求失败\n"));
-			// 设置定时器重试
-			SetTimer(2, 1000, nullptr);
-		}
-
+		// 设置重试定时器（3秒后开始重试，间隔3秒）
+		SetTimer(2, 3000, nullptr);
 		return TRUE;
 	}
 	else
@@ -298,6 +288,9 @@ void NageDlqDlg::处理网络消息(CString 消息)
 	else if (消息.Find(_T("CONNECT_SUCCESS:")) == 0)
 	{
 		TRACE(_T("检测到带密钥的连接成功消息\n"));
+		// 连接成功，停止重试定时器
+		KillTimer(2);
+
 		// 解析连接成功响应 - 格式: CONNECT_SUCCESS:密钥:版本号
 		CString 响应数据 = 消息.Mid(16); // 去掉"CONNECT_SUCCESS:"
 		TRACE(_T("响应数据: %s\n"), 响应数据);
@@ -340,6 +333,9 @@ void NageDlqDlg::处理网络消息(CString 消息)
 	else if (消息 == _T("CONNECT_SUCCESS"))
 	{
 		TRACE(_T("检测到不带密钥的连接成功消息\n"));
+		// 连接成功，停止重试定时器
+		KillTimer(2);
+
 		登录页面.权限状态.SetWindowText(_T("状态：已连接"));
 	}
 	else if (消息.Find(_T("LOGIN_")) == 0)

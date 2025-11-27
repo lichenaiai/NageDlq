@@ -217,4 +217,14 @@ public:
 	afx_msg	void On编辑框内容改变();
 	afx_msg void On右键菜单(NMHDR* pNMHDR, LRESULT* pResult);
 	afx_msg void On删除规则();
+
+	// 添加清理请求函数
+	CString 清理请求(const CString& 原始请求)
+	{
+		CString 清理后的请求 = 原始请求;
+		清理后的请求.Remove(_T('\r'));
+		清理后的请求.Remove(_T('\n'));
+		清理后的请求.Trim();
+		return 清理后的请求;
+	}
 };
