@@ -48,6 +48,10 @@ NageDlqServerDlg::NageDlqServerDlg(CWnd* pParent /*=nullptr*/)
 
 NageDlqServerDlg::~NageDlqServerDlg()
 {
+	停止所有后台操作();
+
+	WSACleanup();     // 清理Winsock
+
 	// 释放ODBC资源
 	if (SQL语句句柄) SQLFreeHandle(SQL_HANDLE_STMT, SQL语句句柄);
 	if (SQL连接句柄) SQLDisconnect(SQL连接句柄);
@@ -59,6 +63,12 @@ NageDlqServerDlg::~NageDlqServerDlg()
 	DeleteCriticalSection(&客户端列表锁);
 	
 	安全停止端口转发();
+
+	// 清除定时器
+	if (端口转发刷新定时器 != 0)
+	{
+		KillTimer(端口转发刷新定时器);
+	}
 }
 
 void NageDlqServerDlg::DoDataExchange(CDataExchange* pDX)
@@ -100,6 +110,9 @@ BEGIN_MESSAGE_MAP(NageDlqServerDlg, CDialogEx)
 	ON_EN_CHANGE(IDC_EDIT_CONTROL, &NageDlqServerDlg::On编辑框内容改变)
 	ON_NOTIFY(NM_RCLICK, IDC_LIST_FORWARD, &NageDlqServerDlg::On右键菜单)
 	ON_COMMAND(ID_MENU_DELETE_RULE, &NageDlqServerDlg::On删除规则)
+	ON_WM_TIMER()
+	ON_WM_CLOSE()
+	ON_WM_DESTROY()
 END_MESSAGE_MAP()
 
 BOOL NageDlqServerDlg::OnInitDialog()
@@ -156,7 +169,56 @@ BOOL NageDlqServerDlg::OnInitDialog()
 
 	添加信息显示(_T("程序已初始化"));
 
+	// 启动定时器，每1秒刷新一次连接数
+	端口转发刷新定时器 = SetTimer(1000, 1000, NULL); // ID=1000, 间隔1秒
+
 	return TRUE;
+}
+
+void NageDlqServerDlg::OnClose()
+{
+	TRACE(_T("=== OnClose开始 ===\n"));
+
+	// 停止所有后台操作
+	停止所有后台操作();
+
+	// 保存配置
+	TRACE(_T("保存配置...\n"));
+	保存配置();
+	保存端口转发配置();
+
+	// 调用父类的OnClose
+	CDialogEx::OnClose();
+
+	TRACE(_T("=== OnClose完成 ===\n"));
+}
+
+void NageDlqServerDlg::OnDestroy()
+{
+	TRACE(_T("=== OnDestroy开始 ===\n"));
+
+	// 确保所有后台操作已停止
+	停止所有后台操作();
+
+	// 清理控件关联
+	端口转发列表控件.DeleteAllItems();
+
+	// 调用父类的OnDestroy
+	CDialogEx::OnDestroy();
+
+	TRACE(_T("=== OnDestroy完成 ===\n"));
+}
+
+void NageDlqServerDlg::PostNcDestroy()
+{
+	TRACE(_T("=== PostNcDestroy开始 ===\n"));
+
+	// 确保所有资源已释放
+
+	// 调用父类的PostNcDestroy
+	CDialogEx::PostNcDestroy();
+
+	TRACE(_T("=== PostNcDestroy完成 ===\n"));
 }
 
 // 启动服务器按钮
@@ -306,6 +368,38 @@ void NageDlqServerDlg::OnBnClickedButtonBwlist()
 	TRACE(_T("=== 黑白名单管理界面关闭 ===\n"));
 }
 
+// 定时器处理函数
+void NageDlqServerDlg::OnTimer(UINT_PTR nIDEvent)
+{
+	if (nIDEvent == 1000) // 定时器ID
+	{
+		// 刷新端口转发列表的连接数显示
+		for (int i = 0; i < 端口转发列表控件.GetItemCount(); i++)
+		{
+			CString 序号文本 = 端口转发列表控件.GetItemText(i, 1);
+			int 规则序号 = _ttoi(序号文本);
+
+			if (规则序号 > 0)
+			{
+				// 获取规则列表
+				auto 规则列表 = 端口转发管理器.获取规则列表();
+				for (const auto* 规则 : 规则列表)
+				{
+					if (规则 && 规则->序号 == 规则序号)
+					{
+						CString 连接数文本;
+						连接数文本.Format(_T("%d"), 规则->获取连接数());
+						端口转发列表控件.SetItemText(i, 6, 连接数文本);
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	CDialogEx::OnTimer(nIDEvent);
+}
+
 // 服务器线程函数
 UINT NageDlqServerDlg::服务器线程函数(LPVOID pParam)
 {
@@ -397,8 +491,9 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 	}
 
 	// 设置socket为阻塞模式
-	u_long 阻塞模式 = 0;
-	ioctlsocket(客户端套接字, FIONBIO, &阻塞模式);
+	//u_long 阻塞模式 = 0;
+	u_long 非阻塞模式 = 1;
+	ioctlsocket(客户端套接字, FIONBIO, &非阻塞模式);
 
 	CString 客户端IP;
 	EnterCriticalSection(&对话框指针->客户端列表锁);
@@ -409,10 +504,22 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 	}
 	LeaveCriticalSection(&对话框指针->客户端列表锁);
 
+	// 记录最后活动时间，用于超时检测
+	DWORD 最后活动时间 = GetTickCount();
+	const DWORD 连接超时时间 = 30000; // 30秒超时
+
 	// 持续处理客户端请求
 	while (对话框指针->服务器运行状态)
 	{
-		TRACE(_T("=== chixuchulikehuduanqingqiu ===\n"));
+		// 检查连接是否超时
+		DWORD 当前时间 = GetTickCount();
+		if (当前时间 - 最后活动时间 > 连接超时时间)
+		{
+			TRACE(_T("客户端 %s 连接超时（30秒无活动）\n"), 客户端IP);
+			对话框指针->添加信息显示(客户端IP + _T(" 连接超时，自动断开"));
+			break;
+		}
+
 		// 接收客户端请求
 		CString 客户端请求 = 对话框指针->从客户端接收(客户端套接字);
 
@@ -420,7 +527,8 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		if (!客户端请求.IsEmpty())
 		{
 			客户端请求 = 对话框指针->清理请求(客户端请求); // 添加这行
-			TRACE(_T("清理后的客户端请求: [%s]\n"), 客户端请求);
+			// 更新最后活动时间
+			最后活动时间 = GetTickCount();
 		}
 
 		// 检查连接是否关闭或出错
@@ -429,6 +537,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			// 检查是否是真正的连接关闭
 			char 测试缓冲区[1];
 			int 测试结果 = recv(客户端套接字, 测试缓冲区, 1, MSG_PEEK);
+			
 			if (测试结果 == 0)
 			{
 				// 连接已关闭
@@ -447,7 +556,8 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 					break;
 				}
 			}
-			// 如果是空数据但不是错误，继续等待
+			// 如果是空数据但不是错误，休眠等待，避免忙等待，降低CPU占用
+			Sleep(100);
 			continue;
 		}
 
@@ -459,8 +569,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			//对话框指针->添加信息显示(客户端IP + 完整请求信息);
 		}
 
-		// 解析请求
-		//连接请求
+		// 解析连接请求
 		TRACE(_T("开始解析请求: %s\n"), 客户端请求);  // 添加这行
 		if (客户端请求.Find(_T("CONNECT:")) == 0)
 		{
@@ -935,6 +1044,8 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			对话框指针->发送到客户端(客户端套接字, _T("UNKNOWN_COMMAND"));
 			对话框指针->添加信息显示(客户端IP + _T(" 未知请求: ") + 客户端请求);
 		}
+		//处理完请求后短暂休眠，避免过于频繁的循环
+		Sleep(10);
 	}
 
 	// 只有在连接出错或服务器停止时才关闭连接
@@ -1409,11 +1520,29 @@ CString NageDlqServerDlg::从客户端接收(SOCKET 客户端套接字)
 	char 缓冲区[4096];
 	memset(缓冲区, 0, sizeof(缓冲区));
 
-	// 移除超时设置，使用阻塞模式正常接收
-	// struct timeval 超时;
-	// 超时.tv_sec = 5;
-	// 超时.tv_usec = 0;
-	// setsockopt(客户端套接字, SOL_SOCKET, SO_RCVTIMEO, (char*)&超时, sizeof(超时));
+	struct timeval 超时;
+	超时.tv_sec = 0;       // 0秒
+	超时.tv_usec = 100000; // 100毫秒微秒（0.1秒）
+	//setsockopt(客户端套接字, SOL_SOCKET, SO_RCVTIMEO, (char*)&超时, sizeof(超时));
+
+	// 使用select检查是否有数据可读
+	fd_set 读集合;
+	FD_ZERO(&读集合);
+	FD_SET(客户端套接字, &读集合);
+
+	int 选择结果 = select(0, &读集合, NULL, NULL, &超时);
+
+	if (选择结果 == SOCKET_ERROR)
+	{
+		int 错误码 = WSAGetLastError();
+		TRACE(_T("select错误，错误码: %d\n"), 错误码);
+		return _T("");
+	}
+	else if (选择结果 == 0)
+	{
+		// 超时，没有数据可读
+		return _T("");
+	}
 
 	int 接收长度 = recv(客户端套接字, 缓冲区, sizeof(缓冲区) - 1, 0);
 
@@ -1422,12 +1551,7 @@ CString NageDlqServerDlg::从客户端接收(SOCKET 客户端套接字)
 		缓冲区[接收长度] = '\0';
 
 		// 调试信息
-		TRACE(_T("接收到的原始数据(长度%d): "), 接收长度);
-		for (int i = 0; i < 接收长度; i++) {
-			TRACE(_T("%02x "), (unsigned char)缓冲区[i]);
-		}
-		TRACE(_T("\n"));
-		TRACE(_T("接收到的文本: %hs\n"), 缓冲区);
+		TRACE(_T("接收到的数据长度: %d\n"), 接收长度);
 
 		// 尝试UTF-8转换
 		int 宽字符长度 = MultiByteToWideChar(CP_UTF8, 0, 缓冲区, 接收长度, NULL, 0);
@@ -1462,7 +1586,8 @@ CString NageDlqServerDlg::从客户端接收(SOCKET 客户端套接字)
 		TRACE(_T("接收数据错误，错误码: %d\n"), 错误码);
 
 		// 如果是阻塞操作被中断，继续等待
-		if (错误码 == WSAEWOULDBLOCK) {
+		if (错误码 == WSAEWOULDBLOCK) 
+		{
 			return _T(""); // 返回空但不视为错误
 		}
 
@@ -2451,7 +2576,10 @@ void NageDlqServerDlg::刷新端口转发列表()
 	}
 
 	// 结束正在进行的编辑
-	结束编辑单元格();
+	if (正在编辑)
+	{
+		结束编辑单元格(TRUE);
+	}
 
 	// 禁用重绘以提高性能
 	端口转发列表控件.SetRedraw(FALSE);
@@ -2491,6 +2619,10 @@ void NageDlqServerDlg::刷新端口转发列表()
 		端口转发列表控件.SetItemText(索引, 5, 文本);
 
 		文本.Format(_T("%d"), 规则->连接数);
+		端口转发列表控件.SetItemText(索引, 6, 文本);
+
+		// 使用线程安全方法获取连接数
+		文本.Format(_T("%d"), 规则->获取连接数());
 		端口转发列表控件.SetItemText(索引, 6, 文本);
 	}
 
@@ -3346,4 +3478,38 @@ CString NageDlqServerDlg::获取排行榜数据(int 数量)
 
 	TRACE(_T("最终排行榜数据: %s\n"), 排行榜数据);
 	return 排行榜数据;
+}
+
+void NageDlqServerDlg::停止所有后台操作()
+{
+	TRACE(_T("=== 停止所有后台操作开始 ===\n"));
+
+	// 1. 停止服务器
+	if (服务器运行状态)
+	{
+		TRACE(_T("停止服务器...\n"));
+		停止服务器();
+		服务器运行状态 = FALSE;
+	}
+
+	// 2. 停止端口转发
+	TRACE(_T("停止端口转发...\n"));
+	安全停止端口转发();
+
+	// 3. 停止定时器
+	if (端口转发刷新定时器 != 0)
+	{
+		TRACE(_T("停止定时器...\n"));
+		KillTimer(端口转发刷新定时器);
+		端口转发刷新定时器 = 0;
+	}
+
+	// 4. 关闭日志文件
+	TRACE(_T("关闭日志文件...\n"));
+	关闭日志文件();
+
+	// 5. 等待所有线程结束（可选）
+	Sleep(100); // 给线程一点时间清理
+
+	TRACE(_T("=== 停止所有后台操作完成 ===\n"));
 }

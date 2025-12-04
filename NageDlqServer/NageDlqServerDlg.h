@@ -44,6 +44,11 @@ protected:
 	DECLARE_MESSAGE_MAP()
 	afx_msg LRESULT On延迟加载端口转发数据(WPARAM wParam, LPARAM lParam);
 	afx_msg void On自定义绘制列表(NMHDR* pNMHDR, LRESULT* pResult);
+	afx_msg void OnTimer(UINT_PTR nIDEvent);
+	afx_msg void OnClose();
+	afx_msg void OnDestroy();
+	virtual void PostNcDestroy();
+
 public:
 	// 按钮点击事件 - 保持英文函数名
 	afx_msg void OnBnClickedButtonStart();        // 启动服务器
@@ -116,6 +121,8 @@ private:
 	CEdit 编辑控件;
 	BOOL 正在编辑 = FALSE;
 	CMenu 右键菜单;
+	UINT_PTR 端口转发刷新定时器;
+
 
 public:
 	// 线程函数
@@ -227,4 +234,6 @@ public:
 		清理后的请求.Trim();
 		return 清理后的请求;
 	}
+
+	void 停止所有后台操作();
 };

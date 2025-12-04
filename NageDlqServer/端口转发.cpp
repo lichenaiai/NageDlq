@@ -467,8 +467,18 @@ void 端口转发管理类::转发线程函数(端口转发规则* 规则)
 {
     TRACE(_T("=== 转发线程启动 === 规则: %d\n"), 规则->序号);
 
+    // 记录线程开始时间
+    DWORD 线程开始时间 = GetTickCount();
+
     while (规则->运行中)
     {
+        // 添加：检查线程运行时间，防止无限循环
+        if (GetTickCount() - 线程开始时间 > 24 * 60 * 60 * 1000) // 24小时
+        {
+            TRACE(_T("转发线程运行超过24小时，自动重启\n"));
+            break;
+        }
+
         sockaddr_in 客户端地址;
         int 客户端地址长度 = sizeof(客户端地址);
 
@@ -494,6 +504,11 @@ void 端口转发管理类::转发线程函数(端口转发规则* 规则)
                 char* 输出IP = T2A(规则->输出IP);
                 inet_pton(AF_INET, 输出IP, &(目标地址.sin_addr));
                 目标地址.sin_port = htons(规则->输出端口);
+
+                // 设置连接超时
+                DWORD 连接超时 = 5000; // 5秒
+                setsockopt(目标套接字, SOL_SOCKET, SO_RCVTIMEO, (char*)&连接超时, sizeof(连接超时));
+                setsockopt(目标套接字, SOL_SOCKET, SO_SNDTIMEO, (char*)&连接超时, sizeof(连接超时));
 
                 if (connect(目标套接字, (sockaddr*)&目标地址, sizeof(目标地址)) == 0)
                 {
@@ -539,10 +554,26 @@ void 端口转发管理类::转发线程函数(端口转发规则* 规则)
 void 端口转发管理类::客户端处理线程(SOCKET 客户端套接字, SOCKET 目标套接字, 端口转发规则* 规则)
 {
     TRACE(_T("=== 客户端处理线程启动 === 规则: %d\n"), 规则->序号);
+    
+    // 增加连接数 - 使用线程安全方法
+    规则->增加连接数();
+    TRACE(_T("规则 %d 连接数增加为: %d\n"), 规则->序号, 规则->获取连接数());
+
+    // 确保连接数正确统计
+    {
+        std::lock_guard<std::mutex> 锁(规则->连接数锁);
+        规则->连接数++;
+        TRACE(_T("规则 %d 当前连接数: %d\n"), 规则->序号, 规则->连接数);
+    }
+
+    // 设置套接字为非阻塞模式
+    u_long 非阻塞模式 = 1;
+    ioctlsocket(客户端套接字, FIONBIO, &非阻塞模式);
+    ioctlsocket(目标套接字, FIONBIO, &非阻塞模式);
 
     // 创建两个线程分别处理两个方向的数据转发
-    std::thread 客户端到目标线程(转发数据, 客户端套接字, 目标套接字);
-    std::thread 目标到客户端线程(转发数据, 目标套接字, 客户端套接字);
+    std::thread 客户端到目标线程(转发数据, 客户端套接字, 目标套接字, 规则);
+    std::thread 目标到客户端线程(转发数据, 目标套接字, 客户端套接字, 规则);
 
     // 等待两个线程结束
     if (客户端到目标线程.joinable())
@@ -555,26 +586,60 @@ void 端口转发管理类::客户端处理线程(SOCKET 客户端套接字, SOCKET 目标套接字, 端口
     closesocket(客户端套接字);
     closesocket(目标套接字);
 
-    // 减少连接数
-    {
-        std::lock_guard<std::mutex> 锁(规则->连接数锁);
-        规则->连接数--;
-    }
+    规则->减少连接数();
+    TRACE(_T("规则 %d 连接数减少为: %d\n"), 规则->序号, 规则->获取连接数());
 
     TRACE(_T("=== 客户端处理线程退出 === 规则: %d\n"), 规则->序号);
 }
 
 // 数据转发函数
-void 端口转发管理类::转发数据(SOCKET 来源套接字, SOCKET 目标套接字)
+void 端口转发管理类::转发数据(SOCKET 来源套接字, SOCKET 目标套接字, 端口转发规则* 规则)
 {
     char 缓冲区[4096];
 
-    while (true)
+    // 记录最后活动时间
+    DWORD 最后活动时间 = GetTickCount();
+    const DWORD 数据超时时间 = 60000; // 60秒无数据传输超时
+
+    while (规则->运行中)
     {
+        // 检查超时
+        DWORD 当前时间 = GetTickCount();
+        if (当前时间 - 最后活动时间 > 数据超时时间)
+        {
+            TRACE(_T("转发数据超时，断开连接\n"));
+            break;
+        }
+
+        // 使用select检查是否有数据可读
+        fd_set 读集合;
+        FD_ZERO(&读集合);
+        FD_SET(来源套接字, &读集合);
+
+        struct timeval 超时;
+        超时.tv_sec = 0;
+        超时.tv_usec = 100000; // 100毫秒
+
+        int 选择结果 = select(0, &读集合, NULL, NULL, &超时);
+
+        if (选择结果 == SOCKET_ERROR)
+        {
+            TRACE(_T("select错误\n"));
+            break;
+        }
+        else if (选择结果 == 0)
+        {
+            // 超时，继续等待
+            continue;
+        }
+
         int 接收长度 = recv(来源套接字, 缓冲区, sizeof(缓冲区), 0);
 
         if (接收长度 > 0)
         {
+            // 更新最后活动时间
+            最后活动时间 = GetTickCount();
+
             // 转发数据
             int 发送长度 = send(目标套接字, 缓冲区, 接收长度, 0);
 
