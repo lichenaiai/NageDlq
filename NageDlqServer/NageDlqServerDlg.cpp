@@ -490,7 +490,6 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		return 1;
 	}
 
-	// 设置socket为阻塞模式
 	//u_long 阻塞模式 = 0;
 	u_long 非阻塞模式 = 1;
 	ioctlsocket(客户端套接字, FIONBIO, &非阻塞模式);
@@ -506,7 +505,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 
 	// 记录最后活动时间，用于超时检测
 	DWORD 最后活动时间 = GetTickCount();
-	const DWORD 连接超时时间 = 30000; // 30秒超时
+	const DWORD 连接超时时间 = 3000; // 30秒超时
 
 	// 持续处理客户端请求
 	while (对话框指针->服务器运行状态)
@@ -557,7 +556,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				}
 			}
 			// 如果是空数据但不是错误，休眠等待，避免忙等待，降低CPU占用
-			Sleep(100);
+			Sleep(50);
 			continue;
 		}
 
@@ -1521,8 +1520,8 @@ CString NageDlqServerDlg::从客户端接收(SOCKET 客户端套接字)
 	memset(缓冲区, 0, sizeof(缓冲区));
 
 	struct timeval 超时;
-	超时.tv_sec = 0;       // 0秒
-	超时.tv_usec = 100000; // 100毫秒微秒（0.1秒）
+	超时.tv_sec = 30;       // 0秒
+	超时.tv_usec = 0; // 微秒（0.1秒）
 	//setsockopt(客户端套接字, SOL_SOCKET, SO_RCVTIMEO, (char*)&超时, sizeof(超时));
 
 	// 使用select检查是否有数据可读
