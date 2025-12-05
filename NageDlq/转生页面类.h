@@ -41,7 +41,7 @@ public:
     void 处理转生响应(const CString& 响应数据);
     void 查询角色信息(const CString& 角色名);
     void 发送转生请求(const CString& 角色名);
-    void 更新角色信息显示(int 职业代码, int 战斗等级, int 累计等级, int 剩余点数);
+    void 更新角色信息显示(int 职业代码, int 战斗等级, int 累计等级, int 转生次数, int 剩余点数);
     void 处理角色信息响应(const CString& 响应数据);
     void 处理角色列表响应(const CString& 响应数据);
     void 检查账号在线状态(const CString& 角色名);

@@ -263,22 +263,27 @@ void 转生页面类::处理转生响应(const CString& 响应数据)
     TRACE(_T("=== 处理转生响应结束 ===\n"));
 }
 
-void 转生页面类::更新角色信息显示(int 职业代码, int 战斗等级, int 累计等级, int 剩余点数)
+void 转生页面类::更新角色信息显示(int 职业代码, int 战斗等级, int 累计等级, int 转生次数, int 剩余点数)
 {
     CString 等级信息;
-    等级信息.Format(_T("战斗等级: %d\n累计等级: %d\n剩余点数: %d"),
-        战斗等级, 累计等级, 剩余点数);
+    int 需求等级 = 110 + 转生次数 * 10;
+    等级信息.Format(_T("战斗等级: %d\n累计等级: %d\n转生次数: %d\n剩余点数: %d第%d次转生需要: %d级"),
+        战斗等级, 累计等级, 转生次数, 剩余点数, 转生次数 + 1, 需求等级);
     等级标签.SetWindowText(等级信息);
 
     // 检查转生条件
-    if (战斗等级 >= 130)
+    if (战斗等级 >= 需求等级)
     {
-        状态标签.SetWindowText(_T("可以转生"));
+        CString 状态文本;
+        状态文本.Format(_T("可以进行第%d次转生"), 转生次数 + 1);
+        状态标签.SetWindowText(状态文本);
         转生按钮.EnableWindow(TRUE);
     }
     else
     {
-        状态标签.SetWindowText(_T("等级不足130级"));
+        CString 状态文本;
+        状态文本.Format(_T("等级不足%d级（第%d次转生）"), 需求等级, 转生次数 + 1);
+        状态标签.SetWindowText(状态文本);
         转生按钮.EnableWindow(FALSE);
     }
 }
@@ -290,7 +295,7 @@ void 转生页面类::处理角色信息响应(const CString& 响应数据)
 
     if (响应数据.Find(_T("CHAR_INFO:")) == 0)
     {
-        CString 角色数据 = 响应数据.Mid(10); // 去掉"CHAR_INFO:"
+        CString 角色数据 = 响应数据.Mid(10); 
 
         CStringArray 参数数组;
         int 起始位置 = 0;
@@ -307,13 +312,14 @@ void 转生页面类::处理角色信息响应(const CString& 响应数据)
             int 职业代码 = _ttoi(参数数组[0]);
             int 战斗等级 = _ttoi(参数数组[1]);
             int 累计等级 = _ttoi(参数数组[2]);
-            int 剩余点数 = _ttoi(参数数组[3]);
-            int 力量 = _ttoi(参数数组[4]);
-            int 敏捷 = _ttoi(参数数组[5]);
-            int 意念 = _ttoi(参数数组[6]);
-            int 灵力 = _ttoi(参数数组[7]);
+            int 转生次数 = _ttoi(参数数组[3]);  
+            int 剩余点数 = _ttoi(参数数组[4]);
+            int 力量 = _ttoi(参数数组[5]);
+            int 敏捷 = _ttoi(参数数组[6]);
+            int 意念 = _ttoi(参数数组[7]);
+            int 灵力 = _ttoi(参数数组[8]);
 
-            更新角色信息显示(职业代码, 战斗等级, 累计等级, 剩余点数);
+            更新角色信息显示(职业代码, 战斗等级, 累计等级, 转生次数, 剩余点数);
         }
     }
     else if (响应数据.Find(_T("CHAR_INFO_FAILED")) == 0)

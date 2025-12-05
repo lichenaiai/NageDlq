@@ -23,6 +23,8 @@
 #define IDC_BUTTON_START                1009
 #define IDC_CHECK_1280                  1010
 #define EDIT_CONFIRM_PASSWOR_REG        1011
+#define IDC_BUTTON_LOGIN2               1011
+#define IDC_RE_LOGIN                    1011
 #define IDC_BUTTON_REGISTER             1012
 #define IDC_EDIT_REG_USERNAME           1013
 #define IDC_EDIT_REG_PASSWORD           1014

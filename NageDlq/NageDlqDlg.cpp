@@ -40,6 +40,9 @@ BEGIN_MESSAGE_MAP(NageDlqDlg, CDialogEx)
 	ON_NOTIFY(TCN_SELCHANGE, IDC_TAB_MAIN, &NageDlqDlg::OnTcnSelchangeTabMain)
 	ON_MESSAGE(WM_USER + 100, &NageDlqDlg::OnNetworkMessage)
 	ON_WM_TIMER()
+	ON_WM_CLOSE()  // 添加关闭消息处理
+	ON_WM_DESTROY() // 添加销毁消息处理
+	ON_MESSAGE(WM_USER + 101, &NageDlqDlg::OnReconnectMessage)	//重新连接消息处理
 END_MESSAGE_MAP()
 IMPLEMENT_DYNAMIC(NageDlqDlg, CDialogEx)
 
@@ -121,6 +124,54 @@ void NageDlqDlg::OnTimer(UINT_PTR nIDEvent)
 	}
 
 	CDialogEx::OnTimer(nIDEvent);
+}
+
+// 添加关闭消息处理函数
+void NageDlqDlg::OnClose()
+{
+	TRACE(_T("=== 开始关闭登录器 ===\n"));
+
+	// 关闭游戏进程
+	if (登录页面.m_bGameRunning)
+	{
+		TRACE(_T("检测到游戏正在运行，开始关闭游戏...\n"));
+
+		if (MessageBox(_T("是否要关闭游戏？"), _T("确认"), MB_YESNO | MB_ICONQUESTION) == IDYES)
+		{
+			if (登录页面.关闭游戏进程())
+			{
+				TRACE(_T("游戏关闭成功\n"));
+			}
+			else
+			{
+				TRACE(_T("游戏关闭失败\n"));
+			}
+		}
+	}
+
+	// 关闭网络连接
+	if (网络通信.是否已连接())
+	{
+		TRACE(_T("关闭网络连接\n"));
+		网络通信.关闭连接();
+	}
+
+	CDialogEx::OnClose();
+}
+
+// 添加销毁消息处理函数
+void NageDlqDlg::OnDestroy()
+{
+	TRACE(_T("=== 开始销毁登录器 ===\n"));
+
+	// 确保游戏进程已关闭
+	if (登录页面.m_bGameRunning)
+	{
+		TRACE(_T("强制关闭游戏进程\n"));
+		登录页面.关闭游戏进程();
+	}
+
+	CDialogEx::OnDestroy();
 }
 
 BOOL NageDlqDlg::初始化分页控件()
@@ -238,6 +289,17 @@ LRESULT NageDlqDlg::OnNetworkMessage(WPARAM wParam, LPARAM lParam)
 	return 0;
 }
 
+// 重新连接消息处理函数
+LRESULT NageDlqDlg::OnReconnectMessage(WPARAM wParam, LPARAM lParam)
+{
+	TRACE(_T("=== 收到重新连接消息 ===\n"));
+
+	// 执行重新连接
+	登录页面.执行重新连接();
+
+	return 0;
+}
+
 // 初始化网络通信
 BOOL NageDlqDlg::初始化网络通信()
 {
@@ -271,6 +333,13 @@ BOOL NageDlqDlg::初始化网络通信()
 		TRACE(_T("连接服务端失败\n"));
 		登录页面.权限状态.SetWindowText(_T("状态：连接失败"));
 		return FALSE;
+
+		// 如果已登录，显示断开状态
+		if (登录页面.已登录)
+		{
+			登录页面.权限状态.SetWindowText(_T("状态：已登录（连接失败）"));
+		}
+		return FALSE;
 	}
 }
 
@@ -279,6 +348,33 @@ void NageDlqDlg::处理网络消息(CString 消息)
 {
 	TRACE(_T("=== 处理网络消息开始 ===\n"));
 	TRACE(_T("原始消息: %s\n"), 消息);
+
+	// 添加连接断开处理
+	if (消息 == _T("CONNECTION_CLOSED") ||
+		消息.Find(_T("CONNECT_FAILED")) == 0)
+	{
+		TRACE(_T("检测到连接断开或连接失败\n"));
+
+		// 更新登录页面状态
+		登录页面.权限状态.SetWindowText(_T("状态：连接已断开"));
+
+		// 如果已登录，保持登录状态但显示断开
+		if (登录页面.已登录)
+		{
+			登录页面.权限状态.SetWindowText(_T("状态：已登录（连接断开）"));
+		}
+
+		// 通知用户
+		CString 提示信息;
+		提示信息.Format(_T("与服务器的连接已断开，请点击重新连接按钮尝试重新连接。"));
+
+		// 只在当前是登录页面时显示提示
+		int 当前选中页 = 分页控件.GetCurSel();
+		if (当前选中页 == 0)  // 登录页面
+		{
+			MessageBox(提示信息, _T("连接断开"), MB_ICONINFORMATION);
+		}
+	}
 
 	if (消息.Find(_T("REGISTER_")) == 0)
 	{
