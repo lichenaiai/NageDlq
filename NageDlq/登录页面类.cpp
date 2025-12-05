@@ -17,6 +17,10 @@ IMPLEMENT_DYNAMIC(登录页面类, CDialogEx)
 	: CDialogEx(IDD_PAGE_LOGIN, pParent)
 	, 已登录(false)
 	, 窗口1280选中状态(true)  // 默认选中
+	, m_hGameProcess(NULL)
+	, m_dwGameProcessId(0)
+	, m_bGameRunning(FALSE)
+	, m_bIsReconnecting(FALSE)
 {
 }
 
@@ -41,12 +45,58 @@ void 登录页面类::DoDataExchange(CDataExchange* pDX)
 BEGIN_MESSAGE_MAP(登录页面类, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_LOGIN, &登录页面类::OnBnClickedButtonLogin)	//::点击登录按钮
 	ON_BN_CLICKED(IDC_BUTTON_START, &登录页面类::OnBnClickedButtonStart)	//::点击启动按钮
+	ON_BN_CLICKED(IDC_RE_LOGIN, &登录页面类::OnBnClickedButtonRelogin)	//重新连接按钮
 END_MESSAGE_MAP()
+
+// 修改定时器处理函数（添加重新连接相关处理）
+void 登录页面类::OnTimer(UINT_PTR nIDEvent)
+{
+	if (nIDEvent == 100)  // 登录按钮冷却定时器
+	{
+		KillTimer(100);
+		登录按钮.EnableWindow(TRUE);
+	}
+	else if (nIDEvent == 101)  // 重新连接定时器
+	{
+		KillTimer(101);
+
+		TRACE(_T("=== 延迟重新连接网络 ===\n"));
+
+		// 通过主对话框重新初始化网络
+		CWnd* 主窗口 = AfxGetMainWnd();
+		if (主窗口)
+		{
+			NageDlqDlg* 主对话框 = dynamic_cast<NageDlqDlg*>(主窗口);
+			if (主对话框)
+			{
+				// 重新初始化网络连接
+				if (主对话框->初始化网络通信())
+				{
+					TRACE(_T("重新连接网络成功\n"));
+					权限状态.SetWindowText(_T("状态：重新连接成功"));
+				}
+				else
+				{
+					TRACE(_T("重新连接网络失败\n"));
+					权限状态.SetWindowText(_T("状态：重新连接失败"));
+				}
+			}
+		}
+
+		结束重新连接();
+	}
+
+	CDialogEx::OnTimer(nIDEvent);
+}
 
 // 初始化对话框
 BOOL 登录页面类::OnInitDialog()		
 {
 	CDialogEx::OnInitDialog();
+
+	// 检查游戏是否已运行
+	检查游戏是否运行();
+	更新启动按钮状态();
 
 	// 设置密码编辑框为密码模式
 	密码编辑框.SetPasswordChar('*');
@@ -131,10 +181,120 @@ void 登录页面类::OnBnClickedButtonLogin()
 	}
 }
 
+// 重新连接按钮点击事件处理
+void 登录页面类::OnBnClickedButtonRelogin()
+{
+	TRACE(_T("=== 点击重新连接按钮 ===\n"));
+
+	// 防止重复点击
+	if (m_bIsReconnecting)
+	{
+		TRACE(_T("正在重新连接中，请稍候...\n"));
+		return;
+	}
+
+	// 退出当前登录状态
+	if (已登录)
+	{
+		退出登录状态();
+	}
+
+	// 开始重新连接流程
+	开始重新连接();
+}
+
+// 执行重新连接方法
+void 登录页面类::执行重新连接()
+{
+	TRACE(_T("=== 执行重新连接 ===\n"));
+
+	OnBnClickedButtonRelogin();
+}
+
+// 开始重新连接方法
+void 登录页面类::开始重新连接()
+{
+	m_bIsReconnecting = TRUE;
+
+	// 禁用相关按钮防止重复操作
+	CWnd* 重新连接按钮 = GetDlgItem(IDC_RE_LOGIN);
+	if (重新连接按钮)
+		重新连接按钮->EnableWindow(FALSE);
+
+	// 更新状态显示
+	CString 状态文本 = _T("状态：重新连接中...");
+	权限状态.SetWindowText(状态文本);
+	TRACE(_T("设置状态为重新连接中...\n"));
+
+	// 通过主对话框重新初始化网络连接
+	CWnd* 主窗口 = AfxGetMainWnd();
+	if (主窗口)
+	{
+		NageDlqDlg* 主对话框 = dynamic_cast<NageDlqDlg*>(主窗口);
+		if (主对话框)
+		{
+			// 关闭现有连接
+			if (主对话框->网络通信.是否已连接())
+			{
+				TRACE(_T("关闭现有网络连接\n"));
+				主对话框->网络通信.关闭连接();
+			}
+
+			// 延迟执行重新连接（避免阻塞UI）
+			SetTimer(101, 500, nullptr);
+		}
+	}
+	else
+	{
+		结束重新连接();
+	}
+}
+
+// 退出登录状态方法
+void 登录页面类::退出登录状态()
+{
+	TRACE(_T("=== 退出登录状态 ===\n"));
+
+	if (已登录)
+	{
+		// 清空用户名和密码
+		用户名编辑框.SetWindowText(_T(""));
+		密码编辑框.SetWindowText(_T(""));
+
+		// 重置登录状态
+		已登录 = FALSE;
+
+		// 更新界面状态
+		登录按钮.EnableWindow(TRUE);
+		登录按钮.SetWindowText(_T("登录"));
+
+		TRACE(_T("已退出登录状态\n"));
+	}
+}
+
+// 结束重新连接方法
+void 登录页面类::结束重新连接()
+{
+	m_bIsReconnecting = FALSE;
+
+	// 启用重新连接按钮
+	CWnd* 重新连接按钮 = GetDlgItem(IDC_RE_LOGIN);
+	if (重新连接按钮)
+		重新连接按钮->EnableWindow(TRUE);
+
+	TRACE(_T("重新连接流程结束\n"));
+}
 
 // 点击启动按钮
 void 登录页面类::OnBnClickedButtonStart()		
 {
+	// 检查游戏是否已经运行
+	if (检查游戏是否运行())
+	{
+		MessageBox(_T("游戏已经在运行中，请勿重复启动！"), _T("提示"), MB_ICONWARNING);
+		return;
+	}
+
 	// 更新成员变量状态
 	窗口1280选中状态 = (窗口1280复选框.GetCheck() == BST_CHECKED);
 
@@ -150,6 +310,111 @@ void 登录页面类::OnBnClickedButtonStart()
 
 	// 启动游戏
 	启动游戏进程();
+
+	// 更新按钮状态
+	更新启动按钮状态();
+}
+
+// 检查游戏是否运行的方法
+BOOL 登录页面类::检查游戏是否运行()
+{
+	m_bGameRunning = FALSE;
+	m_dwGameProcessId = 0;
+	m_hGameProcess = NULL;
+
+	// 获取进程ID
+	DWORD pid = 获取进程ID(L"nage.bin");
+
+	if (pid > 0)
+	{
+		// 打开进程
+		HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | SYNCHRONIZE, FALSE, pid);
+		if (hProcess != NULL)
+		{
+			DWORD exitCode;
+			if (GetExitCodeProcess(hProcess, &exitCode) && exitCode == STILL_ACTIVE)
+			{
+				m_bGameRunning = TRUE;
+				m_dwGameProcessId = pid;
+				m_hGameProcess = hProcess;
+				TRACE(_T("检测到游戏进程正在运行，PID: %d\n"), pid);
+			}
+			else
+			{
+				CloseHandle(hProcess);
+			}
+		}
+	}
+
+	return m_bGameRunning;
+}
+
+// 关闭游戏进程的方法
+BOOL 登录页面类::关闭游戏进程()
+{
+	if (!m_bGameRunning || m_dwGameProcessId == 0)
+		return TRUE;
+
+	TRACE(_T("开始关闭游戏进程，PID: %d\n"), m_dwGameProcessId);
+
+	// 方法1: 优雅关闭 - 发送关闭消息
+	HWND hGameWnd = NULL;
+	do {
+		hGameWnd = ::FindWindow(NULL, L"美丽世界");  // 游戏窗口标题
+		if (hGameWnd)
+		{
+			::PostMessage(hGameWnd, WM_CLOSE, 0, 0);
+			TRACE(_T("发送关闭消息给游戏窗口\n"));
+			Sleep(1000);  // 等待1秒
+		}
+	} while (hGameWnd && 检查游戏是否运行());
+
+	// 如果游戏还在运行，使用强制终止
+	if (m_bGameRunning)
+	{
+		TRACE(_T("优雅关闭失败，强制终止进程\n"));
+		HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, m_dwGameProcessId);
+		if (hProcess)
+		{
+			BOOL bResult = TerminateProcess(hProcess, 0);
+			CloseHandle(hProcess);
+
+			if (bResult)
+			{
+				TRACE(_T("进程终止成功\n"));
+				m_bGameRunning = FALSE;
+				m_dwGameProcessId = 0;
+				return TRUE;
+			}
+			else
+			{
+				TRACE(_T("进程终止失败\n"));
+				return FALSE;
+			}
+		}
+	}
+
+	TRACE(_T("游戏进程已关闭\n"));
+	m_bGameRunning = FALSE;
+	m_dwGameProcessId = 0;
+	return TRUE;
+}
+
+// 更新启动按钮状态的方法
+void 登录页面类::更新启动按钮状态()
+{
+	if (检查游戏是否运行())
+	{
+		启动按钮.EnableWindow(FALSE);
+		CString 提示文本;
+		提示文本.Format(_T("游戏正在运行(PID:%d)"), m_dwGameProcessId);
+		启动按钮.SetWindowText(提示文本);
+	}
+	else
+	{
+		启动按钮.EnableWindow(TRUE);
+		启动按钮.SetWindowText(_T("启动游戏"));
+	}
 }
 
 // 处理登录响应
@@ -159,12 +424,20 @@ void 登录页面类::处理登录响应(const CString& 响应数据)
 	{
 		MessageBox(_T("登录成功"), _T("提示"), MB_ICONINFORMATION);
 		已登录 = true;
+		
+		// 更新登录按钮状态
+		登录按钮.EnableWindow(FALSE);
+		登录按钮.SetWindowText(_T("已登录"));
 	}
 	else if (响应数据.Find(_T("LOGIN_FAILED")) == 0)
 	{
 		CString 错误信息 = 响应数据.Mid(12);
 		MessageBox(错误信息, _T("登录失败"), MB_ICONERROR);
 		已登录 = false;
+
+		// 重置登录按钮状态
+		登录按钮.EnableWindow(TRUE);
+		登录按钮.SetWindowText(_T("登录"));
 	}
 }
 
@@ -185,6 +458,13 @@ void 登录页面类::注入窗口大小修改代码()
 // 启动游戏进程
 void 登录页面类::启动游戏进程()
 {
+	// 再次检查游戏是否已经运行（防止重复点击）
+	if (检查游戏是否运行())
+	{
+		MessageBox(_T("游戏已经在运行中，请勿重复启动！"), _T("提示"), MB_ICONWARNING);
+		return;
+	}
+
 	// 获取当前目录
 	TCHAR 当前路径[MAX_PATH];
 	GetCurrentDirectory(MAX_PATH, 当前路径);
@@ -208,11 +488,21 @@ void 登录页面类::启动游戏进程()
 	STARTUPINFO si = { sizeof(STARTUPINFO) };
 	PROCESS_INFORMATION pi;
 
+	// 创建进程后记录进程信息
 	if (CreateProcess(NULL, 命令行.GetBuffer(), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
 	{
-		// 关闭句柄
-		CloseHandle(pi.hProcess);
+		// 记录进程信息
+		m_dwGameProcessId = pi.dwProcessId;
+		m_hGameProcess = pi.hProcess;
+		m_bGameRunning = TRUE;
+
+		// 关闭线程句柄
 		CloseHandle(pi.hThread);
+		// 等待进程完全启动
+		Sleep(2000);
+		// 更新按钮状态
+		更新启动按钮状态();
+
 		命令行.ReleaseBuffer();
 	}
 	else

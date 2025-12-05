@@ -40,6 +40,8 @@ protected:
     afx_msg void OnTimer(UINT_PTR nIDEvent);
     afx_msg LRESULT OnNetworkMessage(WPARAM wParam, LPARAM lParam);
     DECLARE_MESSAGE_MAP()
+    void OnDestroy();
+    void OnClose();
 public:
     // 分页控件变量
     CTabCtrl 分页控件;  // 分页控件变量
@@ -60,6 +62,10 @@ public:
     网络通信类& 获取网络通信() { return 网络通信; }
 
     登录页面类 登录页面;
+    网络通信类 网络通信;         
+
+    LRESULT OnReconnectMessage(WPARAM wParam, LPARAM lParam);  //重新连接
+
 private:
     // 各个页面对象
     
@@ -68,8 +74,6 @@ private:
     加点页面类 加点页面;
     排行榜页面类 排行榜页面;
     注入页面类 注入页面;
-
-    网络通信类 网络通信;          // 网络通信对象
 
     // 页面初始化函数
     BOOL 初始化分页控件();

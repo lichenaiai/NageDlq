@@ -24,6 +24,7 @@ protected:
 	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV 支持
 
 protected:
+	afx_msg void OnBnClickedButtonRelogin();  // 重新连接按钮点击事件
 	DECLARE_MESSAGE_MAP()
 
 public:
@@ -43,7 +44,7 @@ public:
 	CStatic 背景图片;
 
 private:
-	bool 已登录;
+	
 	bool 窗口1280选中状态;
 
 	// 注入相关函数
@@ -58,7 +59,29 @@ private:
 	void 等待并安装窗口大小钩子(const wchar_t* 监控进程名);
 	void 等待并安装IP钩子(const wchar_t* 监控进程名);
 	void 等待并安装UI钩子(const wchar_t* 监控进程名);
+
+	BOOL m_bIsReconnecting;  // 是否正在重新连接
+
+	void 开始重新连接();    // 开始重新连接流程
+	void 结束重新连接();    // 结束重新连接流程
+
+	void OnTimer(UINT_PTR nIDEvent);
+
 public:
+	bool 已登录;
+
 	// 登录页面显示密钥权限状态
 	CStatic 权限状态;
+
+	// 进程检测相关
+	HANDLE m_hGameProcess;      // 游戏进程句柄
+	DWORD m_dwGameProcessId;    // 游戏进程ID
+	BOOL m_bGameRunning;        // 游戏是否正在运行
+	BOOL 检查游戏是否运行();    // 检查游戏进程是否已运行
+	BOOL 关闭游戏进程();        // 关闭游戏进程
+	void 更新启动按钮状态();    // 根据游戏状态更新按钮
+
+	// 公共方法供主对话框调用
+	void 执行重新连接();  // 执行重新连接操作
+	void 退出登录状态();  // 退出当前登录状态
 };

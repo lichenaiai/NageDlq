@@ -898,7 +898,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		else if (客户端请求.Find(_T("GET_CHAR_INFO:")) == 0)
 		{
 			// 获取角色信息 - 格式: GET_CHAR_INFO:username:charname
-			CString 查询数据 = 客户端请求.Mid(14); // 去掉"GET_CHAR_INFO:"
+			CString 查询数据 = 客户端请求.Mid(14); 
 			int 分隔符 = 查询数据.Find(':');
 
 			if (分隔符 != -1)
@@ -918,7 +918,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 
 				// 跨数据库查询：从nage数据库的CharInfo表获取角色详细信息
 				CString 查询语句;
-				查询语句.Format(_T("SELECT baseskill, Lv, lv + relvC AS total_lv, lvpoint, Str, Dex, Esp, Spt FROM nage.dbo.CharInfo WHERE charName = '%s'"), 角色名);
+				查询语句.Format(_T("SELECT baseskill, Lv, lv + relvC AS total_lv, recount, lvpoint, Str, Dex, Esp, Spt FROM nage.dbo.CharInfo WHERE charName = '%s'"), 角色名);
 
 				TRACE(_T("执行角色信息SQL: %s\n"), 查询语句);
 
@@ -928,11 +928,12 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 					retcode = SQLFetch(对话框指针->SQL语句句柄);
 					if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
 					{
-						SQLINTEGER 职业代码, 战斗等级, 累计等级, 剩余点数, 力量, 敏捷, 意念, 灵力;
+						SQLINTEGER 职业代码, 战斗等级, 累计等级, 转生次数, 剩余点数, 力量, 敏捷, 意念, 灵力;
 
 						SQLGetData(对话框指针->SQL语句句柄, 1, SQL_C_LONG, &职业代码, sizeof(职业代码), NULL);
 						SQLGetData(对话框指针->SQL语句句柄, 2, SQL_C_LONG, &战斗等级, sizeof(战斗等级), NULL);
 						SQLGetData(对话框指针->SQL语句句柄, 3, SQL_C_LONG, &累计等级, sizeof(累计等级), NULL);
+						SQLGetData(对话框指针->SQL语句句柄, 4, SQL_C_LONG, &转生次数, sizeof(转生次数), NULL);
 						SQLGetData(对话框指针->SQL语句句柄, 4, SQL_C_LONG, &剩余点数, sizeof(剩余点数), NULL);
 						SQLGetData(对话框指针->SQL语句句柄, 5, SQL_C_LONG, &力量, sizeof(力量), NULL);
 						SQLGetData(对话框指针->SQL语句句柄, 6, SQL_C_LONG, &敏捷, sizeof(敏捷), NULL);
@@ -940,8 +941,8 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 						SQLGetData(对话框指针->SQL语句句柄, 8, SQL_C_LONG, &灵力, sizeof(灵力), NULL);
 
 						CString 响应数据;
-						响应数据.Format(_T("CHAR_INFO:%d:%d:%d:%d:%d:%d:%d:%d"),
-							职业代码, 战斗等级, 累计等级, 剩余点数, 力量, 敏捷, 意念, 灵力);
+						响应数据.Format(_T("CHAR_INFO:%d:%d:%d:%d:%d:%d:%d:%d:%d"),
+							职业代码, 战斗等级, 累计等级, 转生次数, 剩余点数, 力量, 敏捷, 意念, 灵力);
 
 						对话框指针->发送到客户端(客户端套接字, 响应数据);
 						对话框指针->添加信息显示(客户端IP + _T(" 查询角色信息: ") + 角色名);
@@ -1823,10 +1824,15 @@ BOOL NageDlqServerDlg::处理角色转生(const CString& 用户名, const CStrin
 
 			SQLCloseCursor(SQL语句句柄);
 
+			int 需求等级 = 110 + 转生次数 * 10;
+
 			// 检查等级
-			if (当前等级 < 130)
+			if (当前等级 < 需求等级)
 			{
-				添加信息显示(_T("转生失败: 等级不足130"));
+				CString 错误信息;
+				错误信息.Format(_T("转生失败: 等级不足%d级（第%d次转生需要%d级）"),
+					需求等级, 转生次数 + 1, 需求等级);
+				添加信息显示(错误信息);
 				return FALSE;
 			}
 
