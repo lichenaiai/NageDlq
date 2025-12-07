@@ -1,3 +1,4 @@
+// 设置对话框类.cpp
 #include "pch.h"
 #include "framework.h"
 #include "NageDlqServer.h"
@@ -55,6 +56,7 @@ BEGIN_MESSAGE_MAP(设置对话框类, CDialogEx)
 	ON_MESSAGE(WM_USER + 100, &设置对话框类::OnUpdateStatus)
 	ON_WM_ERASEBKGND()
 	ON_WM_DRAWITEM()
+	ON_BN_CLICKED(IDOK, &设置对话框类::OnBnClickedOk)
 END_MESSAGE_MAP()
 
 BOOL 设置对话框类::OnInitDialog()
@@ -65,6 +67,9 @@ BOOL 设置对话框类::OnInitDialog()
 
 	// 设置状态标签为自绘控件
 	连接状态标签.ModifyStyle(0, SS_OWNERDRAW);
+
+	// 更新控件显示（显示已设置的配置）
+	UpdateData(FALSE);
 
 	return TRUE;
 }
@@ -235,4 +240,19 @@ void 设置对话框类::OnBnClickedButtonTestConnection()
 		PostMessage(WM_USER + 100, 0, (LPARAM)错误状态);
 		delete 参数;
 	}
+}
+
+// 保存按钮点击事件处理函数
+void 设置对话框类::OnBnClickedOk()
+{
+	// 从控件更新变量
+	//UpdateData(TRUE);
+
+	if (数据库用户名.IsEmpty() || 数据库名称.IsEmpty())
+	{
+		AfxMessageBox(_T("用户名和数据库名不能为空"), MB_ICONWARNING);
+		return;
+	}
+
+	CDialogEx::OnOK();
 }
