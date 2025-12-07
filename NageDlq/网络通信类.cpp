@@ -317,9 +317,15 @@ void 网络通信类::OnClose(int 错误代码)
     TRACE(_T("连接已关闭\n"));
     连接状态 = FALSE;
 
-    if (回调窗口指针 && 消息回调函数)
+    //if (回调窗口指针 && 消息回调函数)
+    //{
+    //    (回调窗口指针->*消息回调函数)(_T("CONNECTION_CLOSED")); //去除/T前的CString
+    //}
+    if (回调窗口指针 && 回调窗口指针->GetSafeHwnd() && 消息回调函数)
     {
-        (回调窗口指针->*消息回调函数)(_T("CONNECTION_CLOSED")); //去除/T前的CString
+        // 只发送连接关闭消息，不发送其他消息
+        CString* p消息 = new CString(_T("CONNECTION_CLOSED"));
+        ::PostMessage(回调窗口指针->GetSafeHwnd(), WM_USER + 100, 0, (LPARAM)p消息);
     }
 
     CAsyncSocket::OnClose(错误代码);

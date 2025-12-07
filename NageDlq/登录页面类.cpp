@@ -20,7 +20,8 @@ IMPLEMENT_DYNAMIC(登录页面类, CDialogEx)
 	, m_hGameProcess(NULL)
 	, m_dwGameProcessId(0)
 	, m_bGameRunning(FALSE)
-	, m_bIsReconnecting(FALSE)
+	, m_bIsReconnectingClient(FALSE)     // 初始化客户端重新连接标志
+	, m_bIsReconnectingAccount(FALSE)    // 初始化账号重新连接标志
 {
 }
 
@@ -48,7 +49,7 @@ BEGIN_MESSAGE_MAP(登录页面类, CDialogEx)
 	ON_BN_CLICKED(IDC_RE_LOGIN, &登录页面类::OnBnClickedButtonRelogin)	//重新连接按钮
 END_MESSAGE_MAP()
 
-// 修改定时器处理函数（添加重新连接相关处理）
+// 定时器处理函数
 void 登录页面类::OnTimer(UINT_PTR nIDEvent)
 {
 	if (nIDEvent == 100)  // 登录按钮冷却定时器
@@ -56,34 +57,33 @@ void 登录页面类::OnTimer(UINT_PTR nIDEvent)
 		KillTimer(100);
 		登录按钮.EnableWindow(TRUE);
 	}
-	else if (nIDEvent == 101)  // 重新连接定时器
+	else if (nIDEvent == 103)  // 重新连接定时器
 	{
-		KillTimer(101);
+		KillTimer(103);
 
-		TRACE(_T("=== 延迟重新连接网络 ===\n"));
-
-		// 通过主对话框重新初始化网络
+		// 检查连接是否真的成功了
 		CWnd* 主窗口 = AfxGetMainWnd();
 		if (主窗口)
 		{
 			NageDlqDlg* 主对话框 = dynamic_cast<NageDlqDlg*>(主窗口);
-			if (主对话框)
+			if (主对话框 && 主对话框->网络通信.是否已连接())
 			{
-				// 重新初始化网络连接
-				if (主对话框->初始化网络通信())
-				{
-					TRACE(_T("重新连接网络成功\n"));
-					权限状态.SetWindowText(_T("状态：重新连接成功"));
-				}
-				else
-				{
-					TRACE(_T("重新连接网络失败\n"));
-					权限状态.SetWindowText(_T("状态：重新连接失败"));
-				}
+				TRACE(_T("客户端重新连接成功\n"));
+				权限状态.SetWindowText(_T("状态：客户端重新连接成功"));
+			}
+			else
+			{
+				TRACE(_T("客户端连接超时\n"));
+				权限状态.SetWindowText(_T("状态：客户端连接超时，请重试"));
 			}
 		}
 
-		结束重新连接();
+		// 启用重新连接按钮
+		CButton* 重新连接按钮 = (CButton*)GetDlgItem(IDC_RE_LOGIN);
+		if (重新连接按钮)
+			重新连接按钮->EnableWindow(TRUE);
+
+		m_bIsReconnectingClient = FALSE;
 	}
 
 	CDialogEx::OnTimer(nIDEvent);
@@ -151,34 +151,55 @@ void 登录页面类::OnBnClickedButtonLogin()
 	// 防止重复点击
 	登录按钮.EnableWindow(FALSE);
 
-	// 构建登录请求
-	CString 登录请求;
-	登录请求.Format(_T("LOGIN:%s:%s"), 用户名, 密码);
-
-	TRACE(_T("发送登录请求: %s\n"), 登录请求);
-
-	/// 通过主对话框发送请求
+	// 首先确保客户端连接正常
 	CWnd* 主窗口 = AfxGetMainWnd();
 	if (主窗口)
 	{
 		NageDlqDlg* 主对话框 = dynamic_cast<NageDlqDlg*>(主窗口);
-		if (主对话框 && 主对话框->发送请求到服务端(登录请求))
+		if (主对话框)
 		{
-			TRACE(_T("登录请求发送成功\n"));
-			// 3秒后重新启用按钮，防止重复发送
-			SetTimer(100, 3000, nullptr);
-		}
-		else
-		{
-			TRACE(_T("发送登录请求失败\n"));
-			MessageBox(_T("发送登录请求失败"), _T("错误"), MB_ICONERROR);
-			登录按钮.EnableWindow(TRUE);
+			// 检查客户端连接状态
+			if (!主对话框->网络通信.是否已连接())
+			{
+				TRACE(_T("客户端未连接，先建立连接\n"));
+				权限状态.SetWindowText(_T("状态：正在连接服务器..."));
+
+				// 尝试建立客户端连接
+				if (主对话框->初始化网络通信())
+				{
+					// 等待连接建立（最多等待3秒）
+					int 等待次数 = 0;
+					while (!主对话框->网络通信.是否已连接() && 等待次数 < 30)
+					{
+						Sleep(100);
+						等待次数++;
+					}
+
+					if (!主对话框->网络通信.是否已连接())
+					{
+						TRACE(_T("客户端连接超时\n"));
+						MessageBox(_T("连接服务器超时，请重试"), _T("错误"), MB_ICONERROR);
+						登录按钮.EnableWindow(TRUE);
+						return;
+					}
+				}
+				else
+				{
+					TRACE(_T("客户端连接失败\n"));
+					MessageBox(_T("连接服务器失败，请检查网络"), _T("错误"), MB_ICONERROR);
+					登录按钮.EnableWindow(TRUE);
+					return;
+				}
+			}
+
+			// 客户端连接正常，发送登录请求
+			TRACE(_T("客户端连接正常，发送登录请求\n"));
+			执行重新连接账号();  // 使用账号重新连接函数
 		}
 	}
-	else
-	{
-		登录按钮.EnableWindow(TRUE);
-	}
+
+	// 3秒后重新启用按钮，防止重复发送
+	SetTimer(100, 3000, nullptr);
 }
 
 // 重新连接按钮点击事件处理
@@ -187,66 +208,117 @@ void 登录页面类::OnBnClickedButtonRelogin()
 	TRACE(_T("=== 点击重新连接按钮 ===\n"));
 
 	// 防止重复点击
-	if (m_bIsReconnecting)
+	if (m_bIsReconnectingClient)
 	{
-		TRACE(_T("正在重新连接中，请稍候...\n"));
+		TRACE(_T("客户端重新连接中，请稍候...\n"));
 		return;
 	}
 
-	// 退出当前登录状态
-	if (已登录)
-	{
-		退出登录状态();
-	}
-
-	// 开始重新连接流程
-	开始重新连接();
+	// 开始客户端重新连接流程
+	执行重新连接客户端();
 }
 
-// 执行重新连接方法
-void 登录页面类::执行重新连接()
+// 执行客户端重新连接（只重新连接客户端到服务端，不影响账号登录状态）
+void 登录页面类::执行重新连接客户端()
 {
-	TRACE(_T("=== 执行重新连接 ===\n"));
+	TRACE(_T("=== 开始执行客户端重新连接 ===\n"));
 
-	OnBnClickedButtonRelogin();
-}
+	m_bIsReconnectingClient = TRUE;
 
-// 开始重新连接方法
-void 登录页面类::开始重新连接()
-{
-	m_bIsReconnecting = TRUE;
-
-	// 禁用相关按钮防止重复操作
-	CWnd* 重新连接按钮 = GetDlgItem(IDC_RE_LOGIN);
+	// 禁用重新连接按钮防止重复操作
+	CButton* 重新连接按钮 = (CButton*)GetDlgItem(IDC_RE_LOGIN);
 	if (重新连接按钮)
 		重新连接按钮->EnableWindow(FALSE);
 
 	// 更新状态显示
-	CString 状态文本 = _T("状态：重新连接中...");
+	CString 状态文本 = _T("状态：客户端重新连接中...");
 	权限状态.SetWindowText(状态文本);
-	TRACE(_T("设置状态为重新连接中...\n"));
+	TRACE(_T("设置状态为客户端重新连接中...\n"));
 
-	// 通过主对话框重新初始化网络连接
+	// 通过主对话框重新初始化网络
 	CWnd* 主窗口 = AfxGetMainWnd();
 	if (主窗口)
 	{
 		NageDlqDlg* 主对话框 = dynamic_cast<NageDlqDlg*>(主窗口);
 		if (主对话框)
 		{
-			// 关闭现有连接
+			// 1. 关闭现有连接
 			if (主对话框->网络通信.是否已连接())
 			{
 				TRACE(_T("关闭现有网络连接\n"));
 				主对话框->网络通信.关闭连接();
 			}
 
-			// 延迟执行重新连接（避免阻塞UI）
-			SetTimer(101, 500, nullptr);
+			// 2. 重新初始化网络连接（重点：只重新建立客户端连接）
+			TRACE(_T("开始重新初始化网络连接\n"));
+
+			// 直接调用主对话框的初始化网络通信
+			if (主对话框->初始化网络通信())
+			{
+				TRACE(_T("客户端重新连接网络成功\n"));
+				权限状态.SetWindowText(_T("状态：客户端重新连接成功，等待服务器响应..."));
+
+				// 设置一个定时器检查连接状态（3秒后）
+				SetTimer(103, 3000, nullptr);
+			}
+			else
+			{
+				TRACE(_T("客户端重新连接网络失败\n"));
+				权限状态.SetWindowText(_T("状态：客户端重新连接失败"));
+
+				// 启用重新连接按钮
+				if (重新连接按钮)
+					重新连接按钮->EnableWindow(TRUE);
+
+				m_bIsReconnectingClient = FALSE;
+			}
 		}
 	}
-	else
+}
+
+// 执行账号重新连接（用于登录按钮中的重新连接逻辑）
+void 登录页面类::执行重新连接账号()
+{
+	TRACE(_T("=== 开始执行账号重新连接 ===\n"));
+
+	m_bIsReconnectingAccount = TRUE;
+
+	// 获取用户名和密码
+	CString 用户名;
+	CString 密码;
+	用户名编辑框.GetWindowText(用户名);
+	密码编辑框.GetWindowText(密码);
+
+	// 检查是否已有账号信息
+	if (用户名.IsEmpty() || 密码.IsEmpty())
 	{
-		结束重新连接();
+		TRACE(_T("账号或密码为空，无法重新连接\n"));
+		m_bIsReconnectingAccount = FALSE;
+		return;
+	}
+
+	// 构建登录请求
+	CString 登录请求;
+	登录请求.Format(_T("LOGIN:%s:%s"), 用户名, 密码);
+
+	TRACE(_T("发送账号重新登录请求: %s\n"), 登录请求);
+
+	// 通过主对话框发送请求
+	CWnd* 主窗口 = AfxGetMainWnd();
+	if (主窗口)
+	{
+		NageDlqDlg* 主对话框 = dynamic_cast<NageDlqDlg*>(主窗口);
+		if (主对话框 && 主对话框->发送请求到服务端(登录请求))
+		{
+			TRACE(_T("账号重新登录请求发送成功\n"));
+			权限状态.SetWindowText(_T("状态：账号重新登录中..."));
+		}
+		else
+		{
+			TRACE(_T("发送账号重新登录请求失败\n"));
+			权限状态.SetWindowText(_T("状态：账号重新登录失败"));
+			m_bIsReconnectingAccount = FALSE;
+		}
 	}
 }
 
@@ -270,19 +342,6 @@ void 登录页面类::退出登录状态()
 
 		TRACE(_T("已退出登录状态\n"));
 	}
-}
-
-// 结束重新连接方法
-void 登录页面类::结束重新连接()
-{
-	m_bIsReconnecting = FALSE;
-
-	// 启用重新连接按钮
-	CWnd* 重新连接按钮 = GetDlgItem(IDC_RE_LOGIN);
-	if (重新连接按钮)
-		重新连接按钮->EnableWindow(TRUE);
-
-	TRACE(_T("重新连接流程结束\n"));
 }
 
 // 点击启动按钮
@@ -428,6 +487,14 @@ void 登录页面类::处理登录响应(const CString& 响应数据)
 		// 更新登录按钮状态
 		登录按钮.EnableWindow(FALSE);
 		登录按钮.SetWindowText(_T("已登录"));
+
+		// 更新状态显示
+		CString 状态文本;
+		状态文本.Format(_T("状态：已登录（用户: %s）"), 获取当前用户名());
+		权限状态.SetWindowText(状态文本);
+
+		// 重置重新连接标志
+		m_bIsReconnectingAccount = FALSE;
 	}
 	else if (响应数据.Find(_T("LOGIN_FAILED")) == 0)
 	{
@@ -438,7 +505,21 @@ void 登录页面类::处理登录响应(const CString& 响应数据)
 		// 重置登录按钮状态
 		登录按钮.EnableWindow(TRUE);
 		登录按钮.SetWindowText(_T("登录"));
+
+		// 更新状态显示
+		权限状态.SetWindowText(_T("状态：登录失败"));
+
+		// 重置重新连接标志
+		m_bIsReconnectingAccount = FALSE;
 	}
+}
+
+// 获取当前输入的用户名
+CString 登录页面类::获取当前用户名()
+{
+	CString 用户名;
+	用户名编辑框.GetWindowText(用户名);
+	return 用户名;
 }
 
 // 注入IP修改代码

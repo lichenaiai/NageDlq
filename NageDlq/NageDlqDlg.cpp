@@ -295,7 +295,7 @@ LRESULT NageDlqDlg::OnReconnectMessage(WPARAM wParam, LPARAM lParam)
 	TRACE(_T("=== 收到重新连接消息 ===\n"));
 
 	// 执行重新连接
-	登录页面.执行重新连接();
+	登录页面.执行重新连接客户端();
 
 	return 0;
 }
@@ -362,17 +362,6 @@ void NageDlqDlg::处理网络消息(CString 消息)
 		if (登录页面.已登录)
 		{
 			登录页面.权限状态.SetWindowText(_T("状态：已登录（连接断开）"));
-		}
-
-		// 通知用户
-		CString 提示信息;
-		提示信息.Format(_T("与服务器的连接已断开，请点击重新连接按钮尝试重新连接。"));
-
-		// 只在当前是登录页面时显示提示
-		int 当前选中页 = 分页控件.GetCurSel();
-		if (当前选中页 == 0)  // 登录页面
-		{
-			MessageBox(提示信息, _T("连接断开"), MB_ICONINFORMATION);
 		}
 	}
 

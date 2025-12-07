@@ -28,6 +28,7 @@ public:
 	afx_msg void OnBnClickedButtonTestConnection();
 	afx_msg LRESULT OnUpdateStatus(WPARAM wParam, LPARAM lParam);
 
+	void OnBnClickedOk();
 private:
 	// 控件变量
 	CEdit 数据库用户编辑框;

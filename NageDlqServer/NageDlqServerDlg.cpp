@@ -119,11 +119,13 @@ BOOL NageDlqServerDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
 
+	加载配置();
+
 	// 设置初始状态
 	停止服务器按钮.EnableWindow(FALSE);
 	推送登录器更新按钮.EnableWindow(FALSE);
 	推送HOOK更新按钮.EnableWindow(FALSE);
-
+	停止转发按钮.EnableWindow(FALSE);
 
 	// 初始化Winsock
 	WSADATA wsaData;
@@ -137,11 +139,7 @@ BOOL NageDlqServerDlg::OnInitDialog()
 	// 只初始化界面，不加载数据
 	初始化端口转发界面();
 
-	// 延迟加载数据 - 只调用一次
-	//PostMessage(WM_USER + 100, 0, 0);
-	
 	// 立即加载配置，不依赖延迟消息
-	TRACE(_T("=== 立即加载端口转发配置 ===\n"));
 	if (加载端口转发配置())
 	{
 		TRACE(_T("配置加载成功\n"));
@@ -330,8 +328,10 @@ void NageDlqServerDlg::OnBnClickedButtonSettings()
 	设置对话框.数据库密码 = 数据库密码;
 	设置对话框.数据库名称 = 数据库名称;
 
+	// 显示模态对话框
 	if (设置对话框.DoModal() == IDOK)
 	{
+		// 获取新的配置
 		数据库用户名 = 设置对话框.数据库用户名;
 		数据库密码 = 设置对话框.数据库密码;
 		数据库名称 = 设置对话框.数据库名称;
@@ -1368,27 +1368,28 @@ BOOL NageDlqServerDlg::加载配置()
 		DWORD dwSize = 256;
 		TCHAR szValue[256];
 		
+		dwSize = sizeof(szValue);
 		if (RegQueryValueEx(hKey, _T("DBUser"), NULL, &dwType, (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS)
 		{
 			数据库用户名 = szValue;
 		}
 		
-		dwSize = 256;
+		dwSize = sizeof(szValue);
 		if (RegQueryValueEx(hKey, _T("DBPassword"), NULL, &dwType, (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS)
 		{
 			数据库密码 = szValue;
 		}
 		
-		dwSize = 256;
+		dwSize = sizeof(szValue);
 		if (RegQueryValueEx(hKey, _T("DBName"), NULL, &dwType, (LPBYTE)szValue, &dwSize) == ERROR_SUCCESS)
 		{
 			数据库名称 = szValue;
 		}
 		
 		RegCloseKey(hKey);
+		return TRUE;
 	}
-	
-	return TRUE;
+	return FALSE;
 }
 
 // 保存配置
@@ -1446,6 +1447,7 @@ int NageDlqServerDlg::获取连接数量()
 // 添加信息显示
 void NageDlqServerDlg::添加信息显示(const CString& 信息)
 {
+	// 使用完整的时间格式，包含日期和时间
 	CString 时间信息 = CTime::GetCurrentTime().Format(_T("%H:%M:%S"));
 	CString 完整信息 = 时间信息 + _T(" - ") + 信息;
 
@@ -1453,8 +1455,16 @@ void NageDlqServerDlg::添加信息显示(const CString& 信息)
 	CListBox* pListBox = (CListBox*)GetDlgItem(IDC_EDIT_INFO);
 	if (pListBox)
 	{
-		pListBox->AddString(完整信息);
-		pListBox->SetCurSel(pListBox->GetCount() - 1); // 滚动到最后
+		// 始终在末尾添加，使用SetCurSel确保滚动到最后
+		int 索引 = pListBox->AddString(完整信息);
+		pListBox->SetCurSel(索引); // 滚动到最新添加的项目
+
+		// 如果项目太多，删除最旧的项目,保持最多200条
+		const int 最大消息数量 = 200;
+		while (pListBox->GetCount() > 最大消息数量)
+		{
+			pListBox->DeleteString(0); // 删除最旧的消息
+		}
 	}
 
 	// 写入日志文件

@@ -60,10 +60,11 @@ private:
 	void 等待并安装IP钩子(const wchar_t* 监控进程名);
 	void 等待并安装UI钩子(const wchar_t* 监控进程名);
 
-	BOOL m_bIsReconnecting;  // 是否正在重新连接
+	
 
-	void 开始重新连接();    // 开始重新连接流程
-	void 结束重新连接();    // 结束重新连接流程
+	// 状态变量
+	BOOL m_bIsReconnectingClient;    // 客户端重新连接标志
+	BOOL m_bIsReconnectingAccount;   // 账号重新连接标志
 
 	void OnTimer(UINT_PTR nIDEvent);
 
@@ -81,7 +82,11 @@ public:
 	BOOL 关闭游戏进程();        // 关闭游戏进程
 	void 更新启动按钮状态();    // 根据游戏状态更新按钮
 
-	// 公共方法供主对话框调用
-	void 执行重新连接();  // 执行重新连接操作
+	// 重新连接相关方法
+	void 执行重新连接客户端();
+	void 执行重新连接账号();
+
 	void 退出登录状态();  // 退出当前登录状态
+
+	CString 获取当前用户名();
 };
