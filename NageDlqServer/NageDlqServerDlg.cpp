@@ -505,7 +505,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 
 	// 记录最后活动时间，用于超时检测
 	DWORD 最后活动时间 = GetTickCount();
-	const DWORD 连接超时时间 = 3000; // 30秒超时
+	const DWORD 连接超时时间 = 30000; // 5分钟超时
 
 	// 持续处理客户端请求
 	while (对话框指针->服务器运行状态)
@@ -514,7 +514,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		DWORD 当前时间 = GetTickCount();
 		if (当前时间 - 最后活动时间 > 连接超时时间)
 		{
-			TRACE(_T("客户端 %s 连接超时（30秒无活动）\n"), 客户端IP);
+			TRACE(_T("客户端 %s 连接超时（5分钟无活动）\n"), 客户端IP);
 			对话框指针->添加信息显示(客户端IP + _T(" 连接超时，自动断开"));
 			break;
 		}
@@ -1789,7 +1789,7 @@ void NageDlqServerDlg::获取职业初始属性(int 职业代码, int 累计等�
 	}
 
 	// 计算点数
-	lvpoint = 累计等级 * 3 - 3;
+	lvpoint = 累计等级 * 1 - 1;
 	relvC = 累计等级;
 }
 
@@ -1890,7 +1890,7 @@ BOOL NageDlqServerDlg::处理角色转生(const CString& 用户名, const CStrin
 			CString 更新语句;
 			更新语句.Format(_T("UPDATE CharInfo SET Lv = %d, Exp = %d, HP = %d, SP = %d, STM = %d, ")
 				_T("Str = %d, Dex = %d, Esp = %d, Spt = %d, cmap = %d, lvpoint = %d, ")
-				_T("relvC = %d, relvCtime = GETDATE(), recount = %d WHERE charName = '%s'"),
+				_T("relvC = %d, relvCtime = GETDATE(), recount = %d, Hero = 0 WHERE charName = '%s'"),
 				Lv, Exp, HP, SP, STM, Str, Dex, Esp, Spt, cmap, lvpoint, relvC, 转生次数 + 1, 角色名);
 
 			retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)更新语句.GetString(), SQL_NTS);

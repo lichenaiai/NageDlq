@@ -1,5 +1,4 @@
-﻿
-// NageDlq.cpp: 定义应用程序的类行为。
+﻿// NageDlq.cpp: 定义应用程序的类行为。
 //
 
 #include "pch.h"
@@ -11,11 +10,66 @@
 #define new DEBUG_NEW
 #endif
 
+// 全局互斥体句柄
+HANDLE g_hSingleInstanceMutex = NULL;
+
+// 单例检测函数实现
+BOOL IsAlreadyRunning()
+{
+    // 创建互斥体，使用唯一的名称
+    g_hSingleInstanceMutex = CreateMutex(NULL, TRUE, _T("NageDlq_SingleInstance_Mutex_By_Client"));
+
+    if (GetLastError() == ERROR_ALREADY_EXISTS)
+    {
+        // 已经有一个实例在运行
+        if (g_hSingleInstanceMutex != NULL)
+        {
+            CloseHandle(g_hSingleInstanceMutex);
+            g_hSingleInstanceMutex = NULL;
+        }
+
+        // 查找并激活已存在的窗口
+        // 尝试不同的窗口标题
+        HWND hWnd = FindWindow(NULL, _T("震撼美丽登录器"));
+        if (hWnd == NULL)
+        {
+            hWnd = FindWindow(NULL, _T("NageDlq"));
+        }
+
+        if (hWnd != NULL)
+        {
+            // 如果窗口最小化，恢复它
+            if (IsIconic(hWnd))
+            {
+                ShowWindow(hWnd, SW_RESTORE);
+            }
+            // 激活窗口并置于前台
+            SetForegroundWindow(hWnd);
+            BringWindowToTop(hWnd);
+        }
+
+        return TRUE;
+    }
+
+    // 互斥体创建成功，这是第一个实例
+    return FALSE;
+}
+
+// 释放互斥体
+void ReleaseSingletonMutex()
+{
+    if (g_hSingleInstanceMutex != NULL)
+    {
+        ReleaseMutex(g_hSingleInstanceMutex);
+        CloseHandle(g_hSingleInstanceMutex);
+        g_hSingleInstanceMutex = NULL;
+    }
+}
 
 // CNageDlqApp
 
 BEGIN_MESSAGE_MAP(CNageDlqApp, CWinApp)
-	ON_COMMAND(ID_HELP, &CWinApp::OnHelp)
+    ON_COMMAND(ID_HELP, &CWinApp::OnHelp)
 END_MESSAGE_MAP()
 
 
@@ -23,8 +77,8 @@ END_MESSAGE_MAP()
 
 CNageDlqApp::CNageDlqApp()
 {
-	// TODO: 在此处添加构造代码，
-	// 将所有重要的初始化放置在 InitInstance 中
+    // TODO: 在此处添加构造代码，
+    // 将所有重要的初始化放置在 InitInstance 中
 }
 
 
@@ -37,74 +91,80 @@ CNageDlqApp theApp;
 
 BOOL CNageDlqApp::InitInstance()
 {
-	// 如果一个运行在 Windows XP 上的应用程序清单指定要
-	// 使用 ComCtl32.dll 版本 6 或更高版本来启用可视化方式，
-	//则需要 InitCommonControlsEx()。  否则，将无法创建窗口。
-	INITCOMMONCONTROLSEX InitCtrls;
-	InitCtrls.dwSize = sizeof(InitCtrls);
-	// 将它设置为包括所有要在应用程序中使用的
-	// 公共控件类。
-	InitCtrls.dwICC = ICC_WIN95_CLASSES;
-	InitCommonControlsEx(&InitCtrls);
+    // 单例检测 - 确保只运行一个实例
+    if (IsAlreadyRunning())
+    {
+        AfxMessageBox(_T("登录器已经在运行中！"), MB_OK | MB_ICONINFORMATION);
+        return FALSE; // 退出当前实例
+    }
 
-	CWinApp::InitInstance();
+    INITCOMMONCONTROLSEX InitCtrls;
+    InitCtrls.dwSize = sizeof(InitCtrls);
+    // 将它设置为包括所有要在应用程序中使用的
+    // 公共控件类。
+    InitCtrls.dwICC = ICC_WIN95_CLASSES;
+    InitCommonControlsEx(&InitCtrls);
 
-	if (!AfxSocketInit())
-	{
-		AfxMessageBox(IDP_SOCKETS_INIT_FAILED);
-		return FALSE;
-	}
+    CWinApp::InitInstance();
+
+    if (!AfxSocketInit())
+    {
+        AfxMessageBox(IDP_SOCKETS_INIT_FAILED);
+        ReleaseSingletonMutex(); // 释放互斥体
+        return FALSE;
+    }
 
 
-	AfxEnableControlContainer();
+    AfxEnableControlContainer();
 
-	// 创建 shell 管理器，以防对话框包含
-	// 任何 shell 树视图控件或 shell 列表视图控件。
-	CShellManager *pShellManager = new CShellManager;
+    // 任何 shell 树视图控件或 shell 列表视图控件。
+    CShellManager* pShellManager = new CShellManager;
 
-	// 激活“Windows Native”视觉管理器，以便在 MFC 控件中启用主题
-	CMFCVisualManager::SetDefaultManager(RUNTIME_CLASS(CMFCVisualManagerWindows));
+    // 激活"Windows Native"视觉管理器，以便在 MFC 控件中启用主题
+    CMFCVisualManager::SetDefaultManager(RUNTIME_CLASS(CMFCVisualManagerWindows));
 
-	// 标准初始化
-	// 如果未使用这些功能并希望减小
-	// 最终可执行文件的大小，则应移除下列
-	// 不需要的特定初始化例程
-	// 更改用于存储设置的注册表项
-	// TODO: 应适当修改该字符串，
-	// 例如修改为公司或组织名
-	SetRegistryKey(_T("应用程序向导生成的本地应用程序"));
 
-	NageDlqDlg dlg;
-	m_pMainWnd = &dlg;
-	INT_PTR nResponse = dlg.DoModal();
-	if (nResponse == IDOK)
-	{
-		// TODO: 在此放置处理何时用
-		//  “确定”来关闭对话框的代码
-	}
-	else if (nResponse == IDCANCEL)
-	{
-		// TODO: 在此放置处理何时用
-		//  “取消”来关闭对话框的代码
-	}
-	else if (nResponse == -1)
-	{
-		TRACE(traceAppMsg, 0, "警告: 对话框创建失败，应用程序将意外终止。\n");
-		TRACE(traceAppMsg, 0, "警告: 如果您在对话框上使用 MFC 控件，则无法 #define _AFX_NO_MFC_CONTROLS_IN_DIALOGS。\n");
-	}
+    SetRegistryKey(_T("应用程序向导生成的本地应用程序"));
 
-	// 删除上面创建的 shell 管理器。
-	if (pShellManager != nullptr)
-	{
-		delete pShellManager;
-	}
+    NageDlqDlg dlg;
+    m_pMainWnd = &dlg;
+
+    INT_PTR nResponse = dlg.DoModal();
+    if (nResponse == IDOK)
+    {
+        // TODO: 在此放置处理何时用
+        //  "确定"来关闭对话框的代码
+    }
+    else if (nResponse == IDCANCEL)
+    {
+        // TODO: 在此放置处理何时用
+        //  "取消"来关闭对话框的代码
+    }
+    else if (nResponse == -1)
+    {
+        TRACE(traceAppMsg, 0, "警告: 对话框创建失败，应用程序将意外终止。\n");
+        TRACE(traceAppMsg, 0, "警告: 如果您在对话框上使用 MFC 控件，则无法 #define _AFX_NO_MFC_CONTROLS_IN_DIALOGS。\n");
+    }
+
+    if (pShellManager != nullptr)
+    {
+        delete pShellManager;
+    }
 
 #if !defined(_AFXDLL) && !defined(_AFX_NO_MFC_CONTROLS_IN_DIALOGS)
-	ControlBarCleanUp();
+    ControlBarCleanUp();
 #endif
 
-	// 由于对话框已关闭，所以将返回 FALSE 以便退出应用程序，
-	//  而不是启动应用程序的消息泵。
-	return FALSE;
+    // 由于对话框已关闭，所以将返回 FALSE 以便退出应用程序，
+    //  而不是启动应用程序的消息泵。
+    return FALSE;
 }
 
+// 退出实例时释放资源
+int CNageDlqApp::ExitInstance()
+{
+    // 释放互斥体
+    ReleaseSingletonMutex();
+
+    return CWinApp::ExitInstance();
+}

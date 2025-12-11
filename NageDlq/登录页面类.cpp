@@ -5,6 +5,7 @@
 #include "登录页面类.h"
 #include "afxdialogex.h"
 #include "NageDlqDlg.h"
+#include <vector>
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -17,11 +18,11 @@ IMPLEMENT_DYNAMIC(登录页面类, CDialogEx)
 	: CDialogEx(IDD_PAGE_LOGIN, pParent)
 	, 已登录(false)
 	, 窗口1280选中状态(true)  // 默认选中
-	, m_hGameProcess(NULL)
-	, m_dwGameProcessId(0)
-	, m_bGameRunning(FALSE)
-	, m_bIsReconnectingClient(FALSE)     // 初始化客户端重新连接标志
-	, m_bIsReconnectingAccount(FALSE)    // 初始化账号重新连接标志
+	, 游戏进程句柄(NULL)
+	, 游戏进程ID(0)
+	, 游戏运行中(FALSE)
+	, 客户端重新连接标志(FALSE)     // 初始化客户端重新连接标志
+	, 账号重新连接标志(FALSE)    // 初始化账号重新连接标志
 {
 }
 
@@ -47,6 +48,7 @@ BEGIN_MESSAGE_MAP(登录页面类, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_LOGIN, &登录页面类::OnBnClickedButtonLogin)	//::点击登录按钮
 	ON_BN_CLICKED(IDC_BUTTON_START, &登录页面类::OnBnClickedButtonStart)	//::点击启动按钮
 	ON_BN_CLICKED(IDC_RE_LOGIN, &登录页面类::OnBnClickedButtonRelogin)	//重新连接按钮
+	ON_WM_TIMER()  // 定时器消息处理
 END_MESSAGE_MAP()
 
 // 定时器处理函数
@@ -57,7 +59,7 @@ void 登录页面类::OnTimer(UINT_PTR nIDEvent)
 		KillTimer(100);
 		登录按钮.EnableWindow(TRUE);
 	}
-	else if (nIDEvent == 103)  // 重新连接定时器
+	else if (nIDEvent == 103)  // 重新连接超时定时器
 	{
 		KillTimer(103);
 
@@ -70,33 +72,70 @@ void 登录页面类::OnTimer(UINT_PTR nIDEvent)
 			{
 				TRACE(_T("客户端重新连接成功\n"));
 				权限状态.SetWindowText(_T("状态：客户端重新连接成功"));
+
+				// 连接成功，按钮保持禁用状态
+				启用重新连接按钮(FALSE);
 			}
 			else
 			{
 				TRACE(_T("客户端连接超时\n"));
 				权限状态.SetWindowText(_T("状态：客户端连接超时，请重试"));
+
+				// 连接超时，重新启用按钮
+				启用重新连接按钮(TRUE);
 			}
 		}
+		else
+		{
+			// 主窗口不存在，重新启用按钮
+			启用重新连接按钮(TRUE);
+		}
 
-		// 启用重新连接按钮
-		CButton* 重新连接按钮 = (CButton*)GetDlgItem(IDC_RE_LOGIN);
-		if (重新连接按钮)
-			重新连接按钮->EnableWindow(TRUE);
-
-		m_bIsReconnectingClient = FALSE;
+		客户端重新连接标志 = FALSE;
+	}
+	else if (nIDEvent == 104)  // 心跳检测定时器（每10秒检查一次连接状态）
+	{
+		CWnd* 主窗口 = AfxGetMainWnd();
+		if (主窗口)
+		{
+			NageDlqDlg* 主对话框 = dynamic_cast<NageDlqDlg*>(主窗口);
+			if (主对话框)
+			{
+				if (!主对话框->网络通信.是否已连接())
+				{
+					// 连接断开，启用重新连接按钮
+					启用重新连接按钮(TRUE);
+					权限状态.SetWindowText(_T("状态：连接已断开"));
+				}
+			}
+		}
 	}
 
 	CDialogEx::OnTimer(nIDEvent);
+}
+
+// 启用或禁用重新连接按钮
+void 登录页面类::启用重新连接按钮(BOOL 启用)
+{
+	CButton* 重新连接按钮 = (CButton*)GetDlgItem(IDC_RE_LOGIN);
+	if (重新连接按钮)
+	{
+		重新连接按钮->EnableWindow(启用);
+		if (启用)
+		{
+			重新连接按钮->SetWindowText(_T("重新连接"));
+		}
+		else
+		{
+			重新连接按钮->SetWindowText(_T("已连接"));
+		}
+	}
 }
 
 // 初始化对话框
 BOOL 登录页面类::OnInitDialog()		
 {
 	CDialogEx::OnInitDialog();
-
-	// 检查游戏是否已运行
-	检查游戏是否运行();
-	更新启动按钮状态();
 
 	// 设置密码编辑框为密码模式
 	密码编辑框.SetPasswordChar('*');
@@ -128,6 +167,11 @@ BOOL 登录页面类::OnInitDialog()
 		TRACE(_T("加载背景图片失败\n"));
 	}
 	
+	// 初始化重新连接按钮状态
+	启用重新连接按钮(FALSE);  // 初始时禁用，因为没有连接
+
+	// 启动心跳检测
+	SetTimer(104, 10000, nullptr);  // 每10秒检测一次连接状态
 
 	return TRUE;
 }
@@ -182,6 +226,8 @@ void 登录页面类::OnBnClickedButtonLogin()
 						登录按钮.EnableWindow(TRUE);
 						return;
 					}
+					// 连接成功，禁用重新连接按钮
+					启用重新连接按钮(FALSE);
 				}
 				else
 				{
@@ -208,7 +254,7 @@ void 登录页面类::OnBnClickedButtonRelogin()
 	TRACE(_T("=== 点击重新连接按钮 ===\n"));
 
 	// 防止重复点击
-	if (m_bIsReconnectingClient)
+	if (客户端重新连接标志)
 	{
 		TRACE(_T("客户端重新连接中，请稍候...\n"));
 		return;
@@ -223,12 +269,10 @@ void 登录页面类::执行重新连接客户端()
 {
 	TRACE(_T("=== 开始执行客户端重新连接 ===\n"));
 
-	m_bIsReconnectingClient = TRUE;
+	客户端重新连接标志 = TRUE;
 
 	// 禁用重新连接按钮防止重复操作
-	CButton* 重新连接按钮 = (CButton*)GetDlgItem(IDC_RE_LOGIN);
-	if (重新连接按钮)
-		重新连接按钮->EnableWindow(FALSE);
+	启用重新连接按钮(FALSE);
 
 	// 更新状态显示
 	CString 状态文本 = _T("状态：客户端重新连接中...");
@@ -267,10 +311,9 @@ void 登录页面类::执行重新连接客户端()
 				权限状态.SetWindowText(_T("状态：客户端重新连接失败"));
 
 				// 启用重新连接按钮
-				if (重新连接按钮)
-					重新连接按钮->EnableWindow(TRUE);
+				启用重新连接按钮(TRUE);
 
-				m_bIsReconnectingClient = FALSE;
+				客户端重新连接标志 = FALSE;
 			}
 		}
 	}
@@ -281,7 +324,7 @@ void 登录页面类::执行重新连接账号()
 {
 	TRACE(_T("=== 开始执行账号重新连接 ===\n"));
 
-	m_bIsReconnectingAccount = TRUE;
+	账号重新连接标志 = TRUE;
 
 	// 获取用户名和密码
 	CString 用户名;
@@ -293,7 +336,7 @@ void 登录页面类::执行重新连接账号()
 	if (用户名.IsEmpty() || 密码.IsEmpty())
 	{
 		TRACE(_T("账号或密码为空，无法重新连接\n"));
-		m_bIsReconnectingAccount = FALSE;
+		账号重新连接标志 = FALSE;
 		return;
 	}
 
@@ -317,7 +360,7 @@ void 登录页面类::执行重新连接账号()
 		{
 			TRACE(_T("发送账号重新登录请求失败\n"));
 			权限状态.SetWindowText(_T("状态：账号重新登录失败"));
-			m_bIsReconnectingAccount = FALSE;
+			账号重新连接标志 = FALSE;
 		}
 	}
 }
@@ -347,11 +390,12 @@ void 登录页面类::退出登录状态()
 // 点击启动按钮
 void 登录页面类::OnBnClickedButtonStart()		
 {
-	// 检查游戏是否已经运行
-	if (检查游戏是否运行())
+	// 立即禁用按钮，防止重复点击
+	CButton* p启动按钮 = (CButton*)GetDlgItem(IDC_BUTTON_START);
+	if (p启动按钮)
 	{
-		MessageBox(_T("游戏已经在运行中，请勿重复启动！"), _T("提示"), MB_ICONWARNING);
-		return;
+		p启动按钮->EnableWindow(FALSE);
+		p启动按钮->SetWindowText(_T("游戏启动中..."));
 	}
 
 	// 更新成员变量状态
@@ -370,110 +414,46 @@ void 登录页面类::OnBnClickedButtonStart()
 	// 启动游戏
 	启动游戏进程();
 
-	// 更新按钮状态
-	更新启动按钮状态();
-}
-
-// 检查游戏是否运行的方法
-BOOL 登录页面类::检查游戏是否运行()
-{
-	m_bGameRunning = FALSE;
-	m_dwGameProcessId = 0;
-	m_hGameProcess = NULL;
-
-	// 获取进程ID
-	DWORD pid = 获取进程ID(L"nage.bin");
-
-	if (pid > 0)
-	{
-		// 打开进程
-		HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | SYNCHRONIZE, FALSE, pid);
-		if (hProcess != NULL)
-		{
-			DWORD exitCode;
-			if (GetExitCodeProcess(hProcess, &exitCode) && exitCode == STILL_ACTIVE)
-			{
-				m_bGameRunning = TRUE;
-				m_dwGameProcessId = pid;
-				m_hGameProcess = hProcess;
-				TRACE(_T("检测到游戏进程正在运行，PID: %d\n"), pid);
-			}
-			else
-			{
-				CloseHandle(hProcess);
-			}
-		}
-	}
-
-	return m_bGameRunning;
+	// 设置游戏运行标志
+	游戏运行中 = TRUE;
 }
 
 // 关闭游戏进程的方法
 BOOL 登录页面类::关闭游戏进程()
 {
-	if (!m_bGameRunning || m_dwGameProcessId == 0)
-		return TRUE;
+	游戏运行中 = FALSE;
 
-	TRACE(_T("开始关闭游戏进程，PID: %d\n"), m_dwGameProcessId);
+	// 直接终止游戏进程，不做检测
+	HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if (hProcessSnap == INVALID_HANDLE_VALUE)
+	{
+		return FALSE;
+	}
 
-	// 方法1: 优雅关闭 - 发送关闭消息
-	HWND hGameWnd = NULL;
-	do {
-		hGameWnd = ::FindWindow(NULL, L"美丽世界");  // 游戏窗口标题
-		if (hGameWnd)
+	PROCESSENTRY32 pe32;
+	pe32.dwSize = sizeof(PROCESSENTRY32);
+
+	BOOL bFound = FALSE;
+	if (Process32First(hProcessSnap, &pe32))
+	{
+		do
 		{
-			::PostMessage(hGameWnd, WM_CLOSE, 0, 0);
-			TRACE(_T("发送关闭消息给游戏窗口\n"));
-			Sleep(1000);  // 等待1秒
-		}
-	} while (hGameWnd && 检查游戏是否运行());
-
-	// 如果游戏还在运行，使用强制终止
-	if (m_bGameRunning)
-	{
-		TRACE(_T("优雅关闭失败，强制终止进程\n"));
-		HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, m_dwGameProcessId);
-		if (hProcess)
-		{
-			BOOL bResult = TerminateProcess(hProcess, 0);
-			CloseHandle(hProcess);
-
-			if (bResult)
+			if (_wcsicmp(pe32.szExeFile, L"nage.bin") == 0)
 			{
-				TRACE(_T("进程终止成功\n"));
-				m_bGameRunning = FALSE;
-				m_dwGameProcessId = 0;
-				return TRUE;
+				HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pe32.th32ProcessID);
+				if (hProcess != NULL)
+				{
+					TerminateProcess(hProcess, 0);
+					CloseHandle(hProcess);
+					bFound = TRUE;
+				}
+				break;
 			}
-			else
-			{
-				TRACE(_T("进程终止失败\n"));
-				return FALSE;
-			}
-		}
+		} while (Process32Next(hProcessSnap, &pe32));
 	}
 
-	TRACE(_T("游戏进程已关闭\n"));
-	m_bGameRunning = FALSE;
-	m_dwGameProcessId = 0;
-	return TRUE;
-}
-
-// 更新启动按钮状态的方法
-void 登录页面类::更新启动按钮状态()
-{
-	if (检查游戏是否运行())
-	{
-		启动按钮.EnableWindow(FALSE);
-		CString 提示文本;
-		提示文本.Format(_T("游戏正在运行(PID:%d)"), m_dwGameProcessId);
-		启动按钮.SetWindowText(提示文本);
-	}
-	else
-	{
-		启动按钮.EnableWindow(TRUE);
-		启动按钮.SetWindowText(_T("启动游戏"));
-	}
+	CloseHandle(hProcessSnap);
+	return bFound;
 }
 
 // 处理登录响应
@@ -494,7 +474,7 @@ void 登录页面类::处理登录响应(const CString& 响应数据)
 		权限状态.SetWindowText(状态文本);
 
 		// 重置重新连接标志
-		m_bIsReconnectingAccount = FALSE;
+		账号重新连接标志 = FALSE;
 	}
 	else if (响应数据.Find(_T("LOGIN_FAILED")) == 0)
 	{
@@ -510,7 +490,7 @@ void 登录页面类::处理登录响应(const CString& 响应数据)
 		权限状态.SetWindowText(_T("状态：登录失败"));
 
 		// 重置重新连接标志
-		m_bIsReconnectingAccount = FALSE;
+		账号重新连接标志 = FALSE;
 	}
 }
 
@@ -539,13 +519,6 @@ void 登录页面类::注入窗口大小修改代码()
 // 启动游戏进程
 void 登录页面类::启动游戏进程()
 {
-	// 再次检查游戏是否已经运行（防止重复点击）
-	if (检查游戏是否运行())
-	{
-		MessageBox(_T("游戏已经在运行中，请勿重复启动！"), _T("提示"), MB_ICONWARNING);
-		return;
-	}
-
 	// 获取当前目录
 	TCHAR 当前路径[MAX_PATH];
 	GetCurrentDirectory(MAX_PATH, 当前路径);
@@ -568,22 +541,11 @@ void 登录页面类::启动游戏进程()
 	// 启动游戏进程
 	STARTUPINFO si = { sizeof(STARTUPINFO) };
 	PROCESS_INFORMATION pi;
-
-	// 创建进程后记录进程信息
 	if (CreateProcess(NULL, 命令行.GetBuffer(), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi))
 	{
-		// 记录进程信息
-		m_dwGameProcessId = pi.dwProcessId;
-		m_hGameProcess = pi.hProcess;
-		m_bGameRunning = TRUE;
-
-		// 关闭线程句柄
+		// 关闭句柄
+		CloseHandle(pi.hProcess);
 		CloseHandle(pi.hThread);
-		// 等待进程完全启动
-		Sleep(2000);
-		// 更新按钮状态
-		更新启动按钮状态();
-
 		命令行.ReleaseBuffer();
 	}
 	else
@@ -640,8 +602,7 @@ void 登录页面类::等待并安装窗口大小钩子(const wchar_t* 监控进
 				continue;
 			}
 
-			// 修改窗口大小
-			// 地址：0x5AAB1E 和 0x5AAB23
+			// 修改窗口大小,地址：0x5AAB1E 和 0x5AAB23
 			BYTE 窗口高度代码[] = { 0x68, 0x28, 0x03, 0x00, 0x00 }; // push 328
 			BYTE 窗口宽度代码[] = { 0x68, 0x73, 0x02, 0x00, 0x00 }; // push 273
 
@@ -658,6 +619,7 @@ void 登录页面类::等待并安装窗口大小钩子(const wchar_t* 监控进
 }
 
 // 等待并安装IP钩子
+/*
 void 登录页面类::等待并安装IP钩子(const wchar_t* 监控进程名)
 {
 	DWORD pid = 0;
@@ -731,11 +693,138 @@ void 登录页面类::等待并安装IP钩子(const wchar_t* 监控进程名)
 		Sleep(1000);
 	}
 }
+*/
+void 登录页面类::等待并安装IP钩子(const wchar_t* 监控进程名)
+{
+	DWORD pid = 0;
+	HANDLE 目标进程句柄 = NULL;
+
+	// 等待进程启动
+	while (true)
+	{
+		pid = 获取进程ID(监控进程名);
+		if (pid)
+		{
+			// 打开目标进程
+			目标进程句柄 = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+			if (目标进程句柄 == NULL)
+			{
+				Sleep(1000);
+				continue;
+			}
+
+			// 分配远程内存用于钩子代码
+			BYTE* 远程内存 = (BYTE*)VirtualAllocEx(目标进程句柄, NULL, 1024, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+			if (远程内存 == NULL)
+			{
+				CloseHandle(目标进程句柄);
+				Sleep(1000);
+				continue;
+			}
+
+			SIZE_T 写入字节数;
+
+			// 1. 动态计算跳转地址
+			// 目标跳回地址：0x006ABBE2
+			DWORD 目标跳回地址 = 0x006ABBE2;
+
+			// 计算跳转偏移：目标跳回地址 - (远程内存 + IP钩子代码长度 - 5 + 1)
+			// IP钩子代码长度是 sizeof(IP钩子代码)，但我们需要的是包含jmp指令之前的位置
+
+			// 钩子代码结构：
+			// mov eax,5752DC7C (5字节)
+			// mov dword ptr ss:[ebp-18],eax (3字节)
+			// mov ecx,dword ptr ss:[ebp-18] (3字节)
+			// jmp XXXXXXXX (5字节) <-- 这里需要动态计算
+			// nop (1字节)
+
+			// 创建动态的钩子代码
+			std::vector<BYTE> IP钩子代码动态;
+
+			// 前13字节固定：mov eax + mov [ebp-18],eax + mov ecx,[ebp-18]
+			BYTE 固定代码[] = {
+				0xB8, 0x7C, 0xDC, 0x52, 0x57,	// mov eax, 5752DC7C
+				0x89, 0x45, 0xE8,				// mov dword ptr ss:[ebp-18],eax
+				0x8B, 0x4D, 0xE8				// mov ecx,dword ptr ss:[ebp-18]
+			};
+
+			// 复制固定代码
+			IP钩子代码动态.insert(IP钩子代码动态.end(), 固定代码, 固定代码 + sizeof(固定代码));
+
+			// 计算jmp指令的偏移
+			// jmp指令的位置：远程内存 + IP钩子代码动态.size()
+			DWORD jmp指令位置 = (DWORD)远程内存 + IP钩子代码动态.size();
+
+			// 计算跳转偏移：目标跳回地址 - (jmp指令位置 + 5)
+			DWORD 跳转偏移 = 目标跳回地址 - (jmp指令位置 + 5);
+
+			// 添加jmp指令
+			IP钩子代码动态.push_back(0xE9); // jmp操作码
+
+			// 添加跳转偏移（4字节，小端序）
+			IP钩子代码动态.push_back(跳转偏移 & 0xFF);
+			IP钩子代码动态.push_back((跳转偏移 >> 8) & 0xFF);
+			IP钩子代码动态.push_back((跳转偏移 >> 16) & 0xFF);
+			IP钩子代码动态.push_back((跳转偏移 >> 24) & 0xFF);
+
+			// 添加nop
+			IP钩子代码动态.push_back(0x90);
+
+			// 2. 写入动态生成的钩子代码到远程内存
+			if (!WriteProcessMemory(目标进程句柄, 远程内存, IP钩子代码动态.data(), IP钩子代码动态.size(), &写入字节数))
+			{
+				VirtualFreeEx(目标进程句柄, 远程内存, 0, MEM_RELEASE);
+				CloseHandle(目标进程句柄);
+				Sleep(1000);
+				continue;
+			}
+
+			// 3. 计算从目标地址到远程内存的跳转偏移
+			// 目标地址：0x006ABBDC
+			DWORD 目标地址 = 0x006ABBDC;
+
+			// 计算跳转偏移：远程内存 - (目标地址 + 5)
+			DWORD 跳转偏移到远程内存 = (DWORD)远程内存 - (目标地址 + 5);
+
+			// 4. 修改 006ABBDC 地址的跳转指令
+			BYTE 修改代码1[] = {
+				0xE9, 							// jmp
+				0x00, 0x00, 0x00, 0x00 		// 跳转偏移
+			};
+
+			// 设置跳转偏移
+			*(DWORD*)(修改代码1 + 1) = 跳转偏移到远程内存;
+
+			// 5. 修改 006ABBE1 地址为nop
+			BYTE 修改代码2[] = { 0x90 }; // nop
+
+			// 6. 写入修改到目标地址
+			if (!WriteProcessMemory(目标进程句柄, (LPVOID)目标地址, 修改代码1, sizeof(修改代码1), &写入字节数) ||
+				!WriteProcessMemory(目标进程句柄, (LPVOID)0x006ABBE1, 修改代码2, sizeof(修改代码2), &写入字节数))
+			{
+				VirtualFreeEx(目标进程句柄, 远程内存, 0, MEM_RELEASE);
+				CloseHandle(目标进程句柄);
+				Sleep(1000);
+				continue;
+			}
+
+			TRACE(_T("IP钩子安装成功\n"));
+			TRACE(_T("远程内存地址: 0x%08X\n"), 远程内存);
+			TRACE(_T("钩子代码长度: %d 字节\n"), IP钩子代码动态.size());
+			TRACE(_T("跳转到远程内存偏移: 0x%08X\n"), 跳转偏移到远程内存);
+			TRACE(_T("跳回目标地址偏移: 0x%08X\n"), 跳转偏移);
+
+			CloseHandle(目标进程句柄);
+			break;
+		}
+		Sleep(1000);
+	}
+}
 
 // 等待并安装UI钩子
 void 登录页面类::等待并安装UI钩子(const wchar_t* 监控进程名)
 {
-	// 这里写你希望HOOK的目标函数地址
+	// 希望HOOK的目标函数地址
 	void* 目标地址 = (void*)0x6ABC1A;
 
 	// 钩子机器码
@@ -783,7 +872,7 @@ void 登录页面类::等待并安装UI钩子(const wchar_t* 监控进程名)
 				continue;
 			}
 
-			// 2. 先写入原始指令到跳板开头
+			// 2. 原始指令到跳板开头
 			if (!WriteProcessMemory(目标进程句柄, 远程钩子区, 原始字节, 7, &写入字节数))
 			{
 				VirtualFreeEx(目标进程句柄, 远程钩子区, 0, MEM_RELEASE);
@@ -792,7 +881,7 @@ void 登录页面类::等待并安装UI钩子(const wchar_t* 监控进程名)
 				continue;
 			}
 
-			// 3. 接着写入钩子逻辑
+			// 3. 写入钩子逻辑
 			if (!WriteProcessMemory(目标进程句柄, 远程钩子区 + 7, 钩子机器码, 钩子代码长度, &写入字节数))
 			{
 				VirtualFreeEx(目标进程句柄, 远程钩子区, 0, MEM_RELEASE);
@@ -801,7 +890,7 @@ void 登录页面类::等待并安装UI钩子(const wchar_t* 监控进程名)
 				continue;
 			}
 
-			// 4. 最后补上跳回原函数的指令
+			// 4. 跳回原函数
 			BYTE 跳转指令[5];
 			跳转指令[0] = 0xE9;
 			*(DWORD*)(跳转指令 + 1) = (DWORD)((BYTE*)目标地址 + 7 - (远程钩子区 + 7 + 钩子代码长度 + 5));
@@ -814,7 +903,7 @@ void 登录页面类::等待并安装UI钩子(const wchar_t* 监控进程名)
 				continue;
 			}
 
-			// 5. 安装钩子：在目标地址插入jmp，跳到你的钩子代码区
+			// 5. 安装钩子：在目标地址插入jmp，跳到钩子代码区
 			BYTE 跳转[5] = { 0xE9, 0, 0, 0, 0 };
 			*((DWORD*)(跳转 + 1)) = (DWORD)(远程钩子区 - (BYTE*)目标地址 - 5);
 

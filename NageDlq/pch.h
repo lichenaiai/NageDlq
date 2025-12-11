@@ -8,29 +8,6 @@
 #define PCH_H
 #define WIN32_LEAN_AND_MEAN             // 从 Windows 头文件中排除极少使用的内容
 
-#include <windows.h>
-#include <winternl.h>  // 添加这行
-
-// C 运行时头文件
-#include <stdlib.h>
-#include <malloc.h>
-#include <memory.h>
-#include <tchar.h>
-
-// 项目特定的头文件
-#include "resource.h"
-
-// C++标准库头文件
-#include <string>
-#include <vector>
-#include <map>
-#include <thread>
-#include <atomic>
-#include <mutex>
-#include <functional>
-
-// 如果需要 tlhelp32，在 windows.h 之后包含
-#include <tlhelp32.h> 
 // 添加要在此处预编译的标头
 #include "framework.h"
 

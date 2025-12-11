@@ -51,12 +51,14 @@ BOOL NageDlqDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
 	
+	SetWindowText(_T("震撼美丽登录器"));
+
 	SetIcon(m_hIcon, TRUE);			// 设置大图标
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
+	
 	// 设置窗口大小 850x600
 	MoveWindow(0, 0, 850, 622);
 
-	//初始化分页控件();
 	// 初始化分页控件
 	if (!初始化分页控件())
 	{
@@ -65,15 +67,6 @@ BOOL NageDlqDlg::OnInitDialog()
 		return FALSE;
 	}
 
-	/*
-	// 初始化网络通信
-	if (!初始化网络通信())
-	{
-		MessageBox(_T("网络初始化失败，部分功能可能无法使用"), _T("警告"), MB_ICONWARNING);
-	}
-
-	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
-	*/
 	// 同步初始化网络（在主线程中）
 	if (!初始化网络通信())
 	{
@@ -126,27 +119,17 @@ void NageDlqDlg::OnTimer(UINT_PTR nIDEvent)
 	CDialogEx::OnTimer(nIDEvent);
 }
 
-// 添加关闭消息处理函数
+// 关闭消息处理函数
 void NageDlqDlg::OnClose()
 {
 	TRACE(_T("=== 开始关闭登录器 ===\n"));
 
 	// 关闭游戏进程
-	if (登录页面.m_bGameRunning)
+	if (登录页面.游戏运行中)
 	{
 		TRACE(_T("检测到游戏正在运行，开始关闭游戏...\n"));
-
-		if (MessageBox(_T("是否要关闭游戏？"), _T("确认"), MB_YESNO | MB_ICONQUESTION) == IDYES)
-		{
-			if (登录页面.关闭游戏进程())
-			{
-				TRACE(_T("游戏关闭成功\n"));
-			}
-			else
-			{
-				TRACE(_T("游戏关闭失败\n"));
-			}
-		}
+		登录页面.关闭游戏进程();
+		TRACE(_T("游戏关闭完成\n"));
 	}
 
 	// 关闭网络连接
@@ -159,13 +142,13 @@ void NageDlqDlg::OnClose()
 	CDialogEx::OnClose();
 }
 
-// 添加销毁消息处理函数
+// 销毁消息处理函数
 void NageDlqDlg::OnDestroy()
 {
 	TRACE(_T("=== 开始销毁登录器 ===\n"));
 
 	// 确保游戏进程已关闭
-	if (登录页面.m_bGameRunning)
+	if (登录页面.游戏运行中)
 	{
 		TRACE(_T("强制关闭游戏进程\n"));
 		登录页面.关闭游戏进程();
