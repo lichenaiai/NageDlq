@@ -63,8 +63,8 @@ private:
 	
 
 	// 状态变量
-	BOOL m_bIsReconnectingClient;    // 客户端重新连接标志
-	BOOL m_bIsReconnectingAccount;   // 账号重新连接标志
+	BOOL 客户端重新连接标志;    // 客户端重新连接标志
+	BOOL 账号重新连接标志;   // 账号重新连接标志
 
 	void OnTimer(UINT_PTR nIDEvent);
 
@@ -75,12 +75,10 @@ public:
 	CStatic 权限状态;
 
 	// 进程检测相关
-	HANDLE m_hGameProcess;      // 游戏进程句柄
-	DWORD m_dwGameProcessId;    // 游戏进程ID
-	BOOL m_bGameRunning;        // 游戏是否正在运行
-	BOOL 检查游戏是否运行();    // 检查游戏进程是否已运行
+	HANDLE 游戏进程句柄;      // 游戏进程句柄
+	DWORD 游戏进程ID;    // 游戏进程ID
+	BOOL 游戏运行中;        // 游戏是否正在运行
 	BOOL 关闭游戏进程();        // 关闭游戏进程
-	void 更新启动按钮状态();    // 根据游戏状态更新按钮
 
 	// 重新连接相关方法
 	void 执行重新连接客户端();
@@ -89,4 +87,7 @@ public:
 	void 退出登录状态();  // 退出当前登录状态
 
 	CString 获取当前用户名();
+
+	// 按钮控制函数
+	void 启用重新连接按钮(BOOL 启用);  // 启用或禁用重新连接按钮
 };
