@@ -372,8 +372,7 @@ void NageDlqDlg::处理网络消息(CString 消息)
 
 			TRACE(_T("解析密钥: %s, 服务端版本: %s\n"), 密钥, 服务端版本号);
 
-			// 检查版本更新
-			检查版本更新(服务端版本号);
+			//检查版本更新(服务端版本号);
 
 			// 更新状态标签为密钥信息
 			CString 状态文本;
@@ -419,10 +418,18 @@ void NageDlqDlg::处理网络消息(CString 消息)
 			加点页面.刷新角色列表();
 		}
 	}
-	else if (消息 == _T("VERSION_OUTDATED"))
+	else if (消息.Find(_T("VERSION_OUTDATED")) == 0)
 	{
 		TRACE(_T("检测到版本过时消息\n"));
-		AfxMessageBox(_T("客户端版本过时，请更新到最新版本！"), MB_ICONWARNING);
+
+		CString 最新版本号;
+		if (消息.Find(_T("VERSION_OUTDATED:")) == 0)
+		{
+			最新版本号 = 消息.Mid(17);
+		}
+
+		// 检查更新（或直接强制更新）
+		检查版本更新(最新版本号);
 	}
 	// 添加角色列表响应处理
 	else if (消息.Find(_T("ROLES_LIST")) == 0)
