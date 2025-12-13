@@ -183,7 +183,7 @@ public:
 
 	CString 获取排行榜数据(int 数量);
 
-
+	CString 处理角色名空格(const CString& 角色名);
 public:
 	// 端口转发相关成员
 	端口转发管理类 端口转发管理器;
