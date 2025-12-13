@@ -1741,7 +1741,7 @@ BOOL NageDlqServerDlg::检测账号是否在线(const CString& 用户名)
 			SQLCloseCursor(SQL语句句柄);
 
 			TRACE(_T("账号 %s 在线状态: %d\n"), 用户名, 在线状态);
-			return (在线状态 == 1); // 1为在线，0为离线
+			return (在线状态 == 1); // 1为在线，2为离线
 		}
 		SQLCloseCursor(SQL语句句柄);
 	}

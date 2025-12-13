@@ -1260,10 +1260,10 @@ void NageUPDlg::完成更新()
     取消按钮.SetWindowText(_T("完成"));
 
     CString 完成信息;
-    完成信息.Format(_T("更新完成！\n程序将在3秒后重新启动。"));
+    完成信息.Format(_T("更新完成!"));
     AfxMessageBox(完成信息, MB_ICONINFORMATION);
 
-    SetTimer(2, 3000, NULL);
+    SetTimer(2, 500, NULL);
 }
 
 void NageUPDlg::OnBnClickedButtonCancel()

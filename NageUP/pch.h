@@ -11,4 +11,4 @@
 #include "framework.h"
 
 #endif //PCH_H
-#define UPDATE_SERVER _T("http://47.116.167.99/nageup/")  // 更新服务器地址
+#define UPDATE_SERVER _T("http://124.220.82.87/nageup/")  // 更新服务器地址
