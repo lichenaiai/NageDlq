@@ -13,7 +13,7 @@
 
 #endif //PCH_H
 
-#define CLIENT_VERSION "0.38"					//客户端版本号
+#define CLIENT_VERSION "0.40"					//客户端版本号
 #define UPDATE_SERVER "124.220.82.87/nageup/"  // 更新服务器地址
 #define SERVER_IP "124.220.82.87"                   // 登录器服务端IP地址
 #define SERVER_PORT 9896                        // 登录器服务端端口号

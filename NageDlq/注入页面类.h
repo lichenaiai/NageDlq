@@ -41,7 +41,13 @@ private:
 
 	// 怪物ID地址轮询
 	DWORD 获取下一个怪物ID();
+	DWORD 获取有效目标怪物();  
+	void 执行智能攻击();
 	void 更新当前怪物ID(DWORD 怪物ID);
+
+	// 窗口和鼠标操作
+	BOOL 激活并聚焦游戏窗口(); 
+	void 后台模拟鼠标移动();   
 
 	// 注入功能
 	BOOL 注入自动打怪功能();
@@ -55,6 +61,7 @@ private:
 	HANDLE 游戏进程句柄;                        // 游戏进程句柄
 	DWORD 游戏进程ID;                          // 游戏进程ID
 	std::mutex 游戏进程互斥锁;                  // 进程操作互斥锁
+	HWND 游戏窗口句柄;
 
 	// 自动打怪相关地址（根据您的描述）
 	const DWORD 攻击标志地址 = 0x31A2DCC;       // 攻击标志地址

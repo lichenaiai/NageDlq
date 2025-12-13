@@ -81,6 +81,14 @@ void 注入页面类::点击自动打怪按钮()
 			return;
 		}
 
+		// 查找游戏窗口
+		游戏窗口句柄 = ::FindWindow(NULL, _T("Nage"));
+		if (!游戏窗口句柄)
+		{
+			MessageBox(_T("找不到游戏窗口！"), _T("错误"), MB_ICONERROR);
+			return;
+		}
+
 		// 注入自动打怪功能
 		if (!注入自动打怪功能())
 		{
@@ -354,6 +362,9 @@ void 注入页面类::自动打怪线程函数()
 	自动打怪开始时间 = GetTickCount();
 	总攻击次数 = 0;
 
+	// 线程开始时激活窗口
+	激活并聚焦游戏窗口();
+
 	while (自动打怪运行中)
 	{
 		try
@@ -374,114 +385,11 @@ void 注入页面类::自动打怪线程函数()
 				}
 			}
 
-			// 获取下一个怪物ID
-			DWORD 怪物ID = 获取下一个怪物ID();
+			// 执行智能攻击（包含窗口激活、鼠标模拟、60秒超时、0.5秒等待）
+			执行智能攻击();
 
-			// 检查怪物ID是否有效（不是0xFFFFFFFF或0）
-			if (怪物ID == 0xFFFFFFFF || 怪物ID == 0)
-			{
-				// 无效怪物ID，等待后继续
-				Sleep(300);
-				continue;
-			}
-
-			TRACE(_T("攻击怪物ID: 0x%08X\n"), 怪物ID);
-
-			// 第一步：写入目标怪物ID
-			SIZE_T 写入字节数;
-			if (!WriteProcessMemory(游戏进程句柄, (LPVOID)目标怪物地址,
-				&怪物ID, sizeof(DWORD), &写入字节数))
-			{
-				DWORD 错误代码 = GetLastError();
-				TRACE(_T("写入怪物ID失败，错误代码: %d\n"), 错误代码);
-
-				if (错误代码 == ERROR_INVALID_HANDLE)
-				{
-					// 进程句柄无效，停止自动打怪
-					自动打怪运行中 = false;
-					break;
-				}
-
-				Sleep(100);
-				continue;
-			}
-
-			// 短暂延迟确保怪物ID已写入
-			Sleep(50);
-
-			// 第二步：设置攻击标志为1
-			DWORD 攻击标志 = 1;
-			if (!WriteProcessMemory(游戏进程句柄, (LPVOID)攻击标志地址,
-				&攻击标志, sizeof(DWORD), &写入字节数))
-			{
-				TRACE(_T("设置攻击标志失败\n"));
-				Sleep(100);
-				continue;
-			}
-
-			// 攻击计数
-			总攻击次数++;
-
-			// 每10次攻击显示一次统计
-			if (总攻击次数 % 10 == 0)
-			{
-				CString 信息;
-				信息.Format(_T("已自动攻击 %d 次，当前使用地址索引: %d"),
-					总攻击次数, 当前怪物地址索引);
-				TRACE(_T("%s\n"), 信息);
-			}
-
-			// 第三步：等待攻击完成（根据游戏节奏调整）
-			// 这里可以根据需要调整等待时间
-			DWORD 攻击开始时间 = GetTickCount();
-			BOOL 怪物死亡 = FALSE;
-
-			while (自动打怪运行中 && (GetTickCount() - 攻击开始时间 < 5000))  // 最多等待5秒
-			{
-				// 每隔500毫秒检查一次怪物是否死亡
-				if (GetTickCount() % 500 == 0)
-				{
-					DWORD 当前目标怪物 = 0;
-					SIZE_T 读取字节数;
-
-					if (ReadProcessMemory(游戏进程句柄, (LPCVOID)目标怪物地址,
-						&当前目标怪物, sizeof(DWORD), &读取字节数))
-					{
-						if (当前目标怪物 == 0xFFFFFFFF)
-						{
-							// 怪物已死亡！
-							TRACE(_T("怪物已死亡，立即寻找下一个\n"));
-							怪物死亡 = TRUE;
-							break;
-						}
-					}
-				}
-
-				// 保持攻击标志为1（持续攻击）
-				WriteProcessMemory(游戏进程句柄, (LPVOID)攻击标志地址,
-					&攻击标志, sizeof(DWORD), NULL);
-
-				Sleep(100);
-			}
-
-			// 第四步：清除攻击标志
-			DWORD 停止攻击 = 0;
-			WriteProcessMemory(游戏进程句柄, (LPVOID)攻击标志地址,
-				&停止攻击, sizeof(DWORD), NULL);
-
-			// 第五步：根据怪物死亡情况决定等待时间
-			if (怪物死亡)
-			{
-				// 怪物已死亡，短暂延迟后立即寻找下一个
-				Sleep(200);
-			}
-			else
-			{
-				// 怪物未死亡（可能是打不动或者miss了），等待稍长时间
-				TRACE(_T("攻击超时，可能怪物未死亡\n"));
-				Sleep(1000);
-			}
-
+			// 短暂延迟，避免CPU占用过高
+			Sleep(100);
 		}
 		catch (...)
 		{
@@ -490,13 +398,7 @@ void 注入页面类::自动打怪线程函数()
 		}
 	}
 
-	// 线程结束时确保攻击标志为0
-	if (游戏进程句柄 != NULL)
-	{
-		DWORD 停止攻击 = 0;
-		WriteProcessMemory(游戏进程句柄, (LPVOID)攻击标志地址,
-			&停止攻击, sizeof(DWORD), NULL);
-	}
+	// +++ 删除：不写0，游戏会自动清除攻击标志 +++
 
 	// 显示最终统计信息
 	DWORD 运行时间 = (GetTickCount() - 自动打怪开始时间) / 1000;
@@ -516,66 +418,247 @@ void 注入页面类::自动打怪线程函数()
 	::PostMessage(GetSafeHwnd(), WM_USER + 201, 0, 0);
 }
 
-// 获取下一个怪物ID - 简单轮流使用三个地址
-DWORD 注入页面类::获取下一个怪物ID()
+// 激活并聚焦游戏窗口
+BOOL 注入页面类::激活并聚焦游戏窗口()
 {
-	if (游戏进程句柄 == NULL)
+	if (!游戏窗口句柄)
 	{
-		return 0xFFFFFFFF;
+		游戏窗口句柄 = :: FindWindow(NULL, _T("Nage"));
+		if (!游戏窗口句柄)
+		{
+			TRACE(_T("未找到游戏窗口\n"));
+			return FALSE;
+		}
 	}
 
-	DWORD 怪物ID = 0xFFFFFFFF;
-	SIZE_T 读取字节数;
-
-	// 根据当前索引选择要读取的地址
-	DWORD 怪物地址 = 0;
-	switch (当前怪物地址索引)
+	// 恢复窗口（如果最小化）
+	if (::IsIconic(游戏窗口句柄))
 	{
-	case 0:
-		怪物地址 = 怪物ID地址1;
-		break;
-	case 1:
-		怪物地址 = 怪物ID地址2;
-		break;
-	case 2:
-		怪物地址 = 怪物ID地址3;
-		break;
-	default:
-		怪物地址 = 怪物ID地址1;
-		当前怪物地址索引 = 0;
-		break;
+		::ShowWindow(游戏窗口句柄, SW_RESTORE);
+		Sleep(100);
 	}
 
-	// 读取怪物ID
-	if (!ReadProcessMemory(游戏进程句柄, (LPCVOID)怪物地址,
-		&怪物ID, sizeof(DWORD), &读取字节数))
-	{
-		TRACE(_T("读取怪物ID地址 %d (0x%08X) 失败\n"), 当前怪物地址索引, 怪物地址);
-		return 0xFFFFFFFF;
-	}
+	// 激活窗口到前台
+	::SetForegroundWindow(游戏窗口句柄);
+	::BringWindowToTop(游戏窗口句柄);
+	::SetActiveWindow(游戏窗口句柄);
+	::SetFocus(游戏窗口句柄);
 
-	TRACE(_T("从地址 %d (0x%08X) 读取到怪物ID: 0x%08X\n"),
-		当前怪物地址索引, 怪物地址, 怪物ID);
+	// 短暂延迟确保窗口激活完成
+	Sleep(200);
 
-	// 轮询到下一个地址（无论是否读取成功）
-	当前怪物地址索引 = (当前怪物地址索引 + 1) % 3;
-
-	return 怪物ID;
+	return TRUE;
 }
 
-// 更新当前怪物ID
-void 注入页面类::更新当前怪物ID(DWORD 怪物ID)
+// 后台模拟鼠标移动（不影响用户操作）
+void 注入页面类::后台模拟鼠标移动()
+{
+	if (!游戏窗口句柄)
+	{
+		游戏窗口句柄 = ::FindWindow(NULL, _T("Nage"));
+		if (!游戏窗口句柄) return;
+	}
+
+	// 确保窗口在前台才模拟
+	if (::GetForegroundWindow() == 游戏窗口句柄)
+	{
+		// 只在窗口内轻微移动
+		RECT 窗口矩形;
+		::GetWindowRect(游戏窗口句柄, &窗口矩形);
+
+		// 生成窗口内的随机位置
+		int 宽度 = 窗口矩形.right - 窗口矩形.left;
+		int 高度 = 窗口矩形.bottom - 窗口矩形.top;
+
+		if (宽度 > 100 && 高度 > 100)
+		{
+			// 在窗口中心区域移动（避开边缘）
+			int 中心X = 宽度 / 2;
+			int 中心Y = 高度 / 2;
+			int 随机X = 中心X + (rand() % 100 - 50); // ±50像素
+			int 随机Y = 中心Y + (rand() % 100 - 50);
+
+			// 使用SendInput模拟（只在游戏窗口激活时）
+			INPUT 输入 = { 0 };
+			输入.type = INPUT_MOUSE;
+			输入.mi.dx = 随机X * (65535 / 宽度);
+			输入.mi.dy = 随机Y * (65535 / 高度);
+			输入.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+			SendInput(1, &输入, sizeof(INPUT));
+
+			TRACE(_T("后台模拟鼠标移动到(%d, %d)\n"), 随机X, 随机Y);
+		}
+	}
+}
+
+// 获取有效目标怪物（改进版）
+DWORD 注入页面类::获取有效目标怪物()
 {
 	if (游戏进程句柄 == NULL)
 	{
+		return 0xFFFFFFFF;
+	}
+
+	// 尝试多次读取
+	for (int 尝试次数 = 0; 尝试次数 < 10; 尝试次数++)
+	{
+		// 随机选择一个怪物地址开始，避免总是从同一个开始
+		int 起始索引 = GetTickCount() % 3;
+
+		for (int i = 0; i < 3; i++)
+		{
+			int 当前索引 = (起始索引 + i) % 3;
+			DWORD 怪物地址 = 0;
+
+			switch (当前索引)
+			{
+			case 0: 怪物地址 = 怪物ID地址1; break;
+			case 1: 怪物地址 = 怪物ID地址2; break;
+			case 2: 怪物地址 = 怪物ID地址3; break;
+			}
+
+			DWORD 怪物ID = 0xFFFFFFFF;
+			SIZE_T 读取字节数;
+
+			if (ReadProcessMemory(游戏进程句柄, (LPCVOID)怪物地址,
+				&怪物ID, sizeof(DWORD), &读取字节数))
+			{
+				// 只检查是否为有效ID（不是特殊值）
+				if (怪物ID != 0xFFFFFFFF && 怪物ID != 0)
+				{
+					TRACE(_T("从地址%d找到怪物: 0x%08X\n"), 当前索引, 怪物ID);
+					return 怪物ID;
+				}
+			}
+		}
+
+		// 短暂等待后重试
+		if (尝试次数 < 9) // 最后一次不等待
+		{
+			Sleep(100);
+		}
+	}
+
+	return 0xFFFFFFFF;
+}
+
+// 执行智能攻击（60秒超时，0.5秒等待）
+void 注入页面类::执行智能攻击()
+{
+	// 1. 确保游戏窗口激活
+	激活并聚焦游戏窗口();
+
+	// 2. 防止挂机检测（后台模拟，不影响用户）
+	if (GetTickCount() % 30000 == 0) // 每30秒执行一次
+	{
+		后台模拟鼠标移动();
+	}
+
+	// 3. 检查当前是否有锁定目标
+	DWORD 当前目标 = 0xFFFFFFFF;
+	SIZE_T 读取字节数;
+
+	if (!ReadProcessMemory(游戏进程句柄, (LPCVOID)目标怪物地址,
+		&当前目标, sizeof(DWORD), &读取字节数))
+	{
+		TRACE(_T("读取目标怪物地址失败\n"));
+		Sleep(500);
 		return;
 	}
 
-	// 写入目标怪物ID
-	if (!WriteProcessMemory(游戏进程句柄, (LPVOID)目标怪物地址,
-		&怪物ID, sizeof(DWORD), NULL))
+	// 4. 如果没有锁定目标，寻找新怪物
+	if (当前目标 == 0xFFFFFFFF)
 	{
-		TRACE(_T("更新怪物ID失败\n"));
+		当前目标 = 获取有效目标怪物();
+		if (当前目标 == 0xFFFFFFFF)
+		{
+			TRACE(_T("没有找到有效怪物，等待...\n"));
+			Sleep(500);
+			return;
+		}
+
+		// 写入新的目标怪物
+		if (!WriteProcessMemory(游戏进程句柄, (LPVOID)目标怪物地址,
+			&当前目标, sizeof(DWORD), &读取字节数))
+		{
+			TRACE(_T("写入新目标怪物失败\n"));
+			return;
+		}
+
+		// 等待游戏反应
+		Sleep(50);
+	}
+
+	TRACE(_T("开始攻击怪物ID: 0x%08X\n"), 当前目标);
+
+	// 5. 设置攻击标志为1（开始攻击）
+	DWORD 攻击标志 = 1;
+	WriteProcessMemory(游戏进程句柄, (LPVOID)攻击标志地址,
+		&攻击标志, sizeof(DWORD), &读取字节数);
+
+	// 6. 监控攻击状态（最长60秒）
+	DWORD 攻击开始时间 = GetTickCount();
+	BOOL 怪物死亡 = FALSE;
+
+	while (自动打怪运行中 && (GetTickCount() - 攻击开始时间 < 60000)) // +++ 修改：60秒超时 +++
+	{
+		// 读取当前目标状态
+		DWORD 目标状态 = 0xFFFFFFFF;
+		ReadProcessMemory(游戏进程句柄, (LPCVOID)目标怪物地址,
+			&目标状态, sizeof(DWORD), &读取字节数);
+
+		// 检查怪物是否死亡（变成FFFFFFFF）
+		if (目标状态 == 0xFFFFFFFF)
+		{
+			TRACE(_T("怪物已死亡！\n"));
+			怪物死亡 = TRUE;
+
+			// 游戏会自动清除攻击标志，我们不需要写0
+			break;
+		}
+
+		// 定期保持攻击标志（防止被其他操作清除）
+		if (GetTickCount() % 1000 == 0) // 每秒刷新一次攻击标志
+		{
+			WriteProcessMemory(游戏进程句柄, (LPVOID)攻击标志地址,
+				&攻击标志, sizeof(DWORD), NULL);
+		}
+
+		// 每5秒显示一次状态
+		if (GetTickCount() % 5000 == 0)
+		{
+			TRACE(_T("正在攻击怪物ID: 0x%08X，已攻击%.1f秒\n"),
+				目标状态, (GetTickCount() - 攻击开始时间) / 1000.0f);
+		}
+
+		Sleep(100); // 避免CPU占用过高
+	}
+
+	// 7. 处理攻击结果
+	if (怪物死亡)
+	{
+		TRACE(_T("攻击完成，怪物死亡\n"));
+	}
+	else
+	{
+		TRACE(_T("攻击超时（60秒），放弃当前目标\n"));
+		// 攻击标志由游戏自动清除
+	}
+
+	// 8. 等待0.5秒（模拟技能冷却） 
+	Sleep(500);
+
+	// 9. 记录攻击次数
+	总攻击次数++;
+
+	// 每10次显示统计
+	if (总攻击次数 % 10 == 0)
+	{
+		CString 统计信息;
+		DWORD 运行秒数 = (GetTickCount() - 自动打怪开始时间) / 1000;
+		统计信息.Format(_T("已攻击 %d 次，运行 %d 秒"),
+			总攻击次数, 运行秒数);
+		TRACE(_T("%s\n"), 统计信息);
 	}
 }
 
