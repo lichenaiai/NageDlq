@@ -505,7 +505,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 
 	// 记录最后活动时间，用于超时检测
 	DWORD 最后活动时间 = GetTickCount();
-	const DWORD 连接超时时间 = 30000; // 5分钟超时
+	const DWORD 连接超时时间 = 300000; // 5分钟超时
 
 	// 持续处理客户端请求
 	while (对话框指针->服务器运行状态)
@@ -941,11 +941,11 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 						SQLGetData(对话框指针->SQL语句句柄, 2, SQL_C_LONG, &战斗等级, sizeof(战斗等级), NULL);
 						SQLGetData(对话框指针->SQL语句句柄, 3, SQL_C_LONG, &累计等级, sizeof(累计等级), NULL);
 						SQLGetData(对话框指针->SQL语句句柄, 4, SQL_C_LONG, &转生次数, sizeof(转生次数), NULL);
-						SQLGetData(对话框指针->SQL语句句柄, 4, SQL_C_LONG, &剩余点数, sizeof(剩余点数), NULL);
-						SQLGetData(对话框指针->SQL语句句柄, 5, SQL_C_LONG, &力量, sizeof(力量), NULL);
-						SQLGetData(对话框指针->SQL语句句柄, 6, SQL_C_LONG, &敏捷, sizeof(敏捷), NULL);
-						SQLGetData(对话框指针->SQL语句句柄, 7, SQL_C_LONG, &意念, sizeof(意念), NULL);
-						SQLGetData(对话框指针->SQL语句句柄, 8, SQL_C_LONG, &灵力, sizeof(灵力), NULL);
+						SQLGetData(对话框指针->SQL语句句柄, 5, SQL_C_LONG, &剩余点数, sizeof(剩余点数), NULL);
+						SQLGetData(对话框指针->SQL语句句柄, 6, SQL_C_LONG, &力量, sizeof(力量), NULL);
+						SQLGetData(对话框指针->SQL语句句柄, 7, SQL_C_LONG, &敏捷, sizeof(敏捷), NULL);
+						SQLGetData(对话框指针->SQL语句句柄, 8, SQL_C_LONG, &意念, sizeof(意念), NULL);
+						SQLGetData(对话框指针->SQL语句句柄, 9, SQL_C_LONG, &灵力, sizeof(灵力), NULL);
 
 						CString 响应数据;
 						响应数据.Format(_T("CHAR_INFO:%d:%d:%d:%d:%d:%d:%d:%d:%d"),
@@ -1001,10 +1001,15 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			}
 		else if (客户端请求.Find(_T("CHECK_ACCOUNT_ONLINE:")) == 0)
 		{
-			// 处理检查账号在线状态请求 - 格式: CHECK_ACCOUNT_ONLINE:username
-			CString 用户名 = 客户端请求.Mid(20); // 去掉"CHECK_ACCOUNT_ONLINE:"
+			// 处理检查账号在线状态请求
+			CString 前缀 = _T("CHECK_ACCOUNT_ONLINE:");
+			CString 用户名 = 客户端请求.Mid(前缀.GetLength());
 
-			TRACE(_T("检查账号在线状态，用户名: %s\n"), 用户名);
+			用户名.Trim(); // 清理空格
+			用户名.Remove(_T('\r')); // 移除回车
+			用户名.Remove(_T('\n')); // 移除换行
+
+			TRACE(_T("检查账号在线状态，用户名: [%s]\n"), 用户名);
 
 			// 检查账号在线状态
 			BOOL 在线状态 = 对话框指针->检测账号是否在线(用户名);
@@ -1741,7 +1746,7 @@ BOOL NageDlqServerDlg::检测账号是否在线(const CString& 用户名)
 			SQLCloseCursor(SQL语句句柄);
 
 			TRACE(_T("账号 %s 在线状态: %d\n"), 用户名, 在线状态);
-			return (在线状态 == 1); // 1为在线，2为离线
+			return (在线状态 == 1); // 1为在线，0为离线
 		}
 		SQLCloseCursor(SQL语句句柄);
 	}
@@ -1800,9 +1805,95 @@ void NageDlqServerDlg::获取职业初始属性(int 职业代码, int 累计等�
 	relvC = 累计等级;
 }
 
+// 添加一个函数来处理角色名的空格填充
+CString NageDlqServerDlg::处理角色名空格(const CString& 角色名)
+{
+	TRACE(_T("=== 处理角色名空格开始 ===\n"));
+	TRACE(_T("原始角色名: [%s], 长度: %d\n"), 角色名, 角色名.GetLength());
+
+	// 计算字符数（注意：中文字符算2个字节，但在这里我们按Unicode字符计算）
+	int 字符数 = 角色名.GetLength();
+
+	// 数据库字段是char(16)，但我们需要按字节计算
+	// 在SQL Server中，char(16)表示16个字节，中文字符通常占2个字节
+
+	// 简单处理：如果长度小于16，补充空格
+	CString 处理后的角色名 = 角色名;
+
+	// 去除首尾空格
+	处理后的角色名.Trim();
+
+	TRACE(_T("去除空格后的角色名: [%s], 长度: %d\n"), 处理后的角色名, 处理后的角色名.GetLength());
+
+	// 计算需要补充的空格数
+	// 这里假设中文字符占2个字节，英文字符占1个字节
+	int 字节数 = 0;
+	for (int i = 0; i < 处理后的角色名.GetLength(); i++)
+	{
+		TCHAR c = 处理后的角色名[i];
+		// 判断是否为中文字符（Unicode范围）
+		if (c >= 0x4E00 && c <= 0x9FFF) // 常用汉字范围
+		{
+			字节数 += 2;
+			TRACE(_T("字符[%d]: U+%04X (中文字符，占2字节)\n"), i, (int)c);
+		}
+		else if (c >= 0x3400 && c <= 0x4DBF) // 扩展A区汉字
+		{
+			字节数 += 2;
+			TRACE(_T("字符[%d]: U+%04X (扩展汉字，占2字节)\n"), i, (int)c);
+		}
+		else
+		{
+			字节数 += 1;
+			TRACE(_T("字符[%d]: U+%04X '%c' (英文字符，占1字节)\n"), i, (int)c, c);
+		}
+	}
+
+	TRACE(_T("角色名总字节数: %d\n"), 字节数);
+
+	// 如果字节数小于16，补充空格
+	if (字节数 < 16)
+	{
+		int 需要空格数 = 16 - 字节数;
+		TRACE(_T("需要补充 %d 个空格\n"), 需要空格数);
+
+		for (int i = 0; i < 需要空格数; i++)
+		{
+			处理后的角色名 += _T(' ');
+		}
+	}
+	else if (字节数 > 16)
+	{
+		TRACE(_T("警告：角色名字节数(%d)超过16，可能会被截断\n"), 字节数);
+		// 可以在这里进行截断处理
+		处理后的角色名 = 处理后的角色名.Left(8); // 简单截断，可能需要更复杂的处理
+		TRACE(_T("截断后的角色名: [%s]\n"), 处理后的角色名);
+	}
+
+	TRACE(_T("处理后的角色名: [%s], 显示长度: %d\n"), 处理后的角色名, 处理后的角色名.GetLength());
+
+	// 打印处理后的字符（用于调试）
+	TRACE(_T("处理后的字符详情:\n"));
+	for (int i = 0; i < 处理后的角色名.GetLength(); i++)
+	{
+		TCHAR c = 处理后的角色名[i];
+		if (c == _T(' '))
+			TRACE(_T("  字符[%d]: 空格 (0x%04X)\n"), i, (int)c);
+		else
+			TRACE(_T("  字符[%d]: U+%04X '%c'\n"), i, (int)c, c);
+	}
+
+	TRACE(_T("=== 处理角色名空格结束 ===\n"));
+	return 处理后的角色名;
+}
+
 // 处理角色转生
 BOOL NageDlqServerDlg::处理角色转生(const CString& 用户名, const CString& 角色名)
 {
+	// 处理角色名空格问题
+	CString 处理后的角色名 = 处理角色名空格(角色名);
+	TRACE(_T("处理后的角色名: [%s]\n"), 处理后的角色名);
+
 	// 检测账号是否在线
 	if (检测账号是否在线(用户名))
 	{
@@ -1816,7 +1907,7 @@ BOOL NageDlqServerDlg::处理角色转生(const CString& 用户名, const CStrin
 	{
 		// 查询角色信息
 		CString 查询语句;
-		查询语句.Format(_T("SELECT Lv, baseskill, relvCtime, lv + relvC AS total_lv, recount FROM nage.dbo.CharInfo WHERE charName = '%s'"), 角色名);
+		查询语句.Format(_T("SELECT Lv, baseskill, relvCtime, lv + relvC AS total_lv, recount FROM nage.dbo.CharInfo WHERE charName = '%s'"), 处理后的角色名);
 
 		retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
 		if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO)
@@ -1895,10 +1986,10 @@ BOOL NageDlqServerDlg::处理角色转生(const CString& 用户名, const CStrin
 
 			// 更新角色数据
 			CString 更新语句;
-			更新语句.Format(_T("UPDATE CharInfo SET Lv = %d, Exp = %d, HP = %d, SP = %d, STM = %d, ")
+			更新语句.Format(_T("UPDATE nage.dbo.CharInfo SET Lv = %d, Exp = %d, HP = %d, SP = %d, STM = %d, ")
 				_T("Str = %d, Dex = %d, Esp = %d, Spt = %d, cmap = %d, lvpoint = %d, ")
 				_T("relvC = %d, relvCtime = GETDATE(), recount = %d, Hero = 0 WHERE charName = '%s'"),
-				Lv, Exp, HP, SP, STM, Str, Dex, Esp, Spt, cmap, lvpoint, relvC, 转生次数 + 1, 角色名);
+				Lv, Exp, HP, SP, STM, Str, Dex, Esp, Spt, cmap, lvpoint, relvC, 转生次数 + 1, 处理后的角色名);
 
 			retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)更新语句.GetString(), SQL_NTS);
 			if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
@@ -1931,6 +2022,8 @@ BOOL NageDlqServerDlg::处理角色转生(const CString& 用户名, const CStrin
 // 处理角色加点
 BOOL NageDlqServerDlg::处理角色加点(const CString& 用户名, const CString& 角色名, int 力量, int 敏捷, int 意念, int 灵力)
 {
+	TRACE(_T("加点数值: 力量=%d, 敏捷=%d, 意念=%d, 灵力=%d\n"), 力量, 敏捷, 意念, 灵力);
+
 	// 检测账号是否在线
 	if (检测账号是否在线(用户名))
 	{
@@ -1991,7 +2084,7 @@ BOOL NageDlqServerDlg::处理角色加点(const CString& 用户名, const CStrin
 
 			// 更新角色属性
 			CString 更新语句;
-			更新语句.Format(_T("UPDATE CharInfo SET Str = Str + %d, Dex = Dex + %d, Esp = Esp + %d, Spt = Spt + %d, lvpoint = lvpoint - %d WHERE charName = '%s'"),
+			更新语句.Format(_T("UPDATE nage.dbo.CharInfo SET Str = Str + %d, Dex = Dex + %d, Esp = Esp + %d, Spt = Spt + %d, lvpoint = lvpoint - %d WHERE charName = '%s'"),
 				力量, 敏捷, 意念, 灵力, 总点数, 角色名);
 
 			retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)更新语句.GetString(), SQL_NTS);
