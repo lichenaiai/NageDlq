@@ -9,6 +9,14 @@
 
 #pragma comment(lib, "ws2_32.lib")
 
+struct 连接信息
+{
+    SOCKET 套接字;
+    DWORD 开始时间;
+    DWORD 最后活动时间;
+    bool 正在关闭;
+};
+
 // 端口转发规则结构
 struct 端口转发规则
 {
@@ -27,7 +35,11 @@ struct 端口转发规则
     SOCKET 监听套接字;
     std::thread* 转发线程;
 
-    // 添加连接数操作的线程安全方法
+    // 连接管理
+    std::vector<std::shared_ptr<连接信息>> 活动连接;
+    mutable std::mutex 连接列表锁;
+
+    // 连接数操作的线程安全方法
     int 获取连接数() const
     {
         std::lock_guard<std::mutex> 锁(连接数锁);
@@ -52,16 +64,91 @@ struct 端口转发规则
         连接数 = 数量;
     }
 
-    // 添加构造函数，初始化成员
+    // 连接管理方法
+    void 添加活动连接(SOCKET 套接字)
+    {
+        std::lock_guard<std::mutex> 锁(连接列表锁);
+        auto 连接 = std::make_shared<连接信息>();
+        连接->套接字 = 套接字;
+        连接->开始时间 = GetTickCount();
+        连接->最后活动时间 = 连接->开始时间;
+        连接->正在关闭 = false;
+        活动连接.push_back(连接);
+    }
+
+    void 移除活动连接(SOCKET 套接字)
+    {
+        std::lock_guard<std::mutex> 锁(连接列表锁);
+        for (auto it = 活动连接.begin(); it != 活动连接.end(); )
+        {
+            if ((*it)->套接字 == 套接字)
+            {
+                it = 活动连接.erase(it);
+                break;
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+
+    void 更新连接活动时间(SOCKET 套接字)
+    {
+        std::lock_guard<std::mutex> 锁(连接列表锁);
+        for (auto& 连接 : 活动连接)
+        {
+            if (连接->套接字 == 套接字)
+            {
+                连接->最后活动时间 = GetTickCount();
+                break;
+            }
+        }
+    }
+
+    void 清理无效连接()
+    {
+        std::lock_guard<std::mutex> 锁(连接列表锁);
+
+        for (auto it = 活动连接.begin(); it != 活动连接.end(); )
+        {
+            auto 连接 = *it;
+
+            // 只清理标记为正在关闭的连接
+            if (连接->正在关闭)
+            {
+                it = 活动连接.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+
+    // 构造函数，初始化成员
     端口转发规则() : 序号(0), 输入端口(0), 输出端口(0),
         运行中(FALSE), 连接数(0),
         监听套接字(INVALID_SOCKET),
         转发线程(nullptr) {
     }
 
-    // 添加析构函数
+    // 析构函数
     ~端口转发规则()
     {
+        // 清理所有活动连接
+        {
+            std::lock_guard<std::mutex> 锁(连接列表锁);
+            for (auto& 连接 : 活动连接)
+            {
+                if (连接->套接字 != INVALID_SOCKET)
+                {
+                    closesocket(连接->套接字);
+                }
+            }
+            活动连接.clear();
+        }
+
         if (转发线程 && 转发线程->joinable())
         {
             转发线程->join();
@@ -94,6 +181,7 @@ public:
     BOOL 加载配置();
     BOOL 验证规则参数(const CString& 输入IP, int 输入端口, const CString& 输出IP, int 输出端口);
 
+    
 private:
     std::vector<端口转发规则*> 转发规则列表;
     mutable std::mutex 规则列表锁;
@@ -101,5 +189,5 @@ private:
     static void 转发线程函数(端口转发规则* 规则);
     static void 客户端处理线程(SOCKET 客户端套接字, SOCKET 目标套接字, 端口转发规则* 规则);
     static void 转发数据(SOCKET 来源套接字, SOCKET 目标套接字, 端口转发规则* 规则);
-    
+    static void 定期连接状态检查(端口转发规则* 规则);
 };

@@ -1,9 +1,11 @@
 //端口转发.cpp
+
 #include "pch.h"
 #include "端口转发.h"
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
+#include <MSTcpIP.h>
 #pragma comment(lib, "ws2_32.lib")
 
 端口转发管理类::端口转发管理类()
@@ -461,89 +463,167 @@ std::vector<端口转发规则*> 端口转发管理类::获取规则列表() const
     return 转发规则列表; // 返回副本
 }
 
-
 // 转发线程函数
 void 端口转发管理类::转发线程函数(端口转发规则* 规则)
 {
     TRACE(_T("=== 转发线程启动 === 规则: %d\n"), 规则->序号);
 
-    // 记录线程开始时间
-    DWORD 线程开始时间 = GetTickCount();
+    DWORD 上次清理时间 = GetTickCount();
+    const DWORD 清理间隔 = 30000; // 30秒清理一次无效连接
+
+    DWORD 上次状态检查时间 = GetTickCount();
+    const DWORD 状态检查间隔 = 5 * 60 * 1000; // 5分钟检查一次状态
 
     while (规则->运行中)
     {
-        // 添加：检查线程运行时间，防止无限循环
-        if (GetTickCount() - 线程开始时间 > 24 * 60 * 60 * 1000) // 24小时
+        // 定期清理标记为关闭的连接
+        DWORD 当前时间 = GetTickCount();
+        if (当前时间 - 上次清理时间 > 清理间隔)
         {
-            TRACE(_T("转发线程运行超过24小时，自动重启\n"));
-            break;
+            规则->清理无效连接();
+            上次清理时间 = 当前时间;
         }
 
-        sockaddr_in 客户端地址;
-        int 客户端地址长度 = sizeof(客户端地址);
-
-        SOCKET 客户端套接字 = accept(规则->监听套接字, (sockaddr*)&客户端地址, &客户端地址长度);
-
-        if (客户端套接字 != INVALID_SOCKET)
+        // 定期记录连接状态（不主动断开）
+        if (当前时间 - 上次状态检查时间 > 状态检查间隔)
         {
-            // 解析客户端IP
-            char 客户端IP缓冲区[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET, &(客户端地址.sin_addr), 客户端IP缓冲区, sizeof(客户端IP缓冲区));
+            定期连接状态检查(规则);
+            上次状态检查时间 = 当前时间;
+        }
 
-            TRACE(_T("规则 %d 接受客户端连接: %s\n"), 规则->序号, CString(客户端IP缓冲区));
+        // 使用select等待连接，设置超时以便定期检查运行状态
+        fd_set 读集合;
+        FD_ZERO(&读集合);
+        FD_SET(规则->监听套接字, &读集合);
 
-            // 连接到目标服务器
-            SOCKET 目标套接字 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-            if (目标套接字 != INVALID_SOCKET)
+        struct timeval 超时;
+        超时.tv_sec = 1;  // 1秒超时，便于及时响应停止信号
+        超时.tv_usec = 0;
+
+        int 选择结果 = select(0, &读集合, NULL, NULL, &超时);
+
+        if (选择结果 > 0)
+        {
+            sockaddr_in 客户端地址;
+            int 客户端地址长度 = sizeof(客户端地址);
+
+            SOCKET 客户端套接字 = accept(规则->监听套接字, (sockaddr*)&客户端地址, &客户端地址长度);
+
+            if (客户端套接字 != INVALID_SOCKET)
             {
-                sockaddr_in 目标地址;
-                目标地址.sin_family = AF_INET;
+                // 解析客户端IP
+                char 客户端IP缓冲区[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &(客户端地址.sin_addr), 客户端IP缓冲区, sizeof(客户端IP缓冲区));
 
-                // 使用宽字符转换
-                USES_CONVERSION;
-                char* 输出IP = T2A(规则->输出IP);
-                inet_pton(AF_INET, 输出IP, &(目标地址.sin_addr));
-                目标地址.sin_port = htons(规则->输出端口);
+                TRACE(_T("规则 %d 接受客户端连接: %s\n"), 规则->序号, CString(客户端IP缓冲区));
 
-                // 设置连接超时
-                DWORD 连接超时 = 30000; // 5秒
-                setsockopt(目标套接字, SOL_SOCKET, SO_RCVTIMEO, (char*)&连接超时, sizeof(连接超时));
-                setsockopt(目标套接字, SOL_SOCKET, SO_SNDTIMEO, (char*)&连接超时, sizeof(连接超时));
+                // 设置TCP保活机制（让操作系统处理连接维持）
+                int 保持活动 = 1;
+                setsockopt(客户端套接字, SOL_SOCKET, SO_KEEPALIVE, (char*)&保持活动, sizeof(保持活动));
 
-                if (connect(目标套接字, (sockaddr*)&目标地址, sizeof(目标地址)) == 0)
+                // 设置TCP保活参数（Windows）
+                tcp_keepalive 保活参数;
+                保活参数.onoff = 1;
+                保活参数.keepalivetime = 2 * 60 * 60 * 1000;  // 2小时后开始检测
+                保活参数.keepaliveinterval = 60 * 1000;       // 1分钟重试间隔
+
+                DWORD 返回字节数 = 0;
+                // 使用WSAIoctl设置TCP保活参数
+                if (WSAIoctl(客户端套接字, SIO_KEEPALIVE_VALS, &保活参数, sizeof(保活参数),
+                    NULL, 0, &返回字节数, NULL, NULL) == SOCKET_ERROR)
                 {
-                    // 连接成功，启动客户端处理线程
-                    //{
-                        //std::lock_guard<std::mutex> 锁(规则->连接数锁);
-                        //规则->连接数++;
-                    //}
+                    // 如果设置失败，只记录日志，不影响功能
+                    int 错误码 = WSAGetLastError();
+                    TRACE(_T("设置TCP保活参数失败，错误码: %d (不影响功能)\n"), 错误码);
+                }
 
-                    // 使用detach来避免线程管理问题
-                    std::thread(客户端处理线程, 客户端套接字, 目标套接字, 规则).detach();
+                // 连接到目标服务器
+                SOCKET 目标套接字 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+                if (目标套接字 != INVALID_SOCKET)
+                {
+                    sockaddr_in 目标地址;
+                    目标地址.sin_family = AF_INET;
+
+                    USES_CONVERSION;
+                    char* 输出IP = T2A(规则->输出IP);
+                    if (inet_pton(AF_INET, 输出IP, &(目标地址.sin_addr)) != 1)
+                    {
+                        TRACE(_T("目标IP地址转换失败: %s\n"), 规则->输出IP);
+                        closesocket(目标套接字);
+                        closesocket(客户端套接字);
+                        continue;
+                    }
+                    目标地址.sin_port = htons(规则->输出端口);
+
+                    // 设置连接超时（仅用于连接阶段）
+                    DWORD 连接超时 = 10000; // 10秒
+                    setsockopt(目标套接字, SOL_SOCKET, SO_RCVTIMEO, (char*)&连接超时, sizeof(连接超时));
+                    setsockopt(目标套接字, SOL_SOCKET, SO_SNDTIMEO, (char*)&连接超时, sizeof(连接超时));
+
+                    if (connect(目标套接字, (sockaddr*)&目标地址, sizeof(目标地址)) == 0)
+                    {
+                        // 连接成功后，移除发送/接收超时设置
+                        DWORD 无超时 = 0;
+                        setsockopt(目标套接字, SOL_SOCKET, SO_RCVTIMEO, (char*)&无超时, sizeof(无超时));
+                        setsockopt(目标套接字, SOL_SOCKET, SO_SNDTIMEO, (char*)&无超时, sizeof(无超时));
+
+                        // 为服务器端套接字也设置保活
+                        保持活动 = 1;
+                        setsockopt(目标套接字, SOL_SOCKET, SO_KEEPALIVE, (char*)&保持活动, sizeof(保持活动));
+
+                        // 设置目标套接字的TCP保活参数
+                        tcp_keepalive 目标保活参数;
+                        目标保活参数.onoff = 1;
+                        目标保活参数.keepalivetime = 2 * 60 * 60 * 1000;  // 2小时后开始检测
+                        目标保活参数.keepaliveinterval = 60 * 1000;       // 1分钟重试间隔
+
+                        if (WSAIoctl(目标套接字, SIO_KEEPALIVE_VALS, &目标保活参数, sizeof(目标保活参数),
+                            NULL, 0, &返回字节数, NULL, NULL) == SOCKET_ERROR)
+                        {
+                            int 错误码 = WSAGetLastError();
+                            TRACE(_T("设置目标套接字TCP保活参数失败，错误码: %d\n"), 错误码);
+                        }
+
+                        // 记录连接信息
+                        规则->添加活动连接(客户端套接字);
+                        规则->添加活动连接(目标套接字);
+
+                        // 启动客户端处理线程
+                        std::thread* 处理线程 = new std::thread(客户端处理线程, 客户端套接字, 目标套接字, 规则);
+                        处理线程->detach();
+
+                        规则->增加连接数();
+                        TRACE(_T("规则 %d: 新连接建立，当前连接数: %d\n"),
+                            规则->序号, 规则->获取连接数());
+                    }
+                    else
+                    {
+                        TRACE(_T("规则 %d 连接到目标服务器失败: %s:%d\n"),
+                            规则->序号, 规则->输出IP, 规则->输出端口);
+                        closesocket(目标套接字);
+                        closesocket(客户端套接字);
+                    }
                 }
                 else
                 {
-                    TRACE(_T("规则 %d 连接到目标服务器失败: %s:%d\n"),
-                        规则->序号, 规则->输出IP, 规则->输出端口);
-                    closesocket(目标套接字);
+                    TRACE(_T("规则 %d 创建目标套接字失败\n"), 规则->序号);
                     closesocket(客户端套接字);
                 }
             }
-            else
-            {
-                TRACE(_T("规则 %d 创建目标套接字失败\n"), 规则->序号);
-                closesocket(客户端套接字);
-            }
+        }
+        else if (选择结果 == 0)
+        {
+            // select超时，继续循环
+            continue;
         }
         else
         {
-            // accept失败，可能是非阻塞模式或错误
             int 错误码 = WSAGetLastError();
-            if (错误码 != WSAEWOULDBLOCK)
+            if (错误码 != WSAEINTR) // 不是被中断的错误
             {
-                TRACE(_T("规则 %d accept失败，错误码: %d\n"), 规则->序号, 错误码);
+                TRACE(_T("规则 %d select错误: %d\n"), 规则->序号, 错误码);
             }
-            Sleep(50);
+            Sleep(100); // 短暂休眠
         }
     }
 
@@ -553,30 +633,45 @@ void 端口转发管理类::转发线程函数(端口转发规则* 规则)
 // 客户端处理线程
 void 端口转发管理类::客户端处理线程(SOCKET 客户端套接字, SOCKET 目标套接字, 端口转发规则* 规则)
 {  
-    // 增加连接数 - 使用线程安全方法
-    规则->增加连接数();
+    // 设置套接字为阻塞模式（而不是非阻塞）
+    u_long 阻塞模式 = 0;
+    ioctlsocket(客户端套接字, FIONBIO, &阻塞模式);
+    ioctlsocket(目标套接字, FIONBIO, &阻塞模式);
 
-    // 设置套接字为非阻塞模式
-    u_long 非阻塞模式 = 1;
-    ioctlsocket(客户端套接字, FIONBIO, &非阻塞模式);
-    ioctlsocket(目标套接字, FIONBIO, &非阻塞模式);
+    // 记录连接信息用于日志
+    DWORD 连接开始时间 = GetTickCount();
 
     // 创建两个线程分别处理两个方向的数据转发
     std::thread 客户端到目标线程(转发数据, 客户端套接字, 目标套接字, 规则);
     std::thread 目标到客户端线程(转发数据, 目标套接字, 客户端套接字, 规则);
 
     // 等待两个线程结束
-    if (客户端到目标线程.joinable())
-        客户端到目标线程.join();
+    auto 等待线程结束 = [](std::thread& 线程) {
+        if (线程.joinable())
+        {
+            // 无限期等待线程结束
+            线程.join();
+        }
+        };
 
-    if (目标到客户端线程.joinable())
-        目标到客户端线程.join();
+    // 等待线程结束
+    等待线程结束(客户端到目标线程);
+    等待线程结束(目标到客户端线程);
+
+    // 计算连接持续时间
+    DWORD 连接持续时间 = GetTickCount() - 连接开始时间;
+    TRACE(_T("规则 %d: 连接结束，持续时间: %.2f小时\n"),
+        规则->序号, 连接持续时间 / (3600.0 * 1000.0));
 
     // 关闭连接
     closesocket(客户端套接字);
     closesocket(目标套接字);
 
+    // 减少连接数
     规则->减少连接数();
+
+    TRACE(_T("规则 %d: 连接处理完成，当前连接数: %d\n"),
+        规则->序号, 规则->获取连接数());
 }
 
 // 数据转发函数
@@ -584,73 +679,70 @@ void 端口转发管理类::转发数据(SOCKET 来源套接字, SOCKET 目标套接字, 端口转发规则
 {
     char 缓冲区[4096];
 
-    // 记录最后活动时间
-    DWORD 最后活动时间 = GetTickCount();
-    const DWORD 数据超时时间 = 36000000; // 10小时无数据传输超时
-
     while (规则->运行中)
     {
-        // 检查超时
-        DWORD 当前时间 = GetTickCount();
-        if (当前时间 - 最后活动时间 > 数据超时时间)
-        {
-            TRACE(_T("转发数据超时，断开连接\n"));
-            break;
-        }
-
-        // 使用select检查是否有数据可读
+        // 使用select无限期等待数据（不设置超时）
         fd_set 读集合;
         FD_ZERO(&读集合);
         FD_SET(来源套接字, &读集合);
 
-        struct timeval 超时;
-        超时.tv_sec = 30;  // 秒
-        超时.tv_usec = 0; // 毫秒
+        // 重要：不设置超时，无限期等待
+        int 选择结果 = select(0, &读集合, NULL, NULL, NULL);
 
-        int 选择结果 = select(0, &读集合, NULL, NULL, &超时);
-
-        if (选择结果 == 0)
+        if (选择结果 > 0)
         {
-            // 5秒内没有数据，继续等待
-            continue;
-        }
-        else if (选择结果 > 0)
-        {
-            // 有数据可读，处理数据，并重置"最后活动时间"
-            最后活动时间 = GetTickCount();
-        }
+            int 接收长度 = recv(来源套接字, 缓冲区, sizeof(缓冲区), 0);
 
-        int 接收长度 = recv(来源套接字, 缓冲区, sizeof(缓冲区), 0);
-
-        if (接收长度 > 0)
-        {
-            // 更新最后活动时间
-            最后活动时间 = GetTickCount();
-
-            // 转发数据
-            int 发送长度 = send(目标套接字, 缓冲区, 接收长度, 0);
-
-            if (发送长度 == SOCKET_ERROR)
+            if (接收长度 > 0)
             {
+                // 更新连接活动时间
+                规则->更新连接活动时间(来源套接字);
+
+                // 转发数据
+                int 发送长度 = send(目标套接字, 缓冲区, 接收长度, 0);
+
+                if (发送长度 == SOCKET_ERROR)
+                {
+                    int 错误码 = WSAGetLastError();
+                    TRACE(_T("发送数据失败，错误码: %d\n"), 错误码);
+                    break;
+                }
+            }
+            else if (接收长度 == 0)
+            {
+                // 连接正常关闭（对端调用了close/shutdown）
+                TRACE(_T("连接正常关闭\n"));
                 break;
             }
+            else
+            {
+                // 接收错误
+                int 错误码 = WSAGetLastError();
+                if (错误码 != WSAEWOULDBLOCK)
+                {
+                    TRACE(_T("接收数据失败，错误码: %d\n"), 错误码);
+                    break;
+                }
+                // WSAEWOULDBLOCK是非阻塞模式下的正常情况，继续等待
+            }
         }
-        else if (接收长度 == 0)
+        else if (选择结果 == 0)
         {
-            // 连接正常关闭
-            TRACE(_T("连接正常关闭\n"));
-            break;
+            // 理论上不会发生，因为没有设置超时
+            continue;
         }
         else
         {
-            // 接收错误
+            // select错误
             int 错误码 = WSAGetLastError();
-            if (错误码 != WSAEWOULDBLOCK)
-            {
-                break;
-            }
+            TRACE(_T("select错误: %d\n"), 错误码);
+            break;
         }
     }
+
+    // 标记连接为关闭状态
+    规则->移除活动连接(来源套接字);
+    规则->移除活动连接(目标套接字);
 }
 
 // 保存配置到注册表
@@ -875,4 +967,27 @@ BOOL 端口转发管理类::验证规则参数(const CString& 输入IP, int 输入端口, const CSt
         return FALSE;
 
     return TRUE;
+}
+
+// 在端口转发规则结构中已修改，这里添加详细日志
+void 端口转发管理类::定期连接状态检查(端口转发规则* 规则)
+{
+    std::lock_guard<std::mutex> 锁(规则->连接列表锁);
+    DWORD 当前时间 = GetTickCount();
+
+    for (auto& 连接 : 规则->活动连接)
+    {
+        if (!连接->正在关闭)
+        {
+            DWORD 连接时长 = (当前时间 - 连接->开始时间) / (1000 * 60); // 分钟
+            DWORD 空闲时长 = (当前时间 - 连接->最后活动时间) / (1000 * 60); // 分钟
+
+            // 只记录日志，不主动断开
+            if (连接时长 > 60) // 连接超过1小时
+            {
+                TRACE(_T("规则 %d: 连接已持续 %d 分钟，空闲 %d 分钟\n"),
+                    规则->序号, 连接时长, 空闲时长);
+            }
+        }
+    }
 }
