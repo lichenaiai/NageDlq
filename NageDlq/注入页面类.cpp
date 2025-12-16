@@ -14,10 +14,15 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <vector>
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
+
+// 静态回调函数声明
+static BOOL CALLBACK 枚举进程窗口回调(HWND hwnd, LPARAM lParam);
+static BOOL CALLBACK FindMainWindowCallback(HWND hwnd, LPARAM lParam);
 
 // 注入页面类 对话框
 IMPLEMENT_DYNAMIC(注入页面类, CDialogEx)
@@ -30,6 +35,7 @@ IMPLEMENT_DYNAMIC(注入页面类, CDialogEx)
 	, 当前怪物地址索引(0)
 	, 总攻击次数(0)
 	, 自动打怪开始时间(0)
+	, 游戏窗口句柄(NULL)
 {
 }
 
@@ -69,7 +75,203 @@ DWORD 注入页面类::获取游戏进程ID()
 	return 游戏进程ID;  // 直接返回已获取的进程ID
 }
 
-// 自动打怪按钮点击事件
+// ============================================================================
+// 新增：通过进程ID查找窗口的函数实现
+// ============================================================================
+
+// 通过进程ID查找窗口
+BOOL 注入页面类::通过进程ID查找窗口()
+{
+	if (游戏进程ID == 0)
+	{
+		TRACE(_T("进程ID为0，无法查找窗口\n"));
+		return FALSE;
+	}
+
+	游戏窗口句柄 = NULL;
+
+	// 方法1：使用FindMainWindow查找主窗口
+	游戏窗口句柄 = FindMainWindow(游戏进程ID);
+
+	if (游戏窗口句柄 != NULL && IsWindow(游戏窗口句柄))
+	{
+		TCHAR 窗口标题[256] = { 0 };
+		GetWindowText(游戏窗口句柄, 窗口标题, 255);
+		TRACE(_T("通过FindMainWindow找到窗口: '%s' (0x%08X)\n"), 窗口标题, 游戏窗口句柄);
+		return TRUE;
+	}
+
+	// 方法2：使用深度查找
+	TRACE(_T("开始深度查找进程 %d 的窗口\n"), 游戏进程ID);
+	游戏窗口句柄 = 深度查找进程窗口(游戏进程ID);
+
+	if (游戏窗口句柄 != NULL && IsWindow(游戏窗口句柄))
+	{
+		TCHAR 窗口标题[256] = { 0 };
+		GetWindowText(游戏窗口句柄, 窗口标题, 255);
+		TRACE(_T("通过深度查找找到窗口: '%s' (0x%08X)\n"), 窗口标题, 游戏窗口句柄);
+		return TRUE;
+	}
+
+	// 方法3：使用枚举窗口回调
+	TRACE(_T("开始枚举窗口查找进程ID: %d\n"), 游戏进程ID);
+	EnumWindows(枚举进程窗口回调, reinterpret_cast<LPARAM>(this));
+
+	if (游戏窗口句柄 != NULL && IsWindow(游戏窗口句柄))
+	{
+		TCHAR 窗口标题[256] = { 0 };
+		GetWindowText(游戏窗口句柄, 窗口标题, 255);
+		TRACE(_T("通过枚举窗口找到窗口: '%s' (0x%08X)\n"), 窗口标题, 游戏窗口句柄);
+		return TRUE;
+	}
+
+	TRACE(_T("未找到进程 %d 的任何窗口\n"), 游戏进程ID);
+	return FALSE;
+}
+
+// 枚举窗口的回调函数（静态）
+static BOOL CALLBACK 枚举进程窗口回调(HWND hwnd, LPARAM lParam)
+{
+	注入页面类* p注入页面 = reinterpret_cast<注入页面类*>(lParam);
+	if (p注入页面 == nullptr) return TRUE;
+
+	return p注入页面->枚举窗口回调函数(hwnd);
+}
+
+// 实例回调函数
+BOOL 注入页面类::枚举窗口回调函数(HWND hwnd)
+{
+	DWORD 窗口进程ID = 0;
+	GetWindowThreadProcessId(hwnd, &窗口进程ID);
+
+	if (窗口进程ID == 游戏进程ID)
+	{
+		// 检查窗口是否可见且不是子窗口
+		if (IsWindowVisible(hwnd) && GetParent(hwnd) == NULL)
+		{
+			// 获取窗口标题用于调试
+			TCHAR 窗口标题[256] = { 0 };
+			GetWindowText(hwnd, 窗口标题, 255);
+
+			TRACE(_T("找到游戏窗口: 句柄=0x%08X, 标题='%s', 进程ID=%d\n"),
+				hwnd, 窗口标题, 窗口进程ID);
+
+			游戏窗口句柄 = hwnd;
+			return FALSE; // 找到窗口，停止枚举
+		}
+	}
+
+	return TRUE; // 继续枚举
+}
+
+// 查找进程的主窗口
+HWND 注入页面类::查找进程主窗口(DWORD 目标进程ID)
+{
+	return FindMainWindow(目标进程ID);
+}
+
+// 通用的查找进程主窗口函数（静态版本）
+static BOOL CALLBACK FindMainWindowCallback(HWND hwnd, LPARAM lParam)
+{
+	struct WindowInfo
+	{
+		DWORD 进程ID;
+		HWND 窗口句柄;
+	};
+
+	WindowInfo* pInfo = reinterpret_cast<WindowInfo*>(lParam);
+	DWORD 进程ID = 0;
+
+	GetWindowThreadProcessId(hwnd, &进程ID);
+	if (进程ID == pInfo->进程ID)
+	{
+		// 检查窗口是否可见、没有父窗口、不是工具窗口
+		if (IsWindowVisible(hwnd) &&
+			GetParent(hwnd) == NULL &&
+			(GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) == 0)
+		{
+			pInfo->窗口句柄 = hwnd;
+			return FALSE; // 停止枚举
+		}
+	}
+	return TRUE; // 继续枚举
+}
+
+// 通用的查找进程主窗口函数
+HWND 注入页面类::FindMainWindow(DWORD dwPID)
+{
+	struct WindowInfo
+	{
+		DWORD 进程ID;
+		HWND 窗口句柄;
+	};
+
+	WindowInfo 信息 = { dwPID, NULL };
+
+	EnumWindows(FindMainWindowCallback, reinterpret_cast<LPARAM>(&信息));
+
+	return 信息.窗口句柄;
+}
+
+// 深度查找窗口（包含子窗口）
+HWND 注入页面类::深度查找进程窗口(DWORD 目标进程ID)
+{
+	return 深度查找窗口递归(GetDesktopWindow(), 目标进程ID);
+}
+
+// 递归查找窗口的辅助函数
+HWND 注入页面类::深度查找窗口递归(HWND 父窗口, DWORD 目标进程ID)
+{
+	HWND 子窗口 = GetWindow(父窗口, GW_CHILD);
+
+	while (子窗口 != NULL)
+	{
+		DWORD 窗口进程ID = 0;
+		GetWindowThreadProcessId(子窗口, &窗口进程ID);
+
+		if (窗口进程ID == 目标进程ID && IsWindowVisible(子窗口))
+		{
+			return 子窗口;
+		}
+
+		// 递归查找子窗口的子窗口
+		HWND 找到的窗口 = 深度查找窗口递归(子窗口, 目标进程ID);
+		if (找到的窗口 != NULL)
+		{
+			return 找到的窗口;
+		}
+
+		子窗口 = GetWindow(子窗口, GW_HWNDNEXT);
+	}
+
+	return NULL;
+}
+
+// 获取进程的所有窗口
+std::vector<HWND> 注入页面类::获取进程所有窗口(DWORD 进程ID)
+{
+	std::vector<HWND> 窗口列表;
+
+	EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL
+		{
+			std::vector<HWND>* p列表 = reinterpret_cast<std::vector<HWND>*>(lParam);
+			DWORD 窗口进程ID = 0;
+
+			GetWindowThreadProcessId(hwnd, &窗口进程ID);
+			注入页面类* pThis = reinterpret_cast<注入页面类*>(lParam);
+			if (pThis != nullptr && 窗口进程ID == pThis->游戏进程ID)
+			{
+				p列表->push_back(hwnd);
+			}
+			return TRUE;
+		}, reinterpret_cast<LPARAM>(this));
+
+	return 窗口列表;
+}
+
+// ============================================================================
+// 自动打怪按钮点击事件（修改版）
+// ============================================================================
 void 注入页面类::点击自动打怪按钮()
 {
 	if (!自动打怪运行中)
@@ -81,13 +283,19 @@ void 注入页面类::点击自动打怪按钮()
 			return;
 		}
 
-		// 查找游戏窗口
-		游戏窗口句柄 = ::FindWindow(NULL, _T("Nage"));
-		if (!游戏窗口句柄)
+		// 通过进程ID查找游戏窗口
+		if (!通过进程ID查找窗口())
 		{
-			MessageBox(_T("找不到游戏窗口！"), _T("错误"), MB_ICONERROR);
+			CString 错误信息;
+			错误信息.Format(_T("找不到游戏窗口！\n进程ID: %d\n\n请确保游戏窗口未被最小化。"), 游戏进程ID);
+			MessageBox(错误信息, _T("错误"), MB_ICONERROR);
 			return;
 		}
+
+		// 获取窗口标题用于显示
+		TCHAR 窗口标题[256] = { 0 };
+		GetWindowText(游戏窗口句柄, 窗口标题, 255);
+		TRACE(_T("成功获取游戏窗口: '%s' (0x%08X)\n"), 窗口标题, 游戏窗口句柄);
 
 		// 注入自动打怪功能
 		if (!注入自动打怪功能())
@@ -120,6 +328,10 @@ void 注入页面类::点击自动打怪按钮()
 	}
 }
 
+// ============================================================================
+// 原有函数保持不变，只修改了相关的窗口查找调用
+// ============================================================================
+
 // 定时器处理函数
 void 注入页面类::OnTimer(UINT_PTR nIDEvent)
 {
@@ -127,7 +339,7 @@ void 注入页面类::OnTimer(UINT_PTR nIDEvent)
 	CDialogEx::OnTimer(nIDEvent);
 }
 
-// 检查游戏进程
+// 检查游戏进程（优化版）
 BOOL 注入页面类::检查游戏进程()
 {
 	std::lock_guard<std::mutex> 锁(游戏进程互斥锁);
@@ -140,6 +352,17 @@ BOOL 注入页面类::检查游戏进程()
 	}
 
 	游戏进程ID = 0;
+
+	// 可能的进程名列表
+	const TCHAR* 进程名列表[] = {
+		_T("nage.bin"),
+		_T("Nage.bin"),
+		_T("nage.exe"),
+		_T("Nage.exe"),
+		_T("NageClient.exe"),
+		_T("Nage Client.exe"),
+		NULL
+	};
 
 	// 获取进程ID
 	HANDLE 进程快照句柄 = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -157,12 +380,20 @@ BOOL 注入页面类::检查游戏进程()
 	{
 		do
 		{
-			if (_wcsicmp(进程信息.szExeFile, L"nage.bin") == 0)
+			// 检查所有可能的进程名
+			for (int i = 0; 进程名列表[i] != NULL; i++)
 			{
-				游戏进程ID = 进程信息.th32ProcessID;
-				找到进程 = TRUE;
-				break;
+				if (_wcsicmp(进程信息.szExeFile, 进程名列表[i]) == 0)
+				{
+					游戏进程ID = 进程信息.th32ProcessID;
+					找到进程 = TRUE;
+					TRACE(_T("找到游戏进程: %s (PID: %d)\n"), 进程信息.szExeFile, 游戏进程ID);
+					break;
+				}
 			}
+
+			if (找到进程) break;
+
 		} while (Process32Next(进程快照句柄, &进程信息));
 	}
 
@@ -170,7 +401,7 @@ BOOL 注入页面类::检查游戏进程()
 
 	if (!找到进程)
 	{
-		TRACE(_T("未找到游戏进程 nage.bin\n"));
+		TRACE(_T("未找到游戏进程\n"));
 		return FALSE;
 	}
 
@@ -183,7 +414,7 @@ BOOL 注入页面类::检查游戏进程()
 		return FALSE;
 	}
 
-	TRACE(_T("找到游戏进程，进程ID: %d\n"), 游戏进程ID);
+	TRACE(_T("成功打开游戏进程，句柄: 0x%08X, 进程ID: %d\n"), 游戏进程句柄, 游戏进程ID);
 	return TRUE;
 }
 
@@ -304,6 +535,100 @@ BOOL 注入页面类::注入自动打怪功能()
 	return TRUE;
 }
 
+// ============================================================================
+// 激活并聚焦游戏窗口（修改版）
+// ============================================================================
+BOOL 注入页面类::激活并聚焦游戏窗口()
+{
+	if (!游戏窗口句柄 || !IsWindow(游戏窗口句柄))
+	{
+		// 如果窗口句柄为空或无效，重新通过进程ID查找
+		if (!通过进程ID查找窗口())
+		{
+			TRACE(_T("重新查找游戏窗口失败\n"));
+			return FALSE;
+		}
+	}
+
+	// 恢复窗口（如果最小化）
+	if (::IsIconic(游戏窗口句柄))
+	{
+		::ShowWindow(游戏窗口句柄, SW_RESTORE);
+		Sleep(100);
+	}
+
+	// 激活窗口到前台
+	::SetForegroundWindow(游戏窗口句柄);
+	::BringWindowToTop(游戏窗口句柄);
+	::SetActiveWindow(游戏窗口句柄);
+	::SetFocus(游戏窗口句柄);
+
+	// 短暂延迟确保窗口激活完成
+	Sleep(200);
+
+	// 验证窗口是否在前台
+	if (::GetForegroundWindow() == 游戏窗口句柄)
+	{
+		TRACE(_T("游戏窗口已成功激活\n"));
+		return TRUE;
+	}
+	else
+	{
+		TRACE(_T("警告：游戏窗口未能激活到前台\n"));
+		return FALSE;
+	}
+}
+
+// ============================================================================
+// 后台模拟鼠标移动（修改版）
+// ============================================================================
+void 注入页面类::后台模拟鼠标移动()
+{
+	if (!游戏窗口句柄 || !IsWindow(游戏窗口句柄))
+	{
+		// 重新查找窗口
+		if (!通过进程ID查找窗口())
+		{
+			return;
+		}
+	}
+
+	// 确保窗口在前台才模拟
+	if (::GetForegroundWindow() == 游戏窗口句柄)
+	{
+		// 只在窗口内轻微移动
+		RECT 窗口矩形;
+		::GetWindowRect(游戏窗口句柄, &窗口矩形);
+
+		// 生成窗口内的随机位置
+		int 宽度 = 窗口矩形.right - 窗口矩形.left;
+		int 高度 = 窗口矩形.bottom - 窗口矩形.top;
+
+		if (宽度 > 100 && 高度 > 100)
+		{
+			// 在窗口中心区域移动（避开边缘）
+			int 中心X = 宽度 / 2;
+			int 中心Y = 高度 / 2;
+			int 随机X = 中心X + (rand() % 100 - 50); // ±50像素
+			int 随机Y = 中心Y + (rand() % 100 - 50);
+
+			// 使用SendInput模拟（只在游戏窗口激活时）
+			INPUT 输入 = { 0 };
+			输入.type = INPUT_MOUSE;
+			输入.mi.dx = 随机X * (65535 / 宽度);
+			输入.mi.dy = 随机Y * (65535 / 高度);
+			输入.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
+			SendInput(1, &输入, sizeof(INPUT));
+
+			TRACE(_T("后台模拟鼠标移动到(%d, %d)\n"), 随机X, 随机Y);
+		}
+	}
+}
+
+// ============================================================================
+// 以下函数保持不变
+// ============================================================================
+
 // 启动自动打怪线程
 void 注入页面类::启动自动打怪线程()
 {
@@ -398,8 +723,6 @@ void 注入页面类::自动打怪线程函数()
 		}
 	}
 
-	// +++ 删除：不写0，游戏会自动清除攻击标志 +++
-
 	// 显示最终统计信息
 	DWORD 运行时间 = (GetTickCount() - 自动打怪开始时间) / 1000;
 	TRACE(_T("=== 自动打怪线程结束 ===\n"));
@@ -416,79 +739,6 @@ void 注入页面类::自动打怪线程函数()
 
 	// 通知主线程自动打怪已停止
 	::PostMessage(GetSafeHwnd(), WM_USER + 201, 0, 0);
-}
-
-// 激活并聚焦游戏窗口
-BOOL 注入页面类::激活并聚焦游戏窗口()
-{
-	if (!游戏窗口句柄)
-	{
-		游戏窗口句柄 = :: FindWindow(NULL, _T("Nage"));
-		if (!游戏窗口句柄)
-		{
-			TRACE(_T("未找到游戏窗口\n"));
-			return FALSE;
-		}
-	}
-
-	// 恢复窗口（如果最小化）
-	if (::IsIconic(游戏窗口句柄))
-	{
-		::ShowWindow(游戏窗口句柄, SW_RESTORE);
-		Sleep(100);
-	}
-
-	// 激活窗口到前台
-	::SetForegroundWindow(游戏窗口句柄);
-	::BringWindowToTop(游戏窗口句柄);
-	::SetActiveWindow(游戏窗口句柄);
-	::SetFocus(游戏窗口句柄);
-
-	// 短暂延迟确保窗口激活完成
-	Sleep(200);
-
-	return TRUE;
-}
-
-// 后台模拟鼠标移动（不影响用户操作）
-void 注入页面类::后台模拟鼠标移动()
-{
-	if (!游戏窗口句柄)
-	{
-		游戏窗口句柄 = ::FindWindow(NULL, _T("Nage"));
-		if (!游戏窗口句柄) return;
-	}
-
-	// 确保窗口在前台才模拟
-	if (::GetForegroundWindow() == 游戏窗口句柄)
-	{
-		// 只在窗口内轻微移动
-		RECT 窗口矩形;
-		::GetWindowRect(游戏窗口句柄, &窗口矩形);
-
-		// 生成窗口内的随机位置
-		int 宽度 = 窗口矩形.right - 窗口矩形.left;
-		int 高度 = 窗口矩形.bottom - 窗口矩形.top;
-
-		if (宽度 > 100 && 高度 > 100)
-		{
-			// 在窗口中心区域移动（避开边缘）
-			int 中心X = 宽度 / 2;
-			int 中心Y = 高度 / 2;
-			int 随机X = 中心X + (rand() % 100 - 50); // ±50像素
-			int 随机Y = 中心Y + (rand() % 100 - 50);
-
-			// 使用SendInput模拟（只在游戏窗口激活时）
-			INPUT 输入 = { 0 };
-			输入.type = INPUT_MOUSE;
-			输入.mi.dx = 随机X * (65535 / 宽度);
-			输入.mi.dy = 随机Y * (65535 / 高度);
-			输入.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE;
-			SendInput(1, &输入, sizeof(INPUT));
-
-			TRACE(_T("后台模拟鼠标移动到(%d, %d)\n"), 随机X, 随机Y);
-		}
-	}
 }
 
 // 获取有效目标怪物（改进版）
@@ -612,8 +862,6 @@ void 注入页面类::执行智能攻击()
 		{
 			TRACE(_T("怪物已死亡！\n"));
 			怪物死亡 = TRUE;
-
-			// 游戏会自动清除攻击标志，我们不需要写0
 			break;
 		}
 

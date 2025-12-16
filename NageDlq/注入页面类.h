@@ -5,6 +5,7 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <vector>
 
 // 注入页面类 对话框
 class 注入页面类 : public CDialogEx
@@ -33,6 +34,14 @@ public:
 	afx_msg LRESULT 自动打怪停止消息处理(WPARAM w参数, LPARAM l参数);
 
 private:
+	// 进程窗口查找相关函数（新增）
+	BOOL 通过进程ID查找窗口();
+	HWND 查找进程主窗口(DWORD 目标进程ID);
+	HWND FindMainWindow(DWORD dwPID);
+	HWND 深度查找进程窗口(DWORD 目标进程ID);
+	BOOL 枚举窗口回调函数(HWND hwnd);
+	std::vector<HWND> 获取进程所有窗口(DWORD 进程ID);
+
 	// 自动打怪相关函数
 	DWORD 获取游戏进程ID();
 	void 启动自动打怪线程();
@@ -40,14 +49,12 @@ private:
 	void 自动打怪线程函数();
 
 	// 怪物ID地址轮询
-	DWORD 获取下一个怪物ID();
-	DWORD 获取有效目标怪物();  
+	DWORD 获取有效目标怪物();
 	void 执行智能攻击();
-	void 更新当前怪物ID(DWORD 怪物ID);
 
 	// 窗口和鼠标操作
-	BOOL 激活并聚焦游戏窗口(); 
-	void 后台模拟鼠标移动();   
+	BOOL 激活并聚焦游戏窗口();
+	void 后台模拟鼠标移动();
 
 	// 注入功能
 	BOOL 注入自动打怪功能();
@@ -73,6 +80,7 @@ private:
 	int 当前怪物地址索引;                       // 当前使用的怪物地址索引
 	int 总攻击次数;                            // 攻击统计
 	DWORD 自动打怪开始时间;                     // 开始时间记录
+	HWND 深度查找窗口递归(HWND 父窗口, DWORD 目标进程ID);
 
 public:
 	CButton 自动打怪按钮;
