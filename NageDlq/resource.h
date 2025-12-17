@@ -59,8 +59,8 @@
 #define IDC_STATIC_RI_LV                1042
 #define IDC_RANKING_TITLE               1043
 #define IDC_RANKING_LIST                1044
-#define IDC_INJE_                       1045
 #define IDC_INJE_ATTKMOB                1045
+#define IDC_AUTOAM_ID                   1046
 
 // Next default values for new objects
 // 
@@ -68,7 +68,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        150
 #define _APS_NEXT_COMMAND_VALUE         32771
-#define _APS_NEXT_CONTROL_VALUE         1046
+#define _APS_NEXT_CONTROL_VALUE         1047
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

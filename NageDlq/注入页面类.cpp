@@ -4,6 +4,7 @@
 #include "NageDlq.h"
 #include "注入页面类.h"
 #include "afxdialogex.h"
+#include "Resource.h"
 
 // 添加必要的Windows头文件
 #include <windows.h>
@@ -18,6 +19,7 @@
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
+#define WM_UPDATE_TARGET_ID (WM_USER + 202)
 #endif
 
 // 静态回调函数声明
@@ -49,6 +51,7 @@ void 注入页面类::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_INJE_ATTKMOB, 自动打怪按钮);
+	DDX_Control(pDX, IDC_AUTOAM_ID, 状态标签);
 }
 
 BEGIN_MESSAGE_MAP(注入页面类, CDialogEx)
@@ -56,6 +59,7 @@ BEGIN_MESSAGE_MAP(注入页面类, CDialogEx)
 	ON_WM_TIMER()
 	ON_MESSAGE(WM_USER + 200, &注入页面类::游戏进程退出消息处理)
 	ON_MESSAGE(WM_USER + 201, &注入页面类::自动打怪停止消息处理)
+	ON_MESSAGE(WM_UPDATE_TARGET_ID, &注入页面类::更新目标ID消息处理)
 END_MESSAGE_MAP()
 
 // 初始化对话框
@@ -66,6 +70,9 @@ BOOL 注入页面类::OnInitDialog()
 	// 设置按钮初始文本
 	自动打怪按钮.SetWindowText(_T("开始自动打怪"));
 
+	// 初始化状态标签显示
+	更新目标ID显示(0x00000000);
+
 	return TRUE;
 }
 
@@ -74,10 +81,6 @@ DWORD 注入页面类::获取游戏进程ID()
 {
 	return 游戏进程ID;  // 直接返回已获取的进程ID
 }
-
-// ============================================================================
-// 新增：通过进程ID查找窗口的函数实现
-// ============================================================================
 
 // 通过进程ID查找窗口
 BOOL 注入页面类::通过进程ID查找窗口()
@@ -96,7 +99,7 @@ BOOL 注入页面类::通过进程ID查找窗口()
 	if (游戏窗口句柄 != NULL && IsWindow(游戏窗口句柄))
 	{
 		TCHAR 窗口标题[256] = { 0 };
-		GetWindowText(游戏窗口句柄, 窗口标题, 255);
+		::GetWindowText(游戏窗口句柄, 窗口标题, 255);
 		TRACE(_T("通过FindMainWindow找到窗口: '%s' (0x%08X)\n"), 窗口标题, 游戏窗口句柄);
 		return TRUE;
 	}
@@ -108,7 +111,7 @@ BOOL 注入页面类::通过进程ID查找窗口()
 	if (游戏窗口句柄 != NULL && IsWindow(游戏窗口句柄))
 	{
 		TCHAR 窗口标题[256] = { 0 };
-		GetWindowText(游戏窗口句柄, 窗口标题, 255);
+		::GetWindowText(游戏窗口句柄, 窗口标题, 255);
 		TRACE(_T("通过深度查找找到窗口: '%s' (0x%08X)\n"), 窗口标题, 游戏窗口句柄);
 		return TRUE;
 	}
@@ -120,7 +123,7 @@ BOOL 注入页面类::通过进程ID查找窗口()
 	if (游戏窗口句柄 != NULL && IsWindow(游戏窗口句柄))
 	{
 		TCHAR 窗口标题[256] = { 0 };
-		GetWindowText(游戏窗口句柄, 窗口标题, 255);
+		::GetWindowText(游戏窗口句柄, 窗口标题, 255);
 		TRACE(_T("通过枚举窗口找到窗口: '%s' (0x%08X)\n"), 窗口标题, 游戏窗口句柄);
 		return TRUE;
 	}
@@ -135,32 +138,25 @@ static BOOL CALLBACK 枚举进程窗口回调(HWND hwnd, LPARAM lParam)
 	注入页面类* p注入页面 = reinterpret_cast<注入页面类*>(lParam);
 	if (p注入页面 == nullptr) return TRUE;
 
-	return p注入页面->枚举窗口回调函数(hwnd);
-}
-
-// 实例回调函数
-BOOL 注入页面类::枚举窗口回调函数(HWND hwnd)
-{
 	DWORD 窗口进程ID = 0;
-	GetWindowThreadProcessId(hwnd, &窗口进程ID);
+	::GetWindowThreadProcessId(hwnd, &窗口进程ID);
 
-	if (窗口进程ID == 游戏进程ID)
+	if (窗口进程ID == p注入页面->游戏进程ID)
 	{
 		// 检查窗口是否可见且不是子窗口
-		if (IsWindowVisible(hwnd) && GetParent(hwnd) == NULL)
+		if (::IsWindowVisible(hwnd) && ::GetParent(hwnd) == NULL)
 		{
 			// 获取窗口标题用于调试
 			TCHAR 窗口标题[256] = { 0 };
-			GetWindowText(hwnd, 窗口标题, 255);
+			::GetWindowText(hwnd, 窗口标题, 255);
 
 			TRACE(_T("找到游戏窗口: 句柄=0x%08X, 标题='%s', 进程ID=%d\n"),
 				hwnd, 窗口标题, 窗口进程ID);
 
-			游戏窗口句柄 = hwnd;
+			p注入页面->游戏窗口句柄 = hwnd;
 			return FALSE; // 找到窗口，停止枚举
 		}
 	}
-
 	return TRUE; // 继续枚举
 }
 
@@ -170,7 +166,7 @@ HWND 注入页面类::查找进程主窗口(DWORD 目标进程ID)
 	return FindMainWindow(目标进程ID);
 }
 
-// 通用的查找进程主窗口函数（静态版本）
+// 通用的查找进程主窗口函数（静态）
 static BOOL CALLBACK FindMainWindowCallback(HWND hwnd, LPARAM lParam)
 {
 	struct WindowInfo
@@ -182,13 +178,13 @@ static BOOL CALLBACK FindMainWindowCallback(HWND hwnd, LPARAM lParam)
 	WindowInfo* pInfo = reinterpret_cast<WindowInfo*>(lParam);
 	DWORD 进程ID = 0;
 
-	GetWindowThreadProcessId(hwnd, &进程ID);
+	::GetWindowThreadProcessId(hwnd, &进程ID);
 	if (进程ID == pInfo->进程ID)
 	{
 		// 检查窗口是否可见、没有父窗口、不是工具窗口
-		if (IsWindowVisible(hwnd) &&
-			GetParent(hwnd) == NULL &&
-			(GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) == 0)
+		if (::IsWindowVisible(hwnd) &&
+			::GetParent(hwnd) == NULL &&
+			(::GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) == 0)
 		{
 			pInfo->窗口句柄 = hwnd;
 			return FALSE; // 停止枚举
@@ -216,20 +212,20 @@ HWND 注入页面类::FindMainWindow(DWORD dwPID)
 // 深度查找窗口（包含子窗口）
 HWND 注入页面类::深度查找进程窗口(DWORD 目标进程ID)
 {
-	return 深度查找窗口递归(GetDesktopWindow(), 目标进程ID);
+	return 深度查找窗口递归(::GetDesktopWindow(), 目标进程ID);
 }
 
 // 递归查找窗口的辅助函数
 HWND 注入页面类::深度查找窗口递归(HWND 父窗口, DWORD 目标进程ID)
 {
-	HWND 子窗口 = GetWindow(父窗口, GW_CHILD);
+	HWND 子窗口 = ::GetWindow(父窗口, GW_CHILD);
 
 	while (子窗口 != NULL)
 	{
 		DWORD 窗口进程ID = 0;
-		GetWindowThreadProcessId(子窗口, &窗口进程ID);
+		::GetWindowThreadProcessId(子窗口, &窗口进程ID);
 
-		if (窗口进程ID == 目标进程ID && IsWindowVisible(子窗口))
+		if (窗口进程ID == 目标进程ID && ::IsWindowVisible(子窗口))
 		{
 			return 子窗口;
 		}
@@ -241,7 +237,7 @@ HWND 注入页面类::深度查找窗口递归(HWND 父窗口, DWORD 目标进�
 			return 找到的窗口;
 		}
 
-		子窗口 = GetWindow(子窗口, GW_HWNDNEXT);
+		子窗口 = ::GetWindow(子窗口, GW_HWNDNEXT);
 	}
 
 	return NULL;
@@ -255,13 +251,17 @@ std::vector<HWND> 注入页面类::获取进程所有窗口(DWORD 进程ID)
 	EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL
 		{
 			std::vector<HWND>* p列表 = reinterpret_cast<std::vector<HWND>*>(lParam);
-			DWORD 窗口进程ID = 0;
-
-			GetWindowThreadProcessId(hwnd, &窗口进程ID);
 			注入页面类* pThis = reinterpret_cast<注入页面类*>(lParam);
-			if (pThis != nullptr && 窗口进程ID == pThis->游戏进程ID)
+
+			if (pThis != nullptr)
 			{
-				p列表->push_back(hwnd);
+				DWORD 窗口进程ID = 0;
+				::GetWindowThreadProcessId(hwnd, &窗口进程ID);
+
+				if (窗口进程ID == pThis->游戏进程ID)
+				{
+					p列表->push_back(hwnd);
+				}
 			}
 			return TRUE;
 		}, reinterpret_cast<LPARAM>(this));
@@ -269,9 +269,7 @@ std::vector<HWND> 注入页面类::获取进程所有窗口(DWORD 进程ID)
 	return 窗口列表;
 }
 
-// ============================================================================
-// 自动打怪按钮点击事件（修改版）
-// ============================================================================
+// 自动打怪按钮点击事件
 void 注入页面类::点击自动打怪按钮()
 {
 	if (!自动打怪运行中)
@@ -294,7 +292,7 @@ void 注入页面类::点击自动打怪按钮()
 
 		// 获取窗口标题用于显示
 		TCHAR 窗口标题[256] = { 0 };
-		GetWindowText(游戏窗口句柄, 窗口标题, 255);
+		::GetWindowText(游戏窗口句柄, 窗口标题, 255);
 		TRACE(_T("成功获取游戏窗口: '%s' (0x%08X)\n"), 窗口标题, 游戏窗口句柄);
 
 		// 注入自动打怪功能
@@ -314,6 +312,9 @@ void 注入页面类::点击自动打怪按钮()
 		自动打怪开始时间 = GetTickCount();
 		总攻击次数 = 0;
 
+		// 初始化显示
+		更新目标ID显示(0x00000000);
+
 		TRACE(_T("自动打怪已启动\n"));
 	}
 	else
@@ -328,10 +329,6 @@ void 注入页面类::点击自动打怪按钮()
 	}
 }
 
-// ============================================================================
-// 原有函数保持不变，只修改了相关的窗口查找调用
-// ============================================================================
-
 // 定时器处理函数
 void 注入页面类::OnTimer(UINT_PTR nIDEvent)
 {
@@ -339,7 +336,7 @@ void 注入页面类::OnTimer(UINT_PTR nIDEvent)
 	CDialogEx::OnTimer(nIDEvent);
 }
 
-// 检查游戏进程（优化版）
+// 检查游戏进程
 BOOL 注入页面类::检查游戏进程()
 {
 	std::lock_guard<std::mutex> 锁(游戏进程互斥锁);
@@ -429,7 +426,7 @@ BOOL 注入页面类::注入自动打怪功能()
 		return FALSE;
 	}
 
-	// 第一步：检查内存地址是否可读写
+	// 检查内存地址是否可读写
 	SIZE_T 读取字节数;
 	DWORD 测试值;
 
@@ -480,7 +477,7 @@ BOOL 注入页面类::注入自动打怪功能()
 		}
 	}
 
-	// 第二步：尝试写入测试值
+	// 尝试写入测试值
 	DWORD 安全值 = 0;
 	SIZE_T 写入字节数;
 
@@ -495,7 +492,7 @@ BOOL 注入页面类::注入自动打怪功能()
 		TRACE(_T("成功写入攻击标志地址\n"));
 	}
 
-	// 第三步：检查游戏进程的模块信息
+	// 检查游戏进程的模块信息
 	HANDLE 模块快照句柄 = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, 游戏进程ID);
 	if (模块快照句柄 != INVALID_HANDLE_VALUE)
 	{
@@ -535,9 +532,6 @@ BOOL 注入页面类::注入自动打怪功能()
 	return TRUE;
 }
 
-// ============================================================================
-// 激活并聚焦游戏窗口（修改版）
-// ============================================================================
 BOOL 注入页面类::激活并聚焦游戏窗口()
 {
 	if (!游戏窗口句柄 || !IsWindow(游戏窗口句柄))
@@ -579,9 +573,6 @@ BOOL 注入页面类::激活并聚焦游戏窗口()
 	}
 }
 
-// ============================================================================
-// 后台模拟鼠标移动（修改版）
-// ============================================================================
 void 注入页面类::后台模拟鼠标移动()
 {
 	if (!游戏窗口句柄 || !IsWindow(游戏窗口句柄))
@@ -624,10 +615,6 @@ void 注入页面类::后台模拟鼠标移动()
 		}
 	}
 }
-
-// ============================================================================
-// 以下函数保持不变
-// ============================================================================
 
 // 启动自动打怪线程
 void 注入页面类::启动自动打怪线程()
@@ -676,6 +663,8 @@ void 注入页面类::停止自动打怪()
 		游戏进程ID = 0;
 	}
 
+	// 清理显示
+	更新目标ID显示(0x00000000);
 	TRACE(_T("自动打怪已停止\n"));
 }
 
@@ -686,6 +675,9 @@ void 注入页面类::自动打怪线程函数()
 
 	自动打怪开始时间 = GetTickCount();
 	总攻击次数 = 0;
+
+	// 初始化显示为无目标
+	::PostMessage(GetSafeHwnd(), WM_UPDATE_TARGET_ID, 0xFFFFFFFF, 0);
 
 	// 线程开始时激活窗口
 	激活并聚焦游戏窗口();
@@ -739,6 +731,8 @@ void 注入页面类::自动打怪线程函数()
 
 	// 通知主线程自动打怪已停止
 	::PostMessage(GetSafeHwnd(), WM_USER + 201, 0, 0);
+	// 清理显示
+	::PostMessage(GetSafeHwnd(), WM_UPDATE_TARGET_ID, 0xFFFFFFFF, 0);
 }
 
 // 获取有效目标怪物（改进版）
@@ -773,12 +767,21 @@ DWORD 注入页面类::获取有效目标怪物()
 			if (ReadProcessMemory(游戏进程句柄, (LPCVOID)怪物地址,
 				&怪物ID, sizeof(DWORD), &读取字节数))
 			{
-				// 只检查是否为有效ID（不是特殊值）
-				if (怪物ID != 0xFFFFFFFF && 怪物ID != 0)
+				// 修改：只检查是否为特殊值0xFFFFFFFF，0是有效怪物ID
+				if (怪物ID != 0xFFFFFFFF)  // 移除了 && 怪物ID != 0 的条件
 				{
 					TRACE(_T("从地址%d找到怪物: 0x%08X\n"), 当前索引, 怪物ID);
 					return 怪物ID;
 				}
+				else if (怪物ID == 0)
+				{
+					// 特殊处理：怪物ID为0的情况
+					TRACE(_T("从地址%d找到怪物ID为0，尝试继续查找其他怪物\n"), 当前索引);
+				}
+			}
+			else
+			{
+				TRACE(_T("读取怪物地址%d失败\n"), 当前索引);
 			}
 		}
 
@@ -799,7 +802,7 @@ void 注入页面类::执行智能攻击()
 	激活并聚焦游戏窗口();
 
 	// 2. 防止挂机检测（后台模拟，不影响用户）
-	if (GetTickCount() % 30000 == 0) // 每30秒执行一次
+	if (GetTickCount() % 300 == 0) // 每30秒执行一次
 	{
 		后台模拟鼠标移动();
 	}
@@ -815,6 +818,10 @@ void 注入页面类::执行智能攻击()
 		Sleep(500);
 		return;
 	}
+
+	// 更新当前目标ID显示
+	::PostMessage(GetSafeHwnd(), WM_UPDATE_TARGET_ID, 当前目标, 0);
+
 
 	// 4. 如果没有锁定目标，寻找新怪物
 	if (当前目标 == 0xFFFFFFFF)
@@ -835,6 +842,9 @@ void 注入页面类::执行智能攻击()
 			return;
 		}
 
+		// 更新显示新目标ID
+		::PostMessage(GetSafeHwnd(), WM_UPDATE_TARGET_ID, 当前目标, 0);
+
 		// 等待游戏反应
 		Sleep(50);
 	}
@@ -849,13 +859,22 @@ void 注入页面类::执行智能攻击()
 	// 6. 监控攻击状态（最长60秒）
 	DWORD 攻击开始时间 = GetTickCount();
 	BOOL 怪物死亡 = FALSE;
+	DWORD 上次显示时间 = 0;
 
-	while (自动打怪运行中 && (GetTickCount() - 攻击开始时间 < 60000)) // +++ 修改：60秒超时 +++
+	while (自动打怪运行中 && (GetTickCount() - 攻击开始时间 < 60000)) 
 	{
 		// 读取当前目标状态
 		DWORD 目标状态 = 0xFFFFFFFF;
 		ReadProcessMemory(游戏进程句柄, (LPCVOID)目标怪物地址,
 			&目标状态, sizeof(DWORD), &读取字节数);
+
+		// 更新目标ID显示（每秒更新一次，避免过于频繁）
+		DWORD 当前时间 = GetTickCount();
+		if (当前时间 - 上次显示时间 > 1000)  // 每秒更新一次
+		{
+			::PostMessage(GetSafeHwnd(), WM_UPDATE_TARGET_ID, 目标状态, 0);
+			上次显示时间 = 当前时间;
+		}
 
 		// 检查怪物是否死亡（变成FFFFFFFF）
 		if (目标状态 == 0xFFFFFFFF)
@@ -934,5 +953,50 @@ LRESULT 注入页面类::自动打怪停止消息处理(WPARAM w参数, LPARAM l
 		自动打怪按钮.SetWindowText(_T("开始自动打怪"));
 	}
 
+	return 0;
+}
+
+void 注入页面类::更新目标ID显示(DWORD 目标ID)
+{
+	当前目标ID = 目标ID;
+
+	CString 显示文本;
+
+	if (目标ID == 0xFFFFFFFF)
+	{
+		显示文本 = _T("当前目标ID：无目标");
+	}
+	else
+	{
+		// 格式化为十六进制显示，固定8位宽度，前面补0
+		CString 十六进制文本;
+		十六进制文本.Format(_T("%08X"), 目标ID);
+
+		// 如果是0值，特殊显示
+		if (目标ID == 0)
+		{
+			显示文本.Format(_T("当前目标ID：%s (特殊怪物)"), 十六进制文本);
+		}
+		else
+		{
+			显示文本.Format(_T("当前目标ID：%s"), 十六进制文本);
+		}
+	}
+
+	// 更新状态标签
+	状态标签.SetWindowText(显示文本);
+
+	// 强制重绘
+	状态标签.Invalidate();
+	状态标签.UpdateWindow();
+
+	// 调试输出
+	TRACE(_T("更新目标ID显示: %s\n"), 显示文本);
+}
+
+LRESULT 注入页面类::更新目标ID消息处理(WPARAM w参数, LPARAM l参数)
+{
+	DWORD 目标ID = (DWORD)w参数;
+	// 更新状态标签的代码...
 	return 0;
 }
