@@ -299,8 +299,11 @@ BOOL 注入页面类::检查坐标范围()
 {
     if (游戏进程句柄 == NULL) return TRUE;
 
+    static DWORD 上次检查时间 = 0;
     DWORD 当前时间 = GetTickCount();
-    if (当前时间 - 上次检查坐标时间 < 60000) // 每分钟检查一次
+
+    // 每秒检查一次
+    if (当前时间 - 上次检查时间 < 1000)
         return TRUE;
 
     上次检查坐标时间 = 当前时间;
@@ -308,27 +311,35 @@ BOOL 注入页面类::检查坐标范围()
     SIZE_T 读取字节数;
     float 当前X = 0.0f, 当前Y = 0.0f;
 
+    // 读取当前坐标
     ReadProcessMemory(游戏进程句柄, (LPCVOID)0x319B8A8,
         &当前X, sizeof(float), &读取字节数);
     ReadProcessMemory(游戏进程句柄, (LPCVOID)0x319B8B0,
         &当前Y, sizeof(float), &读取字节数);
 
-    TRACE(_T("当前位置: X=%.2f, Y=%.2f | 初始位置: X=%.2f, Y=%.2f\n"),
-        当前X, 当前Y, 初始X坐标, 初始Y坐标);
-
     // 计算距离
     float 距离X = fabs(当前X - 初始X坐标);
     float 距离Y = fabs(当前Y - 初始Y坐标);
 
+    // 如果X或Y任意一个超出20，就返回起始点
     if (距离X > 20.0f || 距离Y > 20.0f)
     {
-        TRACE(_T("超出范围！距离: X=%.2f, Y=%.2f，返回初始位置\n"), 距离X, 距离Y);
+        // 停止攻击
+        DWORD 攻击标志 = 0;
+        DWORD 无目标 = 0x00000000;
+        WriteProcessMemory(游戏进程句柄, (LPVOID)攻击标志地址,
+            &攻击标志, sizeof(DWORD), &读取字节数);
+        WriteProcessMemory(游戏进程句柄, (LPVOID)目标怪物地址,
+            &无目标, sizeof(DWORD), &读取字节数);
 
         // 返回初始位置
         WriteProcessMemory(游戏进程句柄, (LPVOID)0x319B8A8,
             &初始X坐标, sizeof(float), &读取字节数);
         WriteProcessMemory(游戏进程句柄, (LPVOID)0x319B8B0,
             &初始Y坐标, sizeof(float), &读取字节数);
+
+        // 更新显示为无目标
+        ::PostMessage(GetSafeHwnd(), WM_UPDATE_TARGET_ID, 0x00000000, 0);
 
         return FALSE;
     }
@@ -601,32 +612,17 @@ BOOL 注入页面类::激活并聚焦游戏窗口()
         }
     }
 
-    // 恢复窗口（如果最小化）
+    // 只恢复窗口，不激活到前台
     if (::IsIconic(游戏窗口句柄))
     {
         ::ShowWindow(游戏窗口句柄, SW_RESTORE);
         Sleep(100);
     }
 
-    // 激活窗口到前台
-    ::SetForegroundWindow(游戏窗口句柄);
+    // 只保证窗口可见，不抢焦点
     ::BringWindowToTop(游戏窗口句柄);
-    ::SetActiveWindow(游戏窗口句柄);
 
-    // 短暂延迟确保窗口激活完成
-    Sleep(100);
-
-    // 验证窗口是否在前台
-    if (::GetForegroundWindow() == 游戏窗口句柄)
-    {
-        TRACE(_T("游戏窗口已成功激活\n"));
-        return TRUE;
-    }
-    else
-    {
-        TRACE(_T("警告：游戏窗口未能激活到前台\n"));
-        return FALSE;
-    }
+    return TRUE;
 }
 
 void 注入页面类::后台模拟鼠标移动()
@@ -748,8 +744,8 @@ void 注入页面类::自动打怪线程函数()
     自动打怪开始时间 = GetTickCount();
     总攻击次数 = 0;
 
-    // 线程开始时激活窗口
-    激活并聚焦游戏窗口();
+    // 记录初始坐标
+    记录初始坐标();
 
     // 主循环
     while (自动打怪运行中 && !线程停止标志)
@@ -769,7 +765,7 @@ void 注入页面类::自动打怪线程函数()
             执行智能攻击();
 
             // 短暂延迟
-            Sleep(100);
+            Sleep(50);
         }
         catch (...)
         {
@@ -782,13 +778,10 @@ void 注入页面类::自动打怪线程函数()
     ::PostMessage(GetSafeHwnd(), WM_USER + 201, 0, 0);
 }
 
-// 获取有效目标怪物（改进版）
+// 获取有效目标怪物
 DWORD 注入页面类::获取有效目标怪物()
 {
-    if (游戏进程句柄 == NULL)
-    {
-        return 0x00000000; // 返回0表示无目标
-    }
+    if (游戏进程句柄 == NULL) return 0x00000000;
 
     DWORD 怪物ID列表[3] = { 0 };
     SIZE_T 读取字节数;
@@ -801,23 +794,34 @@ DWORD 注入页面类::获取有效目标怪物()
     ReadProcessMemory(游戏进程句柄, (LPCVOID)怪物ID地址3,
         &怪物ID列表[2], sizeof(DWORD), &读取字节数);
 
-    // 显示调试信息
-    TRACE(_T("周围怪物: [0x%08X] [0x%08X] [0x%08X]\n"),
-        怪物ID列表[0], 怪物ID列表[1], 怪物ID列表[2]);
+    // 轮询选择怪物（避免总是用同一个地址）
+    static int 轮询索引 = 0;
+    轮询索引 = (轮询索引 + 1) % 3;
 
-    // 查找第一个非0的怪物ID（0xFFFFFFFF表示怪物死亡，也是无效）
-    for (int i = 0; i < 3; i++)
+    // 从轮询索引开始查找有效怪物
+    for (int 尝试 = 0; 尝试 < 3; 尝试++)
     {
-        if (怪物ID列表[i] != 0x00000000 && 怪物ID列表[i] != 0xFFFFFFFF)
+        int 当前索引 = (轮询索引 + 尝试) % 3;
+        DWORD 怪物ID = 怪物ID列表[当前索引];
+
+        // 有效的怪物ID：非0且非FFFFFFFF
+        if (怪物ID != 0x00000000 && 怪物ID != 0xFFFFFFFF)
         {
-            TRACE(_T("选择怪物ID: 0x%08X (来自地址%d)\n"), 怪物ID列表[i], i);
-            return 怪物ID列表[i];
+            TRACE(_T("从地址%d选择怪物: 0x%08X\n"), 当前索引 + 1, 怪物ID);
+            return 怪物ID;
         }
     }
 
-    // 如果都是0或FFFFFFFF，返回0表示无目标
-    TRACE(_T("没有找到有效怪物\n"));
-    return 0x00000000;
+    // 如果所有地址都是无效的，尝试获取0值的怪物
+    for (int i = 0; i < 3; i++)
+    {
+        if (怪物ID列表[i] == 0x00000000)
+        {
+            TRACE(_T("所有怪物ID都是0xFFFFFFFF或0，等待新怪物\n"));
+        }
+    }
+
+    return 0x00000000; // 无有效怪物
 }
 
 // 执行智能攻击（60秒超时，0.5秒等待）
@@ -836,90 +840,72 @@ void 注入页面类::执行智能攻击()
         return;
     }
 
-    // 确保游戏窗口激活
-    激活并聚焦游戏窗口();
-
-    // 后台模拟鼠标移动
-    if (GetTickCount() % 300 == 0) // 每30秒执行一次
-    {
-        后台模拟鼠标移动();
-    }
-
     // 读取当前目标状态
     SIZE_T 读取字节数;
     DWORD 当前目标 = 0x00000000;
     ReadProcessMemory(游戏进程句柄, (LPCVOID)目标怪物地址,
         &当前目标, sizeof(DWORD), &读取字节数);
 
-    TRACE(_T("当前目标状态: 0x%08X\n"), 当前目标);
-
     // 更新显示
     ::PostMessage(GetSafeHwnd(), WM_UPDATE_TARGET_ID, 当前目标, 0);
 
-    // 根据当前目标状态处理
-    switch (当前目标)
-    {
-    case 0x00000000: // 无目标
+    // 处理不同状态
+    if (当前目标 == 0x00000000) // 无目标
     {
         TRACE(_T("状态: 无目标，寻找新怪物...\n"));
 
+        // 从3个地址中寻找有效怪物
         DWORD 新怪物ID = 获取有效目标怪物();
 
         if (新怪物ID != 0x00000000 && 新怪物ID != 0xFFFFFFFF)
         {
-            TRACE(_T("找到新怪物: 0x%08X，设置为目标\n"), 新怪物ID);
+            TRACE(_T("找到新怪物: 0x%08X\n"), 新怪物ID);
 
             // 写入目标怪物地址
             WriteProcessMemory(游戏进程句柄, (LPVOID)目标怪物地址,
                 &新怪物ID, sizeof(DWORD), &读取字节数);
 
-            // 设置攻击标志为1
+            // 设置攻击标志
             DWORD 攻击标志 = 1;
             WriteProcessMemory(游戏进程句柄, (LPVOID)攻击标志地址,
                 &攻击标志, sizeof(DWORD), &读取字节数);
 
-            TRACE(_T("已开始攻击怪物: 0x%08X\n"), 新怪物ID);
+            TRACE(_T("开始攻击: 0x%08X\n"), 新怪物ID);
         }
         else
         {
-            // 没有找到怪物，等待1秒
-            Sleep(1000);
+            // 没有找到怪物，等待后重试
+            Sleep(500);
         }
     }
-    break;
-
-    case 0xFFFFFFFF: // 怪物死亡但尸体还在
+    else if (当前目标 == 0xFFFFFFFF) // 怪物死亡（尸体还在）
     {
-        TRACE(_T("状态: 怪物死亡(尸体还在)，等待尸体消失...\n"));
+        TRACE(_T("状态: 怪物死亡(0xFFFFFFFF)，立即切换到下一个目标\n"));
 
         // 清除攻击标志
         DWORD 攻击标志 = 0;
         WriteProcessMemory(游戏进程句柄, (LPVOID)攻击标志地址,
             &攻击标志, sizeof(DWORD), &读取字节数);
 
-        // 等待3秒让尸体消失
-        //Sleep(3000);
-
-        // 设置目标为0（无目标）
+        // 立即设置为无目标，以便寻找下一个
         DWORD 无目标 = 0x00000000;
         WriteProcessMemory(游戏进程句柄, (LPVOID)目标怪物地址,
             &无目标, sizeof(DWORD), &读取字节数);
 
-        TRACE(_T("已清除目标，准备攻击下一个\n"));
+        // 短暂延迟后继续
+        Sleep(100);
     }
-    break;
-
-    default: // 有目标ID
+    else // 有目标ID
     {
-        TRACE(_T("状态: 正在攻击怪物: 0x%08X\n"), 当前目标);
+        // TRACE(_T("状态: 正在攻击: 0x%08X\n"), 当前目标);
 
         // 确保攻击标志为1
         DWORD 攻击标志 = 1;
         WriteProcessMemory(游戏进程句柄, (LPVOID)攻击标志地址,
             &攻击标志, sizeof(DWORD), &读取字节数);
 
-        // 等待1秒后再次检查
-        Sleep(1000);
+        // 等待并检查怪物状态
+        Sleep(500);
 
         // 检查怪物是否死亡
         DWORD 目标状态 = 0x00000000;
@@ -928,17 +914,18 @@ void 注入页面类::执行智能攻击()
 
         if (目标状态 == 0xFFFFFFFF)
         {
-            TRACE(_T("怪物已死亡！\n"));
+            TRACE(_T("怪物死亡！目标ID: 0x%08X\n"), 当前目标);
             总攻击次数++;
 
-            // 更新统计显示
-            CString 统计信息;
-            DWORD 运行秒数 = (GetTickCount() - 自动打怪开始时间) / 1000;
-            统计信息.Format(_T("已攻击 %d 次，运行 %d 秒"), 总攻击次数, 运行秒数);
-            TRACE(_T("%s\n"), 统计信息);
+            // 每10次显示一次统计
+            if (总攻击次数 % 10 == 0)
+            {
+                CString 统计信息;
+                DWORD 运行秒数 = (GetTickCount() - 自动打怪开始时间) / 1000;
+                统计信息.Format(_T("已攻击 %d 次，运行 %d 秒"), 总攻击次数, 运行秒数);
+                TRACE(_T("%s\n"), 统计信息);
+            }
         }
-    }
-    break;
     }
 }
 
