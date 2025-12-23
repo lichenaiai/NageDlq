@@ -1689,8 +1689,8 @@ BOOL NageDlqServerDlg::处理用户注册(const CString& 用户名, const CStrin
 		}
 		SQLCloseCursor(SQL语句句柄);
 
-		// 计算新的propid
-		int 新的propid = 1000 + 最大ID + 1;
+		// 计算新的propid   GM的ID段无法显示角色名称所以新建ID+20000
+		int 新的propid = 20000 + 最大ID + 1;
 
 		// 插入新用户
 		CString 插入语句;
