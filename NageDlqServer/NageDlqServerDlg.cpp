@@ -1049,6 +1049,144 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			对话框指针->发送到客户端(客户端套接字, 响应数据);
 			对话框指针->添加信息显示(客户端IP + _T(" 请求排行榜数据"));
 		}
+		//网页处理
+		else if (客户端请求.Find(_T("WEB_LOGIN:")) == 0)
+		{
+			TRACE(_T("=== 网页登录请求开始 ===\n"));
+
+			// 处理网页登录请求 - 格式: WEB_LOGIN:username:password
+			CString 登录数据 = 客户端请求.Mid(10);
+			登录数据.TrimRight(_T("\r\n"));
+			TRACE(_T("网页登录数据: %s\n"), 登录数据);
+
+			CStringArray 参数数组;
+			int 起始位置 = 0;
+			CString 参数 = 登录数据.Tokenize(_T(":"), 起始位置);
+
+			while (!参数.IsEmpty())
+			{
+				参数数组.Add(参数);
+				参数 = 登录数据.Tokenize(_T(":"), 起始位置);
+			}
+
+			if (参数数组.GetSize() == 2)
+			{
+				CString 用户名 = 参数数组[0];
+				CString 密码 = 参数数组[1];
+
+				TRACE(_T("网页登录 - 用户: %s, 密码: %s\n"), 用户名, 密码);
+
+				// 验证用户名和密码
+				BOOL 登录结果 = 对话框指针->验证用户登录(用户名, 密码);
+				TRACE(_T("网页登录验证结果: %d\n"), 登录结果);
+
+				if (登录结果)
+				{
+					// 获取用户角色列表
+					CStringArray 角色列表;
+					对话框指针->获取用户角色列表(用户名, 角色列表);
+
+					// 构建响应 - 包含角色列表
+					CString 响应数据 = _T("WEB_LOGIN_SUCCESS:");
+					for (int i = 0; i < 角色列表.GetSize(); i++)
+					{
+						if (i > 0)
+							响应数据 += _T(";");
+						响应数据 += 角色列表[i];
+					}
+
+					// 获取用户余额
+					int 余额 = 对话框指针->获取用户余额(用户名);
+					CString 余额信息;
+					余额信息.Format(_T("|%d"), 余额);
+					响应数据 += 余额信息;
+
+					对话框指针->发送到客户端(客户端套接字, 响应数据);
+					TRACE(_T("网页登录成功，发送角色列表和余额\n"));
+					对话框指针->添加信息显示(客户端IP + _T(" 网页登录成功 - 用户名: ") + 用户名);
+				}
+				else
+				{
+					对话框指针->发送到客户端(客户端套接字, _T("WEB_LOGIN_FAILED:用户名或密码错误"));
+					TRACE(_T("网页登录失败\n"));
+				}
+			}
+			else
+			{
+				对话框指针->发送到客户端(客户端套接字, _T("WEB_LOGIN_FAILED:无效的登录数据格式"));
+				对话框指针->添加信息显示(客户端IP + _T(" 网页登录数据格式错误"));
+			}
+			TRACE(_T("=== 网页登录请求结束 ===\n"));
+			}
+		else if (客户端请求.Find(_T("WEB_PURCHASE:")) == 0)
+		{
+			TRACE(_T("=== 网页购买请求开始 ===\n"));
+
+			// 处理网页购买请求 - 格式: WEB_PURCHASE:username:role:itemId:itemName:price
+			CString 购买数据 = 客户端请求.Mid(12);
+			购买数据.TrimRight(_T("\r\n"));
+			TRACE(_T("网页购买数据: %s\n"), 购买数据);
+
+			CStringArray 参数数组;
+			int 起始位置 = 0;
+			CString 参数 = 购买数据.Tokenize(_T(":"), 起始位置);
+
+			while (!参数.IsEmpty())
+			{
+				参数数组.Add(参数);
+				参数 = 购买数据.Tokenize(_T(":"), 起始位置);
+			}
+
+			if (参数数组.GetSize() >= 5)
+			{
+				CString 用户名 = 参数数组[0];
+				CString 角色名 = 参数数组[1];
+				int 物品ID = _ttoi(参数数组[2]);
+				CString 物品名称 = 参数数组[3];
+				int 价格 = _ttoi(参数数组[4]);
+
+				TRACE(_T("网页购买 - 用户: %s, 角色: %s, 物品ID: %d, 物品: %s, 价格: %d\n"),
+					用户名, 角色名, 物品ID, 物品名称, 价格);
+
+				// 处理购买逻辑
+				BOOL 购买结果 = 对话框指针->处理网页购买(用户名, 角色名, 物品ID, 物品名称, 价格, 客户端IP);
+
+				if (购买结果)
+				{
+					对话框指针->发送到客户端(客户端套接字, _T("WEB_PURCHASE_SUCCESS:购买成功"));
+					TRACE(_T("网页购买成功\n"));
+				}
+				else
+				{
+					对话框指针->发送到客户端(客户端套接字, _T("WEB_PURCHASE_FAILED:购买失败"));
+					TRACE(_T("网页购买失败\n"));
+				}
+			}
+			else
+			{
+				对话框指针->发送到客户端(客户端套接字, _T("WEB_PURCHASE_FAILED:无效的购买数据格式"));
+				对话框指针->添加信息显示(客户端IP + _T(" 网页购买数据格式错误"));
+			}
+			TRACE(_T("=== 网页购买请求结束 ===\n"));
+			}
+		else if (客户端请求.Find(_T("WEB_GET_BALANCE:")) == 0)
+		{
+			TRACE(_T("=== 获取余额请求开始 ===\n"));
+
+			// 获取用户余额 - 格式: WEB_GET_BALANCE:username
+			CString 用户名 = 客户端请求.Mid(16);
+			用户名.TrimRight(_T("\r\n"));
+			TRACE(_T("获取余额 - 用户: %s\n"), 用户名);
+
+			int 余额 = 对话框指针->获取用户余额(用户名);
+			CString 响应数据;
+			响应数据.Format(_T("WEB_BALANCE:%d"), 余额);
+
+			对话框指针->发送到客户端(客户端套接字, 响应数据);
+			TRACE(_T("发送余额: %d\n"), 余额);
+			TRACE(_T("=== 获取余额请求结束 ===\n"));
+}
+		
 		else
 		{
 			TRACE(_T("=== weizhiqingqiu ===\n"));
@@ -3627,4 +3765,199 @@ void NageDlqServerDlg::停止所有后台操作()
 	Sleep(100); // 给线程一点时间清理
 
 	TRACE(_T("=== 停止所有后台操作完成 ===\n"));
+}
+
+// 获取用户余额
+int NageDlqServerDlg::获取用户余额(const CString& 用户名)
+{
+	SQLRETURN retcode;
+	int 余额 = 0;
+
+	try
+	{
+		// 假设有一个用户余额表 UserBalance
+		CString 查询语句;
+		查询语句.Format(_T("SELECT balance FROM nagelogin.dbo.UserBalance WHERE username = '%s'"), 用户名);
+
+		retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询语句.GetString(), SQL_NTS);
+		if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+		{
+			retcode = SQLFetch(SQL语句句柄);
+			if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+			{
+				SQLGetData(SQL语句句柄, 1, SQL_C_LONG, &余额, sizeof(余额), NULL);
+				TRACE(_T("获取用户 %s 余额: %d\n"), 用户名, 余额);
+			}
+			else
+			{
+				// 如果没有记录，创建默认记录
+				余额 = 1000; // 默认余额
+				TRACE(_T("用户 %s 没有余额记录，使用默认值: %d\n"), 用户名, 余额);
+			}
+			SQLCloseCursor(SQL语句句柄);
+		}
+		else
+		{
+			TRACE(_T("查询用户余额失败\n"));
+			余额 = 1000; // 默认余额
+		}
+	}
+	catch (...)
+	{
+		TRACE(_T("获取用户余额时发生异常\n"));
+		余额 = 1000; // 默认余额
+	}
+
+	return 余额;
+}
+
+// 处理网页购买
+BOOL NageDlqServerDlg::处理网页购买(const CString& 用户名, const CString& 角色名,
+	int 物品ID, const CString& 物品名称,
+	int 价格, const CString& 客户端IP)
+{
+	SQLRETURN retcode;
+
+	try
+	{
+		// 1. 检查用户余额是否足够
+		int 当前余额 = 获取用户余额(用户名);
+		if (当前余额 < 价格)
+		{
+			添加信息显示(_T("网页购买失败: 余额不足 - 用户: ") + 用户名);
+			return FALSE;
+		}
+
+		// 2. 获取角色ID (recv_charid)
+		int 角色ID = 0;
+		CString 查询角色ID语句;
+		查询角色ID语句.Format(_T("SELECT charpropid FROM nagelogin.dbo.CharName WHERE charname = '%s'"), 角色名);
+
+		retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)查询角色ID语句.GetString(), SQL_NTS);
+		if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+		{
+			retcode = SQLFetch(SQL语句句柄);
+			if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+			{
+				SQLGetData(SQL语句句柄, 1, SQL_C_LONG, &角色ID, sizeof(角色ID), NULL);
+				TRACE(_T("获取角色ID成功: 角色 %s 的ID为 %d\n"), 角色名, 角色ID);
+			}
+			else
+			{
+				TRACE(_T("获取角色ID失败: 角色 %s 不存在\n"), 角色名);
+				添加信息显示(_T("网页购买失败: 角色不存在 - ") + 角色名);
+				SQLCloseCursor(SQL语句句柄);
+				return FALSE;
+			}
+			SQLCloseCursor(SQL语句句柄);
+		}
+		else
+		{
+			TRACE(_T("查询角色ID失败\n"));
+			添加信息显示(_T("网页购买失败: 查询角色信息错误"));
+			return FALSE;
+		}
+
+		// 3. 扣除余额
+		CString 更新余额语句;
+		int 新余额 = 当前余额 - 价格;
+		更新余额语句.Format(_T("UPDATE nagelogin.dbo.UserBalance SET balance = %d WHERE username = '%s'"),
+			新余额, 用户名);
+
+		retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)更新余额语句.GetString(), SQL_NTS);
+		if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO)
+		{
+			// 如果更新失败，尝试插入新记录
+			CString 插入余额语句;
+			插入余额语句.Format(_T("INSERT INTO nagelogin.dbo.UserBalance (username, balance) VALUES ('%s', %d)"),
+				用户名, 新余额);
+			SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)插入余额语句.GetString(), SQL_NTS);
+		}
+
+		// 4. 插入到Item_to_Game表（发送到伊甸园领取箱）
+		CString 插入物品语句;
+		插入物品语句.Format(_T("INSERT INTO nagelogin.dbo.Item_to_Game ")
+			_T("(recv_charid, recv_name, recv_serv, recv_time, recv_loginid, itemid, period, is_status) ")
+			_T("VALUES (%d, '%s', 11, GETDATE(), '%s', %d, 0, '0')"),
+			角色ID, 角色名, 用户名, 物品ID);
+
+		retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)插入物品语句.GetString(), SQL_NTS);
+		if (retcode != SQL_SUCCESS && retcode != SQL_SUCCESS_WITH_INFO)
+		{
+			// 获取错误信息
+			SQLWCHAR sqlState[6], message[SQL_MAX_MESSAGE_LENGTH];
+			SQLINTEGER nativeError;
+			SQLSMALLINT msgLen;
+			SQLGetDiagRecW(SQL_HANDLE_STMT, SQL语句句柄, 1, sqlState, &nativeError,
+				message, SQL_MAX_MESSAGE_LENGTH, &msgLen);
+
+			CString 错误信息;
+			错误信息.Format(_T("插入Item_to_Game表失败: %s"), CString(message));
+			添加信息显示(错误信息);
+
+			// 回滚余额扣除
+			CString 回滚余额语句;
+			回滚余额语句.Format(_T("UPDATE nagelogin.dbo.UserBalance SET balance = %d WHERE username = '%s'"),
+				当前余额, 用户名);
+			SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)回滚余额语句.GetString(), SQL_NTS);
+
+			SQLEndTran(SQL_HANDLE_DBC, SQL连接句柄, SQL_ROLLBACK);
+			return FALSE;
+		}
+
+		// 5. 记录购买日志
+		CString 插入日志语句;
+		插入日志语句.Format(_T("INSERT INTO nagelogin.dbo.PurchaseLog ")
+			_T("(username, charname, itemid, itemname, price, purchase_time, client_ip) ")
+			_T("VALUES ('%s', '%s', %d, '%s', %d, GETDATE(), '%s')"),
+			用户名, 角色名, 物品ID, 物品名称, 价格, 客户端IP);
+
+		retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)插入日志语句.GetString(), SQL_NTS);
+		if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
+		{
+			SQLEndTran(SQL_HANDLE_DBC, SQL连接句柄, SQL_COMMIT);
+
+			CString 成功信息;
+			成功信息.Format(_T("网页购买成功: 用户 %s 为角色 %s 购买 %s (价格: %d)，物品已发送到伊甸园领取箱"),
+				用户名, 角色名, 物品名称, 价格);
+			添加信息显示(成功信息);
+
+			return TRUE;
+		}
+		else
+		{
+			SQLEndTran(SQL_HANDLE_DBC, SQL连接句柄, SQL_ROLLBACK);
+			添加信息显示(_T("网页购买失败: 记录日志错误"));
+			return FALSE;
+		}
+	}
+	catch (...)
+	{
+		SQLEndTran(SQL_HANDLE_DBC, SQL连接句柄, SQL_ROLLBACK);
+		添加信息显示(_T("网页购买失败: 发生未知错误"));
+		return FALSE;
+	}
+}
+
+// 获取物品游戏代码
+CString NageDlqServerDlg::获取物品游戏代码(int 物品ID)
+{
+	// 这里应该根据物品ID从数据库获取游戏内物品代码
+	// 这是一个示例映射，您需要根据实际情况调整
+
+	std::map<int, CString> 物品映射;
+	物品映射[1001] = _T("ITEM_HORSE_LEGENDARY");  // 传说级战马
+	物品映射[1002] = _T("ITEM_SHIELD_DRAGON");    // 巨龙之盾
+	物品映射[1003] = _T("ITEM_GEM_EXP");          // 经验加成宝石
+	物品映射[1004] = _T("ITEM_SET_ASSASSIN");     // 幻影刺客套装
+	物品映射[1005] = _T("ITEM_POTION_PACK");      // 生命恢复药水礼包
+	物品映射[1006] = _T("ITEM_HOUSE_LUXURY");     // 豪华个人住宅
+
+	auto it = 物品映射.find(物品ID);
+	if (it != 物品映射.end())
+	{
+		return it->second;
+	}
+
+	return _T("");
 }

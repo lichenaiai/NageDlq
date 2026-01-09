@@ -225,6 +225,8 @@ public:
 	afx_msg void On右键菜单(NMHDR* pNMHDR, LRESULT* pResult);
 	afx_msg void On删除规则();
 
+
+
 	// 添加清理请求函数
 	CString 清理请求(const CString& 原始请求)
 	{
@@ -236,4 +238,11 @@ public:
 	}
 
 	void 停止所有后台操作();
+
+public:
+	int 获取用户余额(const CString& 用户名);
+	BOOL 处理网页购买(const CString& 用户名, const CString& 角色名, int 物品ID,
+		const CString& 物品名称, int 价格, const CString& 客户端IP);
+	BOOL 发送物品到角色(const CString& 角色名, int 物品ID, int 数量);
+	CString 获取物品游戏代码(int 物品ID);
 };
