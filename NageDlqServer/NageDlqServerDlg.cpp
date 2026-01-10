@@ -6,6 +6,7 @@
 #include "afxdialogex.h"
 #include "设置对话框类.h"
 #include "黑白名单对话框类.h"
+#include "WebSocket处理类.h"
 
 // 添加ODBC头文件
 #define WIN32_LEAN_AND_MEAN
@@ -490,9 +491,81 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		return 1;
 	}
 
+	// 为websocket增加的代码。记录客户端类型：0=未知，1=普通TCP客户端，2=WebSocket客户端
+	int 客户端类型 = 0;
+	bool 已进行WebSocket握手 = false;
+
+	// 为websocket增加的代码。首先尝试接收数据来确定客户端类型
+	char 初始缓冲区[4096];
+	memset(初始缓冲区, 0, sizeof(初始缓冲区));
+
+	// 为websocket增加的代码。设置接收超时
+	struct timeval 接收超时;
+	接收超时.tv_sec = 5;
+	接收超时.tv_usec = 0;
+	setsockopt(客户端套接字, SOL_SOCKET, SO_RCVTIMEO, (char*)&接收超时, sizeof(接收超时));
+	int 初始接收长度 = recv(客户端套接字, 初始缓冲区, sizeof(初始缓冲区) - 1, 0);
+
 	//u_long 阻塞模式 = 0;
 	u_long 非阻塞模式 = 1;
 	ioctlsocket(客户端套接字, FIONBIO, &非阻塞模式);
+
+	// 为websocket增加的代码。
+	if (初始接收长度 > 0)
+	{
+		初始缓冲区[初始接收长度] = '\0';
+		std::string 初始请求(初始缓冲区, 初始接收长度);
+
+		TRACE(_T("收到初始数据，长度: %d\n"), 初始接收长度);
+		TRACE(_T("初始数据: %s\n"), CString(初始请求.c_str()));
+
+		// 检查是否是WebSocket握手请求
+		if (WebSocket处理器::是WebSocket握手请求(初始请求))
+		{
+			TRACE(_T("检测到WebSocket握手请求\n"));
+
+			// 生成WebSocket握手响应
+			std::string 握手响应 = WebSocket处理器::生成握手响应(初始请求);
+
+			if (!握手响应.empty())
+			{
+				// 发送握手响应
+				send(客户端套接字, 握手响应.c_str(), 握手响应.length(), 0);
+				TRACE(_T("已发送WebSocket握手响应\n"));
+
+				客户端类型 = 2; // WebSocket客户端
+				已进行WebSocket握手 = true;
+
+				// 清除缓冲区，握手后的数据需要按WebSocket帧解析
+				memset(初始缓冲区, 0, sizeof(初始缓冲区));
+				初始接收长度 = 0;
+			}
+			else
+			{
+				TRACE(_T("WebSocket握手响应生成失败\n"));
+				closesocket(客户端套接字);
+				return 1;
+			}
+		}
+		else
+		{
+			// 普通TCP客户端
+			客户端类型 = 1; // 普通TCP客户端
+			TRACE(_T("检测到普通TCP客户端\n"));
+		}
+	}
+	else if (初始接收Length == 0)
+	{
+		TRACE(_T("客户端在握手前关闭连接\n"));
+		closesocket(客户端套接字);
+		return 1;
+	}
+	else
+	{
+		// 接收超时或错误，按普通TCP客户端处理
+		TRACE(_T("初始接收超时，按普通TCP客户端处理\n"));
+		客户端类型 = 1;
+	}
 
 	CString 客户端IP;
 	EnterCriticalSection(&对话框指针->客户端列表锁);
@@ -507,6 +580,9 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 	DWORD 最后活动时间 = GetTickCount();
 	const DWORD 连接超时时间 = 300000; // 5分钟超时
 
+	// 为websocket增加的代码。用于WebSocket的缓冲区
+	std::vector<char> WebSocket接收缓冲区;
+
 	// 持续处理客户端请求
 	while (对话框指针->服务器运行状态)
 	{
@@ -520,14 +596,82 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		}
 
 		// 接收客户端请求
-		CString 客户端请求 = 对话框指针->从客户端接收(客户端套接字);
+		CString 客户端请求;
 
-		//清理发送的字符串防止有回车或者空格
-		if (!客户端请求.IsEmpty())
+		if (客户端类型 == 2) // WebSocket客户端
 		{
-			客户端请求 = 对话框指针->清理请求(客户端请求); // 添加这行
-			// 更新最后活动时间
-			最后活动时间 = GetTickCount();
+			// WebSocket数据接收处理
+			char WebSocket临时缓冲区[4096];
+			memset(WebSocket临时缓冲区, 0, sizeof(WebSocket临时缓冲区));
+
+			int WebSocket接收长度 = recv(客户端套接字, WebSocket临时缓冲区, sizeof(WebSocket临时缓冲区), 0);
+
+			if (WebSocket接收Length > 0)
+			{
+				// 添加到缓冲区
+				WebSocket接收缓冲区.insert(WebSocket接收缓冲区.end(),
+					WebSocket临时缓冲区,
+					WebSocket临时缓冲区 + WebSocket接收Length);
+
+				// 尝试解析WebSocket帧
+				std::string WebSocket消息 = WebSocket处理器::解析WebSocket帧(WebSocket接收缓冲区);
+
+				if (!WebSocket消息.empty())
+				{
+					// 成功解析到完整消息
+					客户端请求 = CString(WebSocket消息.c_str());
+					// 清除已处理的数据（简化处理：清空整个缓冲区）
+					WebSocket接收缓冲区.clear();
+
+					// 更新最后活动时间
+					最后活动时间 = GetTickCount();
+				}
+				else if (WebSocket消息.empty() && WebSocket接收缓冲区.size() > 0)
+				{
+					// 空字符串表示关闭帧或其他控制帧
+					if (WebSocket接收Buffer.size() >= 2)
+					{
+						unsigned char* 数据 = reinterpret_cast<unsigned char*>(WebSocket接收缓冲区.data());
+						if ((数据[0] & 0x0F) == 0x8) // 关闭帧
+						{
+							TRACE(_T("收到WebSocket关闭帧\n"));
+							break;
+						}
+						// 其他控制帧，继续等待数据
+						Sleep(10);
+						continue;
+					}
+				}
+			}
+			else if (WebSocket接收Length == 0)
+			{
+				// 连接关闭
+				TRACE(_T("WebSocket客户端关闭连接\n"));
+				break;
+			}
+			else
+			{
+				int 错误码 = WSAGetLastError();
+				if (错误码 != WSAEWOULDBLOCK)
+				{
+					TRACE(_T("WebSocket接收错误: %d\n"), 错误码);
+					break;
+				}
+				// 没有数据，休眠等待
+				Sleep(10);
+				continue;
+			}
+		}
+		else // 普通TCP客户端
+		{
+			// 使用原有的接收逻辑
+			客户端请求 = 对话框指针->从客户端接收(客户端套接字);
+
+			if (!客户端请求.IsEmpty())
+			{
+				客户端请求 = 对话框指针->清理请求(客户端请求);
+				最后活动时间 = GetTickCount();
+			}
 		}
 
 		// 检查连接是否关闭或出错
@@ -568,6 +712,10 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			//对话框指针->添加信息显示(客户端IP + 完整请求信息);
 		}
 
+		// 保存响应字符串
+		CString 响应数据;
+		BOOL 需要发送响应 = TRUE;
+
 		// 解析连接请求
 		TRACE(_T("开始解析请求: %s\n"), 客户端请求);  // 添加这行
 		if (客户端请求.Find(_T("CONNECT:")) == 0)
@@ -590,7 +738,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				if (!对话框指针->检查IP权限(客户端IP))  // 修复：通过指针调用
 				{
 					TRACE(_T("IP不在白名单或存在于黑名单中\n"));
-					对话框指针->发送到客户端(客户端套接字, _T("CONNECT_FAILED:IP访问受限"));
+					响应数据 = _T("CONNECT_FAILED:IP访问受限"));
 					对话框指针->添加信息显示(客户端IP + _T(" IP访问受限"));
 					closesocket(客户端套接字);
 					return 0;
@@ -1189,17 +1337,49 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		
 		else
 		{
-			TRACE(_T("=== weizhiqingqiu ===\n"));
-			// 未知请求
-			对话框指针->发送到客户端(客户端套接字, _T("UNKNOWN_COMMAND"));
+			TRACE(_T("=== 未知请求 ===\n"));
+			响应数据 = _T("UNKNOWN_COMMAND");
 			对话框指针->添加信息显示(客户端IP + _T(" 未知请求: ") + 客户端请求);
 		}
+
+		// 发送响应
+		if (需要发送响应 && !响应数据.IsEmpty())
+		{
+			if (客户端类型 == 2) // WebSocket客户端
+			{
+				// 创建WebSocket帧并发送
+				std::string 响应文本 = CT2A(响应数据.GetString());
+				std::vector<char> WebSocket帧 = WebSocket处理器::创建WebSocket帧(响应文本);
+
+				if (!WebSocket帧.empty())
+				{
+					send(客户端套接字, WebSocket帧.data(), WebSocket帧.size(), 0);
+					TRACE(_T("已发送WebSocket响应\n"));
+				}
+			}
+			else // 普通TCP客户端
+			{
+				// 使用原有的发送方式
+				对话框指针->发送到客户端(客户端套接字, 响应数据);
+			}
+		}
+
 		//处理完请求后短暂休眠，避免过于频繁的循环
 		Sleep(10);
 	}
 
-	// 只有在连接出错或服务器停止时才关闭连接
+	// 清理工作
 	对话框指针->移除客户端连接(客户端套接字);
+
+	if (客户端类型 == 2) // WebSocket客户端，发送关闭帧
+	{
+		std::vector<char> 关闭帧 = WebSocket处理器::创建关闭帧();
+		if (!关闭帧.empty())
+		{
+			send(客户端套接字, 关闭帧.data(), 关闭帧.size(), 0);
+		}
+	}
+
 	closesocket(客户端套接字);
 
 	return 0;
@@ -1659,14 +1839,38 @@ void NageDlqServerDlg::更新状态显示()
 // 发送到客户端
 BOOL NageDlqServerDlg::发送到客户端(SOCKET 客户端套接字, const CString& 数据)
 {
-	// 转换为UTF-8
+	// 检查这个socket是否是WebSocket客户端
+	// 这里需要维护一个客户端类型映射表
+	// 简化处理：尝试按两种方式发送
+
+	// 先尝试按WebSocket发送
+	std::string 文本数据 = CT2A(数据.GetString());
+	std::vector<char> WebSocket帧 = WebSocket处理器::创建WebSocket帧(文本数据);
+
+	if (!WebSocket帧.empty())
+	{
+		int 发送结果 = send(客户端套接字, WebSocket帧.data(), WebSocket帧.size(), 0);
+		if (发送结果 != SOCKET_ERROR)
+		{
+			return TRUE;
+		}
+	}
+
+	// 如果WebSocket发送失败，尝试普通TCP发送
+	return 发送原始数据到客户端(客户端套接字, 数据);
+}
+
+// 添加辅助函数
+BOOL NageDlqServerDlg::发送原始数据到客户端(SOCKET 客户端套接字, const CString& 数据)
+{
+	// 原有的发送逻辑
 	int 字节长度 = WideCharToMultiByte(CP_UTF8, 0, 数据, -1, NULL, 0, NULL, NULL);
 	if (字节长度 > 0)
 	{
 		char* 字节缓冲区 = new char[字节长度];
 		WideCharToMultiByte(CP_UTF8, 0, 数据, -1, 字节缓冲区, 字节长度, NULL, NULL);
 
-		int 发送结果 = send(客户端套接字, 字节缓冲区, 字节长度 - 1, 0);  // -1 去掉null终止符
+		int 发送结果 = send(客户端套接字, 字节缓冲区, 字节长度 - 1, 0);
 
 		delete[] 字节缓冲区;
 		return 发送结果 != SOCKET_ERROR;
@@ -1709,9 +1913,6 @@ CString NageDlqServerDlg::从客户端接收(SOCKET 客户端套接字)
 	if (接收长度 > 0)
 	{
 		缓冲区[接收长度] = '\0';
-
-		// 调试信息
-		TRACE(_T("接收到的数据长度: %d\n"), 接收长度);
 
 		// 尝试UTF-8转换
 		int 宽字符长度 = MultiByteToWideChar(CP_UTF8, 0, 缓冲区, 接收长度, NULL, 0);
