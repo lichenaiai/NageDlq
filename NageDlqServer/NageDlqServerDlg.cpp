@@ -168,6 +168,9 @@ BOOL NageDlqServerDlg::OnInitDialog()
 
 	添加信息显示(_T("程序已初始化"));
 
+	// 设置WebSocket回调函数
+	WebSocket处理器.设置回调函数(WebSocket消息处理函数, this);
+
 	// 启动定时器，每1秒刷新一次连接数
 	端口转发刷新定时器 = SetTimer(1000, 1000, NULL); // ID=1000, 间隔1秒
 
@@ -442,7 +445,7 @@ UINT NageDlqServerDlg::服务器线程函数(LPVOID pParam)
 	对话框指针->添加信息显示(_T("开始监听端口 9896"));
 
 
-
+	/*
 	// 接受客户端连接
 	while (对话框指针->服务器运行状态)
 	{
@@ -473,9 +476,107 @@ UINT NageDlqServerDlg::服务器线程函数(LPVOID pParam)
 			Sleep(100);
 		}
 	}
+	*/
+	
+	对话框指针->接受客户端连接();
 
 	closesocket(对话框指针->监听套接字);
 	return 0;
+}
+
+// WebSocket消息处理函数（静态包装器）
+void NageDlqServerDlg::WebSocket消息处理函数(void* 上下文, SOCKET 客户端套接字,
+	const std::string& 消息, const std::string& 客户端IP)
+{
+	NageDlqServerDlg* 对话框指针 = (NageDlqServerDlg*)上下文;
+	if (对话框指针)
+	{
+		对话框指针->处理WebSocket请求(客户端套接字, 消息, 客户端IP);
+	}
+}
+
+// 处理WebSocket请求
+void NageDlqServerDlg::处理WebSocket请求(SOCKET 客户端套接字, const std::string& 消息, const std::string& 客户端IP)
+{
+	TRACE(_T("处理WebSocket请求: %s, 来自: %s\n"), CString(消息.c_str()), CString(客户端IP.c_str()));
+
+	// 将std::string转换为CString以便处理
+	CString 请求消息(消息.c_str());
+	CString 客户端IP字符串(客户端IP.c_str());
+
+	// 这里可以调用您现有的TCP处理逻辑
+	// 由于WebSocket消息格式可能不同，需要适配
+
+	// 示例：处理网页登录请求
+	if (请求消息.Find(_T("WEB_LOGIN:")) == 0)
+	{
+		// 提取用户名和密码
+		CString 登录数据 = 请求消息.Mid(10); // 去掉"WEB_LOGIN:"
+		登录数据.TrimRight(_T("\r\n"));
+
+		TRACE(_T("WebSocket网页登录数据: %s\n"), 登录数据);
+
+		// 调用现有的登录验证逻辑
+		CStringArray 参数数组;
+		int 起始位置 = 0;
+		CString 参数 = 登录数据.Tokenize(_T(":"), 起始位置);
+
+		while (!参数.IsEmpty())
+		{
+			参数数组.Add(参数);
+			参数 = 登录数据.Tokenize(_T(":"), 起始位置);
+		}
+
+		if (参数数组.GetSize() == 2)
+		{
+			CString 用户名 = 参数数组[0];
+			CString 密码 = 参数数组[1];
+
+			// 验证用户名和密码
+			BOOL 登录结果 = 验证用户登录(用户名, 密码);
+
+			if (登录结果)
+			{
+				// 获取用户角色列表
+				CStringArray 角色列表;
+				获取用户角色列表(用户名, 角色列表);
+
+				// 构建响应
+				CString 响应数据 = _T("WEB_LOGIN_SUCCESS:");
+				for (int i = 0; i < 角色列表.GetSize(); i++)
+				{
+					if (i > 0)
+						响应数据 += _T(";");
+					响应数据 += 角色列表[i];
+				}
+
+				// 获取用户余额
+				int 余额 = 获取用户余额(用户名);
+				CString 余额信息;
+				余额信息.Format(_T("|%d"), 余额);
+				响应数据 += 余额信息;
+
+				// 发送WebSocket响应
+				WebSocket处理器.发送响应(客户端套接字, std::string(CT2A(响应数据.GetString())));
+
+				添加信息显示(客户端IP字符串 + _T(" WebSocket网页登录成功 - 用户名: ") + 用户名);
+			}
+			else
+			{
+				CString 响应数据 = _T("WEB_LOGIN_FAILED:用户名或密码错误");
+				WebSocket处理器.发送响应(客户端套接字, std::string(CT2A(响应数据.GetString())));
+				添加信息显示(客户端IP字符串 + _T(" WebSocket网页登录失败 - 用户名: ") + 用户名);
+			}
+		}
+	}
+	// 处理其他WebSocket请求...
+	else
+	{
+		// 未知请求
+		CString 响应数据 = _T("UNKNOWN_COMMAND");
+		WebSocket处理器.发送响应(客户端套接字, std::string(CT2A(响应数据.GetString())));
+		添加信息显示(客户端IP字符串 + _T(" WebSocket未知请求: ") + 请求消息);
+	}
 }
 
 // 客户端线程函数
@@ -491,86 +592,10 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		return 1;
 	}
 
-	// ============ 新增：WebSocket支持相关变量 ============
-	int 客户端类型 = 0; // 0=未知, 1=TCP客户端, 2=WebSocket客户端
-	bool 已进行WebSocket握手 = false;
-	std::vector<char> WebSocket接收缓冲区;
-
-	// ============ 新增：WebSocket握手检测 ============
-	// 首先尝试接收数据来确定客户端类型
-	char 初始缓冲区[4096];
-	memset(初始缓冲区, 0, sizeof(初始缓冲区));
-
-	// 设置接收超时（5秒）
-	struct timeval 接收超时;
-	接收超时.tv_sec = 5;
-	接收超时.tv_usec = 0;
-	setsockopt(客户端套接字, SOL_SOCKET, SO_RCVTIMEO, (char*)&接收超时, sizeof(接收超时));
-
-	int 初始接收长度 = recv(客户端套接字, 初始缓冲区, sizeof(初始缓冲区) - 1, 0);
-
 	//u_long 阻塞模式 = 0;
 	u_long 非阻塞模式 = 1;
 	ioctlsocket(客户端套接字, FIONBIO, &非阻塞模式);
 
-	if (初始接收长度 > 0)
-	{
-		初始缓冲区[初始接收长度] = '\0';
-		std::string 初始请求(初始缓冲区, 初始接收长度);
-
-		TRACE(_T("收到初始数据，长度: %d\n"), 初始接收长度);
-		TRACE(_T("初始数据: %s\n"), CString(初始请求.c_str()));
-
-		// 检查是否是WebSocket握手请求
-		if (WebSocket处理器::是WebSocket握手请求(初始请求))
-		{
-			TRACE(_T("检测到WebSocket握手请求\n"));
-
-			// 生成WebSocket握手响应
-			std::string 握手响应 = WebSocket处理器::生成握手响应(初始请求);
-
-			if (!握手响应.empty())
-			{
-				// 发送握手响应
-				send(客户端套接字, 握手响应.c_str(), 握手响应.length(), 0);
-				TRACE(_T("已发送WebSocket握手响应\n"));
-
-				客户端类型 = 2; // WebSocket客户端
-				已进行WebSocket握手 = true;
-
-				// 清除缓冲区，握手后的数据需要按WebSocket帧解析
-				memset(初始缓冲区, 0, sizeof(初始缓冲区));
-				初始接收长度 = 0;
-			}
-			else
-			{
-				TRACE(_T("WebSocket握手响应生成失败\n"));
-				closesocket(客户端套接字);
-				return 1;
-			}
-		}
-		else
-		{
-			// 普通TCP客户端
-			客户端类型 = 1; // 普通TCP客户端
-			TRACE(_T("检测到普通TCP客户端\n"));
-		}
-	}
-	else if (初始接收长度 == 0)
-	{
-		TRACE(_T("客户端在握手前关闭连接\n"));
-		closesocket(客户端套接字);
-		return 1;
-	}
-	else
-	{
-		// 接收超时或错误，按普通TCP客户端处理
-		TRACE(_T("初始接收超时，按普通TCP客户端处理\n"));
-		客户端类型 = 1;
-	}
-	// ============ WebSocket握手检测结束 ============
-
-	// 获取客户端IP
 	CString 客户端IP;
 	EnterCriticalSection(&对话框指针->客户端列表锁);
 	auto it = 对话框指针->客户端连接列表.find(客户端套接字);
@@ -597,87 +622,15 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		}
 
 		// 接收客户端请求
-		CString 客户端请求;
+		CString 客户端请求 = 对话框指针->从客户端接收(客户端套接字);
 
-		// ============ 修改：根据客户端类型使用不同的接收方式 ============
-		if (客户端类型 == 2) // WebSocket客户端
+		//清理发送的字符串防止有回车或者空格
+		if (!客户端请求.IsEmpty())
 		{
-			// WebSocket数据接收处理
-			char WebSocket临时缓冲区[4096];
-			memset(WebSocket临时缓冲区, 0, sizeof(WebSocket临时缓冲区));
-
-			int WebSocket接收长度 = recv(客户端套接字, WebSocket临时缓冲区, sizeof(WebSocket临时缓冲区), 0);
-
-			if (WebSocket接收长度 > 0)
-			{
-				// 添加到缓冲区
-				WebSocket接收缓冲区.insert(WebSocket接收缓冲区.end(),
-					WebSocket临时缓冲区,
-					WebSocket临时缓冲区 + WebSocket接收长度);
-
-				// 尝试解析WebSocket帧
-				std::string WebSocket消息 = WebSocket处理器::解析WebSocket帧(WebSocket接收缓冲区);
-
-				if (!WebSocket消息.empty())
-				{
-					// 成功解析到完整消息
-					客户端请求 = CString(WebSocket消息.c_str());
-					// 清除已处理的数据（简化处理：清空整个缓冲区）
-					WebSocket接收缓冲区.clear();
-
-					// 更新最后活动时间
-					最后活动时间 = GetTickCount();
-
-					TRACE(_T("WebSocket接收成功: %s\n"), 客户端请求);
-				}
-				else if (WebSocket消息.empty() && WebSocket接收缓冲区.size() > 0)
-				{
-					// 空字符串表示关闭帧或其他控制帧
-					if (WebSocket接收缓冲区.size() >= 2)
-					{
-						unsigned char* 数据 = reinterpret_cast<unsigned char*>(WebSocket接收缓冲区.data());
-						if ((数据[0] & 0x0F) == 0x8) // 关闭帧
-						{
-							TRACE(_T("收到WebSocket关闭帧\n"));
-							break;
-						}
-						// 其他控制帧，继续等待数据
-						Sleep(10);
-						continue;
-					}
-				}
-			}
-			else if (WebSocket接收长度 == 0)
-			{
-				// 连接关闭
-				TRACE(_T("WebSocket客户端关闭连接\n"));
-				break;
-			}
-			else
-			{
-				int 错误码 = WSAGetLastError();
-				if (错误码 != WSAEWOULDBLOCK)
-				{
-					TRACE(_T("WebSocket接收错误: %d\n"), 错误码);
-					break;
-				}
-				// 没有数据，休眠等待
-				Sleep(10);
-				continue;
-			}
+			客户端请求 = 对话框指针->清理请求(客户端请求); // 添加这行
+			// 更新最后活动时间
+			最后活动时间 = GetTickCount();
 		}
-		else // 普通TCP客户端
-		{
-			
-			客户端请求 = 对话框指针->从客户端接收(客户端套接字);
-
-			if (!客户端请求.IsEmpty())
-			{
-				客户端请求 = 对话框指针->清理请求(客户端请求);
-				最后活动时间 = GetTickCount();
-			}
-		}
-		// ============ 接收方式修改结束 ============
 
 		// 检查连接是否关闭或出错
 		if (客户端请求.IsEmpty())
@@ -685,7 +638,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			// 检查是否是真正的连接关闭
 			char 测试缓冲区[1];
 			int 测试结果 = recv(客户端套接字, 测试缓冲区, 1, MSG_PEEK);
-			
+
 			if (测试结果 == 0)
 			{
 				// 连接已关闭
@@ -717,18 +670,14 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			//对话框指针->添加信息显示(客户端IP + 完整请求信息);
 		}
 
-		// 保存响应字符串
-		CString 响应数据;
-		BOOL 需要发送响应 = TRUE;
-
 		// 解析连接请求
-		TRACE(_T("开始解析请求: %s\n"), 客户端请求);  
+		TRACE(_T("开始解析请求: %s\n"), 客户端请求);  // 添加这行
 		if (客户端请求.Find(_T("CONNECT:")) == 0)
 		{
 			TRACE(_T("=== 处理连接请求开始 ===\n"));
 
 			// 处理连接验证请求 - 格式: CONNECT:客户端版本号:客户端IP
-			CString 连接数据 = 客户端请求.Mid(8); 
+			CString 连接数据 = 客户端请求.Mid(8); // 去掉"CONNECT:"
 			TRACE(_T("连接数据: %s\n"), 连接数据);
 
 			int 分隔符位置 = 连接数据.Find(':');
@@ -743,7 +692,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				if (!对话框指针->检查IP权限(客户端IP))  // 修复：通过指针调用
 				{
 					TRACE(_T("IP不在白名单或存在于黑名单中\n"));
-					响应数据 = _T("CONNECT_FAILED:IP访问受限");
+					对话框指针->发送到客户端(客户端套接字, _T("CONNECT_FAILED:IP访问受限"));
 					对话框指针->添加信息显示(客户端IP + _T(" IP访问受限"));
 					closesocket(客户端套接字);
 					return 0;
@@ -756,13 +705,19 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				TRACE(_T("查询到密钥: %s, 版本: %s\n"), 客户端密钥, 最新版本号);
 
 				// 检查客户端版本
-				if (对话框指针->比较版本号(客户端版本号, 最新版本号) < 0) 
+				if (对话框指针->比较版本号(客户端版本号, 最新版本号) < 0)
 				{
 					TRACE(_T("客户端版本过时\n"));
 					// 发送版本过时消息，并带上最新版本号
 					CString 响应数据;
 					响应数据.Format(_T("VERSION_OUTDATED:%s"), 最新版本号);
-					//对话框指针->发送到客户端(客户端套接字, 响应数据);
+					对话框指针->发送到客户端(客户端套接字, 响应数据);
+					//对话框指针->添加信息显示(客户端IP + _T(" 版本过时，已断开连接"));
+
+					// 等待一段时间让客户端收到消息
+					//Sleep(1000);
+
+					//closesocket(客户端套接字);
 					return 0;
 				}
 
@@ -782,13 +737,13 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				}
 
 				// 发送响应
-				//BOOL 发送结果 = 对话框指针->发送到客户端(客户端套接字, 响应数据);
-				//TRACE(_T("发送响应结果: %d\n"), 发送结果);
+				BOOL 发送结果 = 对话框指针->发送到客户端(客户端套接字, 响应数据);
+				TRACE(_T("发送响应结果: %d\n"), 发送结果);
 			}
 			else
 			{
 				TRACE(_T("连接数据格式错误\n"));
-				响应数据 = _T("CONNECT_FAILED:无效的连接数据格式");
+				对话框指针->发送到客户端(客户端套接字, _T("CONNECT_FAILED:无效的连接数据格式"));
 				对话框指针->添加信息显示(客户端IP + _T(" 连接数据格式错误"));
 			}
 			TRACE(_T("=== 处理连接请求结束 ===\n"));
@@ -833,14 +788,14 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 
 				if (登录结果)
 				{
-					响应数据 = _T("LOGIN_SUCCESS:登录成功");
+					对话框指针->发送到客户端(客户端套接字, _T("LOGIN_SUCCESS:登录成功"));
 					TRACE(_T("=== 登录成功 ===\n"));
 					// 成功日志放在最后
 					对话框指针->添加信息显示(客户端IP + _T(" 登录成功 - 用户名: ") + 用户名);
 				}
 				else
 				{
-					响应数据 = _T("LOGIN_FAILED:用户名或密码错误");
+					对话框指针->发送到客户端(客户端套接字, _T("LOGIN_FAILED:用户名或密码错误"));
 					TRACE(_T("=== 账号密码错误 ===\n"));
 					// 失败日志放在最后
 					对话框指针->添加信息显示(客户端IP + _T(" 登录失败 - 用户名: ") + 用户名);
@@ -848,7 +803,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			}
 			else
 			{
-				响应数据 = _T("LOGIN_FAILED:无效的登录数据格式");
+				对话框指针->发送到客户端(客户端套接字, _T("LOGIN_FAILED:无效的登录数据格式"));
 				对话框指针->添加信息显示(客户端IP + _T(" 登录数据格式错误"));
 				TRACE(_T("=== 登录失败 ===\n"));
 			}
@@ -857,7 +812,8 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		else if (客户端请求.Find(_T("REGISTER:")) == 0)
 		{
 			TRACE(_T("=== 注册请求开始 ===\n"));
-			CString 注册数据 = 客户端请求.Mid(9); 
+			// 处理注册请求 - 格式: REGISTER:username:password:email
+			CString 注册数据 = 客户端请求.Mid(9); // 去掉"REGISTER:"
 			TRACE(_T("注册数据: %s\n"), 注册数据);
 
 			// 只保留请求日志
@@ -892,17 +848,19 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 
 				if (注册结果)
 				{
-					响应数据 = _T("REGISTER_SUCCESS:注册成功");
+					CString 响应数据 = _T("REGISTER_SUCCESS:注册成功");
 					TRACE(_T("发送注册成功响应: %s\n"), 响应数据);
-					//BOOL 发送结果 = 对话框指针->发送到客户端(客户端套接字, 响应数据);
+					BOOL 发送结果 = 对话框指针->发送到客户端(客户端套接字, 响应数据);
+					TRACE(_T("发送响应结果: %d\n"), 发送结果);
 					// 只保留最终结果日志
 					对话框指针->添加信息显示(客户端IP + _T(" 注册成功 - 用户名: ") + 用户名);
 				}
 				else
 				{
-					响应数据 = _T("REGISTER_FAILED:注册失败");
+					CString 响应数据 = _T("REGISTER_FAILED:注册失败");
 					TRACE(_T("发送注册失败响应: %s\n"), 响应数据);
-					//BOOL 发送结果 = 对话框指针->发送到客户端(客户端套接字, 响应数据);
+					BOOL 发送结果 = 对话框指针->发送到客户端(客户端套接字, 响应数据);
+					TRACE(_T("发送响应结果: %d\n"), 发送结果);
 					// 只保留最终结果日志
 					对话框指针->添加信息显示(客户端IP + _T(" 注册失败 - 用户名: ") + 用户名);
 				}
@@ -912,8 +870,9 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				CString 错误信息;
 				错误信息.Format(_T("注册数据格式错误，参数数量: %d"), 参数数组.GetSize());
 				TRACE(_T("注册数据格式错误: %s\n"), 错误信息);
-				响应数据 = _T("REGISTER_FAILED:") + 错误信息;
-				//BOOL 发送结果 = 对话框指针->发送到客户端(客户端套接字, 响应数据);
+				CString 响应数据 = _T("REGISTER_FAILED:") + 错误信息;
+				BOOL 发送结果 = 对话框指针->发送到客户端(客户端套接字, 响应数据);
+				TRACE(_T("发送错误响应结果: %d\n"), 发送结果);
 				// 只保留最终结果日志
 				对话框指针->添加信息显示(客户端IP + _T(" ") + 错误信息);
 			}
@@ -922,12 +881,12 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		else if (客户端请求 == _T("GET_HOOKS"))
 		{
 			// 发送Hook功能列表
-			响应数据 = _T("HOOKS_LIST:");
+			CString 响应数据 = _T("HOOKS_LIST:");
 			for (const auto& hook : 对话框指针->Hook功能列表)
 			{
 				响应数据 += hook.功能名称 + _T("|") + hook.功能描述 + _T(";");
 			}
-			//对话框指针->发送到客户端(客户端套接字, 响应数据);
+			对话框指针->发送到客户端(客户端套接字, 响应数据);
 			对话框指针->添加信息显示(客户端IP + _T(" 请求HOOK列表"));
 		}
 		else if (客户端请求.Find(_T("GET_HOOK_CODE:")) == 0)
@@ -947,19 +906,19 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 
 			if (!Hook代码.IsEmpty())
 			{
-				响应数据 = _T("HOOK_CODE:") + Hook代码;
+				对话框指针->发送到客户端(客户端套接字, _T("HOOK_CODE:") + Hook代码);
 				对话框指针->添加信息显示(客户端IP + _T(" 获取HOOK代码: ") + Hook名称);
 			}
 			else
 			{
-				响应数据 = _T("HOOK_CODE_NOT_FOUND");
+				对话框指针->发送到客户端(客户端套接字, _T("HOOK_CODE_NOT_FOUND"));
 				对话框指针->添加信息显示(客户端IP + _T(" 请求的HOOK不存在: ") + Hook名称);
 			}
 		}
 		else if (客户端请求.Find(_T("REBORN:")) == 0)
 		{
-			// 处理转生请求 
-			CString 转生数据 = 客户端请求.Mid(7);
+			// 处理转生请求 - 格式: REBORN:username:charname
+			CString 转生数据 = 客户端请求.Mid(7); // 去掉"REBORN:"
 			int 分隔符 = 转生数据.Find(':');
 
 			if (分隔符 != -1)
@@ -979,25 +938,25 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 
 				if (转生结果)
 				{
-					响应数据 = _T("REBORN_SUCCESS:转生成功");
+					对话框指针->发送到客户端(客户端套接字, _T("REBORN_SUCCESS:转生成功"));
 					对话框指针->添加信息显示(客户端IP + _T(" 角色转生成功: ") + 角色名);
 				}
 				else
 				{
-					响应数据 = _T("REBORN_FAILED:转生失败");
+					对话框指针->发送到客户端(客户端套接字, _T("REBORN_FAILED:转生失败"));
 					对话框指针->添加信息显示(客户端IP + _T(" 角色转生失败: ") + 角色名);
 				}
 			}
 			else
 			{
-				响应数据 = _T("REBORN_FAILED:无效的转生数据格式");
+				对话框指针->发送到客户端(客户端套接字, _T("REBORN_FAILED:无效的转生数据格式"));
 				对话框指针->添加信息显示(客户端IP + _T(" 转生数据格式错误"));
 			}
 		}
 		else if (客户端请求.Find(_T("ADD_POINTS:")) == 0)
 		{
-			// 处理加点请求
-			CString 加点数据 = 客户端请求.Mid(11); 
+			// 处理加点请求 - 格式: ADD_POINTS:username:charname:str:dex:esp:spt
+			CString 加点数据 = 客户端请求.Mid(11);
 
 			CStringArray 参数数组;
 			int 起始位置 = 0;
@@ -1030,25 +989,25 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 
 				if (加点结果)
 				{
-					响应数据 = _T("ADD_POINTS_SUCCESS:加点成功");
+					对话框指针->发送到客户端(客户端套接字, _T("ADD_POINTS_SUCCESS:加点成功"));
 					对话框指针->添加信息显示(客户端IP + _T(" 角色加点成功: ") + 角色名);
 				}
 				else
 				{
-					响应数据 = _T("ADD_POINTS_FAILED:加点失败");
+					对话框指针->发送到客户端(客户端套接字, _T("ADD_POINTS_FAILED:加点失败"));
 					对话框指针->添加信息显示(客户端IP + _T(" 角色加点失败: ") + 角色名);
 				}
 			}
 			else
 			{
-				响应数据 = _T("ADD_POINTS_FAILED:无效的加点数据格式");
+				对话框指针->发送到客户端(客户端套接字, _T("ADD_POINTS_FAILED:无效的加点数据格式"));
 				对话框指针->添加信息显示(客户端IP + _T(" 加点数据格式错误"));
 			}
 		}
 		else if (客户端请求.Find(_T("GET_CHAR_INFO:")) == 0)
 		{
-			// 获取角色信息
-			CString 查询数据 = 客户端请求.Mid(14); 
+			// 获取角色信息 - 格式: GET_CHAR_INFO:username:charname
+			CString 查询数据 = 客户端请求.Mid(14);
 			int 分隔符 = 查询数据.Find(':');
 
 			if (分隔符 != -1)
@@ -1066,7 +1025,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 
 				TRACE(_T("查询角色信息，用户: %s, 角色: %s\n"), 用户名, 角色名);
 
-				// 跨数据库查询
+				// 跨数据库查询：从nage数据库的CharInfo表获取角色详细信息
 				CString 查询语句;
 				查询语句.Format(_T("SELECT baseskill, Lv, lv + relvC AS total_lv, recount, lvpoint, Str, Dex, Esp, Spt FROM nage.dbo.CharInfo WHERE charName = '%s'"), 角色名);
 
@@ -1094,20 +1053,20 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 						响应数据.Format(_T("CHAR_INFO:%d:%d:%d:%d:%d:%d:%d:%d:%d"),
 							职业代码, 战斗等级, 累计等级, 转生次数, 剩余点数, 力量, 敏捷, 意念, 灵力);
 
-						//对话框指针->发送到客户端(客户端套接字, 响应数据);
+						对话框指针->发送到客户端(客户端套接字, 响应数据);
 						对话框指针->添加信息显示(客户端IP + _T(" 查询角色信息: ") + 角色名);
 						TRACE(_T("角色信息查询成功: %s\n"), 响应数据);
 					}
 					else
 					{
-						响应数据 = _T("CHAR_INFO_FAILED:角色不存在");
+						对话框指针->发送到客户端(客户端套接字, _T("CHAR_INFO_FAILED:角色不存在"));
 						TRACE(_T("角色不存在: %s\n"), 角色名);
 					}
 					SQLCloseCursor(对话框指针->SQL语句句柄);
 				}
 				else
 				{
-					响应数据 = _T("CHAR_INFO_FAILED:查询失败");
+					对话框指针->发送到客户端(客户端套接字, _T("CHAR_INFO_FAILED:查询失败"));
 					TRACE(_T("角色信息查询失败\n"));
 				}
 			}
@@ -1115,8 +1074,8 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		//角色列表处理
 		else if (客户端请求.Find(_T("GET_ROLES:")) == 0)
 		{
-			// 处理获取角色列表请求
-			CString 用户名 = 客户端请求.Mid(10); 
+			// 处理获取角色列表请求 - 格式: GET_ROLES:username
+			CString 用户名 = 客户端请求.Mid(10);
 
 			// 清理用户名
 			用户名.Remove(_T('\r'));
@@ -1130,7 +1089,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			对话框指针->获取用户角色列表(用户名, 角色列表);
 
 			// 构建响应
-			响应数据 = _T("ROLES_LIST:");
+			CString 响应数据 = _T("ROLES_LIST:");
 			for (int i = 0; i < 角色列表.GetSize(); i++)
 			{
 				if (i > 0)
@@ -1139,9 +1098,9 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			}
 
 			TRACE(_T("发送角色列表: %s\n"), 响应数据);
-			//对话框指针->发送到客户端(客户端套接字, 响应数据);
+			对话框指针->发送到客户端(客户端套接字, 响应数据);
 			对话框指针->添加信息显示(客户端IP + _T(" 请求角色列表 - 用户名: ") + 用户名);
-			}
+		}
 		else if (客户端请求.Find(_T("CHECK_ACCOUNT_ONLINE:")) == 0)
 		{
 			// 处理检查账号在线状态请求
@@ -1170,7 +1129,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 				TRACE(_T("账号离线: %s\n"), 用户名);
 			}
 
-			//对话框指针->发送到客户端(客户端套接字, 响应数据);
+			对话框指针->发送到客户端(客户端套接字, 响应数据);
 			对话框指针->添加信息显示(客户端IP + _T(" 检查账号在线状态 - 用户: ") + 用户名 + (在线状态 ? _T(" 在线") : _T(" 离线")));
 		}
 		else if (客户端请求.Find(_T("GET_RANKING:")) == 0)
@@ -1186,10 +1145,10 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			CString 排行榜数据 = 对话框指针->获取排行榜数据(数量);
 
 			// 构建响应
-			响应数据 = _T("RANKING_DATA:") + 排行榜数据;
+			CString 响应数据 = _T("RANKING_DATA:") + 排行榜数据;
 
 			TRACE(_T("发送排行榜数据: %s\n"), 响应数据);
-			//对话框指针->发送到客户端(客户端套接字, 响应数据);
+			对话框指针->发送到客户端(客户端套接字, 响应数据);
 			对话框指针->添加信息显示(客户端IP + _T(" 请求排行榜数据"));
 		}
 		//网页处理
@@ -1197,7 +1156,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 		{
 			TRACE(_T("=== 网页登录请求开始 ===\n"));
 
-			// 处理网页登录请求
+			// 处理网页登录请求 - 格式: WEB_LOGIN:username:password
 			CString 登录数据 = 客户端请求.Mid(10);
 			登录数据.TrimRight(_T("\r\n"));
 			TRACE(_T("网页登录数据: %s\n"), 登录数据);
@@ -1230,7 +1189,7 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 					对话框指针->获取用户角色列表(用户名, 角色列表);
 
 					// 构建响应 - 包含角色列表
-					响应数据 = _T("WEB_LOGIN_SUCCESS:");
+					CString 响应数据 = _T("WEB_LOGIN_SUCCESS:");
 					for (int i = 0; i < 角色列表.GetSize(); i++)
 					{
 						if (i > 0)
@@ -1244,28 +1203,28 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 					余额信息.Format(_T("|%d"), 余额);
 					响应数据 += 余额信息;
 
-					//对话框指针->发送到客户端(客户端套接字, 响应数据);
+					对话框指针->发送到客户端(客户端套接字, 响应数据);
 					TRACE(_T("网页登录成功，发送角色列表和余额\n"));
 					对话框指针->添加信息显示(客户端IP + _T(" 网页登录成功 - 用户名: ") + 用户名);
 				}
 				else
 				{
-					响应数据 = _T("WEB_LOGIN_FAILED:用户名或密码错误");
+					对话框指针->发送到客户端(客户端套接字, _T("WEB_LOGIN_FAILED:用户名或密码错误"));
 					TRACE(_T("网页登录失败\n"));
 				}
 			}
 			else
 			{
-				响应数据 = _T("WEB_LOGIN_FAILED:无效的登录数据格式");
+				对话框指针->发送到客户端(客户端套接字, _T("WEB_LOGIN_FAILED:无效的登录数据格式"));
 				对话框指针->添加信息显示(客户端IP + _T(" 网页登录数据格式错误"));
 			}
 			TRACE(_T("=== 网页登录请求结束 ===\n"));
-			}
+		}
 		else if (客户端请求.Find(_T("WEB_PURCHASE:")) == 0)
 		{
 			TRACE(_T("=== 网页购买请求开始 ===\n"));
 
-			// 处理网页购买请求
+			// 处理网页购买请求 - 格式: WEB_PURCHASE:username:role:itemId:itemName:price
 			CString 购买数据 = 客户端请求.Mid(12);
 			购买数据.TrimRight(_T("\r\n"));
 			TRACE(_T("网页购买数据: %s\n"), 购买数据);
@@ -1296,88 +1255,53 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 
 				if (购买结果)
 				{
-					响应数据 = _T("WEB_PURCHASE_SUCCESS:购买成功");
+					对话框指针->发送到客户端(客户端套接字, _T("WEB_PURCHASE_SUCCESS:购买成功"));
 					TRACE(_T("网页购买成功\n"));
 				}
 				else
 				{
-					响应数据 = _T("WEB_PURCHASE_FAILED:购买失败");
+					对话框指针->发送到客户端(客户端套接字, _T("WEB_PURCHASE_FAILED:购买失败"));
 					TRACE(_T("网页购买失败\n"));
 				}
 			}
 			else
 			{
-				响应数据 = _T("WEB_PURCHASE_FAILED:无效的购买数据格式");
+				对话框指针->发送到客户端(客户端套接字, _T("WEB_PURCHASE_FAILED:无效的购买数据格式"));
 				对话框指针->添加信息显示(客户端IP + _T(" 网页购买数据格式错误"));
 			}
 			TRACE(_T("=== 网页购买请求结束 ===\n"));
-			}
+		}
 		else if (客户端请求.Find(_T("WEB_GET_BALANCE:")) == 0)
 		{
 			TRACE(_T("=== 获取余额请求开始 ===\n"));
 
-			// 获取用户余额 
+			// 获取用户余额 - 格式: WEB_GET_BALANCE:username
 			CString 用户名 = 客户端请求.Mid(16);
 			用户名.TrimRight(_T("\r\n"));
 			TRACE(_T("获取余额 - 用户: %s\n"), 用户名);
 
 			int 余额 = 对话框指针->获取用户余额(用户名);
-			//CString 响应数据;
+			CString 响应数据;
 			响应数据.Format(_T("WEB_BALANCE:%d"), 余额);
 
-			//对话框指针->发送到客户端(客户端套接字, 响应数据);
+			对话框指针->发送到客户端(客户端套接字, 响应数据);
 			TRACE(_T("发送余额: %d\n"), 余额);
-}
-		
+			TRACE(_T("=== 获取余额请求结束 ===\n"));
+		}
+
 		else
 		{
-			TRACE(_T("=== 未知请求 ===\n"));
-			响应数据 = _T("UNKNOWN_COMMAND");
+			TRACE(_T("=== weizhiqingqiu ===\n"));
+			// 未知请求
+			对话框指针->发送到客户端(客户端套接字, _T("UNKNOWN_COMMAND"));
 			对话框指针->添加信息显示(客户端IP + _T(" 未知请求: ") + 客户端请求);
 		}
-
-		// ============ 统一发送响应（支持WebSocket和TCP） ============
-		if (需要发送响应 && !响应数据.IsEmpty())
-		{
-			if (客户端类型 == 2) // WebSocket客户端
-			{
-				// 转换CString到std::string（修复CT2A问题）
-				CStringA 响应文本A(响应数据);
-				std::string 响应文本(响应文本A);
-
-				// 创建WebSocket帧并发送
-				std::vector<char> WebSocket帧 = WebSocket处理器::创建WebSocket帧(响应文本);
-
-				if (!WebSocket帧.empty())
-				{
-					send(客户端套接字, WebSocket帧.data(), WebSocket帧.size(), 0);
-					TRACE(_T("已发送WebSocket响应: %s\n"), 响应数据);
-				}
-			}
-			else // 普通TCP客户端
-			{
-				// 使用原有的发送方式
-				对话框指针->发送到客户端(客户端套接字, 响应数据);
-			}
-		}
-		// ============ 统一发送响应结束 ============
-
 		//处理完请求后短暂休眠，避免过于频繁的循环
 		Sleep(10);
 	}
 
-	// 清理工作
+	// 只有在连接出错或服务器停止时才关闭连接
 	对话框指针->移除客户端连接(客户端套接字);
-
-	if (客户端类型 == 2) // WebSocket客户端，发送关闭帧
-	{
-		std::vector<char> 关闭帧 = WebSocket处理器::创建关闭帧();
-		if (!关闭帧.empty())
-		{
-			send(客户端套接字, 关闭帧.data(), 关闭帧.size(), 0);
-		}
-	}
-
 	closesocket(客户端套接字);
 
 	return 0;
@@ -2007,12 +1931,19 @@ BOOL NageDlqServerDlg::处理用户注册(const CString& 用户名, const CStrin
 
 		// 插入新用户
 		CString 插入语句;
-		插入语句.Format(_T("INSERT INTO Chr_Log_Info (id_loginid, id_passwd, propid, id_mail) VALUES ('%s', '%s', %d, '%s')"),
-			用户名, 密码, 新的propid, 邮箱);
+		插入语句.Format(_T("INSERT INTO Chr_Log_Info (id_loginid, id_passwd, propid, id_mail, ID_eday) VALUES ('%s', '%s', %d, '%s', %d)"),
+			用户名, 密码, 新的propid, 邮箱, "GETDATE()");
 
 		retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)插入语句.GetString(), SQL_NTS);
 		if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
 		{
+			// 同时插入到UserBalance表，设置初始余额
+			CString 余额语句;
+			余额语句.Format(_T("INSERT INTO nagelogin.dbo.UserBalance (username, balance) ")
+				_T("VALUES ('%s', 1)"), 用户名);
+
+			SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)余额语句.GetString(), SQL_NTS);
+
 			// 提交事务
 			SQLEndTran(SQL_HANDLE_DBC, SQL连接句柄, SQL_COMMIT);
 			return TRUE;
@@ -2247,12 +2178,26 @@ BOOL NageDlqServerDlg::处理角色转生(const CString& 用户名, const CStrin
 
 			int 需求等级 = 110 + 转生次数 * 10;
 
+			// 添加封顶逻辑：最高300级
+			if (需求等级 > 300)
+			{
+				需求等级 = 300;
+			}
+
 			// 检查等级
 			if (当前等级 < 需求等级)
 			{
 				CString 错误信息;
-				错误信息.Format(_T("转生失败: 等级不足%d级（第%d次转生需要%d级）"),
-					需求等级, 转生次数 + 1, 需求等级);
+				if (转生次数 >= 19) // 300级封顶后的转生次数
+				{
+					错误信息.Format(_T("转生失败: 等级不足300级（第%d次转生需要300级）"),
+						转生次数 + 1);
+				}
+				else
+				{
+					错误信息.Format(_T("转生失败: 等级不足%d级（第%d次转生需要%d级）"),
+						需求等级, 转生次数 + 1, 需求等级);
+				}
 				添加信息显示(错误信息);
 				return FALSE;
 			}
@@ -4135,4 +4080,97 @@ CString NageDlqServerDlg::获取物品游戏代码(int 物品ID)
 	}
 
 	return _T("");
+}
+
+void NageDlqServerDlg::接受客户端连接()
+{
+	while (服务器运行状态)
+	{
+		SOCKET 客户端套接字 = accept(监听套接字, NULL, NULL);
+		if (客户端套接字 == INVALID_SOCKET)
+		{
+			continue;
+		}
+
+		// 获取客户端IP
+		sockaddr_in 客户端地址;
+		int 地址长度 = sizeof(客户端地址);
+		getpeername(客户端套接字, (sockaddr*)&客户端地址, &地址长度);
+
+		// 转换IP地址
+		char ipAddress[INET_ADDRSTRLEN];
+		const char* 转换结果 = inet_ntop(AF_INET, &(客户端地址.sin_addr), ipAddress, INET_ADDRSTRLEN);
+		CString 客户端IP;
+		if (ipAddress != NULL)
+		{
+			// 根据项目编码类型进行转换
+			#ifdef _UNICODE
+				客户端IP = CString(CA2T(ipAddress));
+			#else
+				客户端IP = CString(ipAddress);
+			#endif
+		}
+		else
+		{
+			客户端IP = _T("未知IP");
+		}
+
+		TRACE(_T("新客户端连接: %s\n"), 客户端IP);
+
+		// 首先接收少量数据来判断连接类型
+		char 检测缓冲区[1024];
+		memset(检测缓冲区, 0, sizeof(检测缓冲区));
+
+		// 设置接收超时（1秒）
+		struct timeval 超时;
+		超时.tv_sec = 1;
+		超时.tv_usec = 0;
+		setsockopt(客户端套接字, SOL_SOCKET, SO_RCVTIMEO, (char*)&超时, sizeof(超时));
+
+		int 检测长度 = recv(客户端套接字, 检测缓冲区, sizeof(检测缓冲区) - 1, 0);
+
+		// 移除超时设置
+		setsockopt(客户端套接字, SOL_SOCKET, SO_RCVTIMEO, NULL, 0);
+
+		if (检测长度 > 0)
+		{
+			检测缓冲区[检测长度] = '\0';
+			std::string 检测数据(检测缓冲区, 检测长度);
+
+			TRACE(_T("收到初始数据: %s\n"), CString(检测数据.c_str()));
+
+			// 检查是否是WebSocket握手请求（使用简化判断）
+			if (检测数据.find("GET /") == 0 &&
+				(检测数据.find("Upgrade: websocket") != std::string::npos ||
+					检测数据.find("Upgrade: WebSocket") != std::string::npos))
+			{
+				TRACE(_T("检测到WebSocket连接，IP: %s\n"), 客户端IP);
+
+				// 生成WebSocket握手响应（简化版）
+				std::string 握手响应 = WebSocket处理类::生成握手响应(检测数据);
+
+				if (!握手响应.empty())
+				{
+					// 发送握手响应
+					send(客户端套接字, 握手响应.c_str(), 握手响应.length(), 0);
+					TRACE(_T("已发送WebSocket握手响应\n"));
+
+					// 转换为ANSI字符串
+					CStringA ipA(客户端IP);
+
+					// 处理WebSocket连接
+					WebSocket处理器.处理WebSocket客户端(客户端套接字, ipA.GetString());
+					continue;
+				}
+			}
+		}
+
+		// 普通TCP连接，添加到客户端列表
+		EnterCriticalSection(&客户端列表锁);
+		客户端连接列表[客户端套接字] = 客户端IP;
+		LeaveCriticalSection(&客户端列表锁);
+
+		// 创建TCP客户端线程
+		AfxBeginThread(客户端线程函数, (LPVOID)客户端套接字);
+	}
 }

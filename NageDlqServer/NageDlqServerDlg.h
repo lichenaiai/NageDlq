@@ -14,6 +14,7 @@
 #include <sql.h>
 #include <sqlext.h>
 #include <sqltypes.h>
+#include "WebSocket处理类.h"
 
 
 #ifndef INCLUDED_端口转发
@@ -245,4 +246,21 @@ public:
 		const CString& 物品名称, int 价格, const CString& 客户端IP);
 	BOOL 发送物品到角色(const CString& 角色名, int 物品ID, int 数量);
 	CString 获取物品游戏代码(int 物品ID);
+
+private:
+	// 添加WebSocket处理器
+	WebSocket处理类 WebSocket处理器;
+
+	// 添加WebSocket处理函数
+	void 处理WebSocket请求(const CString& 客户端IP, const CString& 请求);
+
+	// 修改接受连接函数
+	void 接受客户端连接();
+
+	// WebSocket消息处理函数（静态）
+	static void WebSocket消息处理函数(void* 上下文, SOCKET 客户端套接字,
+		const std::string& 消息, const std::string& 客户端IP);
+
+	// 实际的WebSocket消息处理
+	void 处理WebSocket请求(SOCKET 客户端套接字, const std::string& 消息, const std::string& 客户端IP);
 };
