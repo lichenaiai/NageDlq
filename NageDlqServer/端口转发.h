@@ -8,7 +8,7 @@
 #include <ws2tcpip.h>
 #include <string>
 #include <afx.h>
-
+#include <MSTcpIP.h>
 #pragma comment(lib, "ws2_32.lib")
 
 struct 连接信息
@@ -18,9 +18,10 @@ struct 连接信息
     DWORD 最后活动时间;
     bool 正在关闭;
 
-    连接信息() : 套接字(INVALID_SOCKET), 开始时间(0), 最后活动时间(0), 正在关闭(false) {}
-    连接信息(SOCKET s) : 套接字(s), 开始时间(GetTickCount()),
-        最后活动时间(GetTickCount()), 正在关闭(false) {
+    连接信息(SOCKET s) : 套接字(s),
+        开始时间(GetTickCount()),
+        最后活动时间(开始时间),
+        正在关闭(false) {
     }
 };
 
@@ -50,9 +51,26 @@ struct 端口转发规则
     }
 
     // 析构函数
-    ~端口转发规则();
+    ~端口转发规则()
+    {
+        // 停止转发线程
+        if (转发线程 && 转发线程->joinable())
+        {
+            转发线程->join();
+            delete 转发线程;
+        }
 
-    // 连接数操作的线程安全方法
+        // 关闭监听套接字
+        if (监听套接字 != INVALID_SOCKET)
+        {
+            closesocket(监听套接字);
+        }
+
+        // 清理所有活动连接
+        清空所有连接();
+    }
+
+    // 连接数操作
     int 获取连接数() const
     {
         std::lock_guard<std::mutex> 锁(连接数锁);
@@ -88,21 +106,12 @@ struct 端口转发规则
     void 移除活动连接(SOCKET 套接字)
     {
         std::lock_guard<std::mutex> 锁(连接列表锁);
-        for (auto it = 活动连接.begin(); it != 活动连接.end(); )
+        for (auto it = 活动连接.begin(); it != 活动连接.end(); ++it)
         {
             if ((*it)->套接字 == 套接字)
             {
-                // 关闭套接字
-                if ((*it)->套接字 != INVALID_SOCKET)
-                {
-                    closesocket((*it)->套接字);
-                }
-                it = 活动连接.erase(it);
+                活动连接.erase(it);
                 break;
-            }
-            else
-            {
-                ++it;
             }
         }
     }
@@ -120,102 +129,22 @@ struct 端口转发规则
         }
     }
 
-    void 清理无效连接()
-    {
-        std::lock_guard<std::mutex> 锁(连接列表锁);
-
-        for (auto it = 活动连接.begin(); it != 活动连接.end(); )
-        {
-            auto 连接 = *it;
-
-            // 检查连接是否已经关闭
-            if (连接->正在关闭)
-            {
-                // 关闭套接字
-                if (连接->套接字 != INVALID_SOCKET)
-                {
-                    closesocket(连接->套接字);
-                }
-                it = 活动连接.erase(it);
-            }
-            else
-            {
-                // 检查连接是否超时（15分钟无活动）
-                DWORD 当前时间 = GetTickCount();
-                if ((当前时间 - 连接->最后活动时间) > (15 * 60 * 1000))
-                {
-                    // 标记为关闭
-                    连接->正在关闭 = true;
-                    // 不立即删除，等待下次清理
-                    ++it;
-                }
-                else
-                {
-                    ++it;
-                }
-            }
-        }
-    }
-
-    // 清空所有连接
     void 清空所有连接()
     {
         std::lock_guard<std::mutex> 锁(连接列表锁);
 
         for (auto& 连接 : 活动连接)
         {
-            try
+            if (连接->套接字 != INVALID_SOCKET)
             {
-                if (连接->套接字 != INVALID_SOCKET)
-                {
-                    // 优雅关闭连接
-                    shutdown(连接->套接字, SD_BOTH);
-                    closesocket(连接->套接字);
-                }
-            }
-            catch (...)
-            {
-                // 忽略清理异常
+                shutdown(连接->套接字, SD_BOTH);
+                closesocket(连接->套接字);
             }
         }
 
         活动连接.clear();
 
         // 重置连接数
-        std::lock_guard<std::mutex> 锁2(连接数锁);
-        连接数 = 0;
-    }
-
-    // 强制清理
-    void 强制清理()
-    {
-        std::lock_guard<std::mutex> 锁(连接列表锁);
-
-        for (auto& 连接 : 活动连接)
-        {
-            try
-            {
-                if (连接->套接字 != INVALID_SOCKET)
-                {
-                    // 设置LINGER选项确保立即关闭
-                    LINGER 延迟结构;
-                    延迟结构.l_onoff = 1;
-                    延迟结构.l_linger = 0; // 立即关闭
-                    setsockopt(连接->套接字, SOL_SOCKET, SO_LINGER,
-                        (char*)&延迟结构, sizeof(延迟结构));
-
-                    closesocket(连接->套接字);
-                }
-            }
-            catch (...)
-            {
-                // 忽略异常
-            }
-        }
-
-        活动连接.clear();
-        运行中 = false;
-
         std::lock_guard<std::mutex> 锁2(连接数锁);
         连接数 = 0;
     }
@@ -240,7 +169,6 @@ public:
     // 安全的获取规则列表方法
     std::vector<端口转发规则*> 获取规则列表() const;
     BOOL 获取规则列表副本(std::vector<端口转发规则*>& 规则列表副本) const;
-
     BOOL 保存配置();
     BOOL 加载配置();
     BOOL 验证规则参数(const CString& 输入IP, int 输入端口, const CString& 输出IP, int 输出端口);
@@ -249,16 +177,9 @@ private:
     std::vector<端口转发规则*> 转发规则列表;
     mutable std::mutex 规则列表锁;
 
-    // 客户端线程管理
-    std::vector<std::shared_ptr<std::thread>> 客户端线程列表;
-    mutable std::mutex 客户端线程列表锁;
-
     static void 转发线程函数(端口转发规则* 规则);
     static void 客户端处理线程(SOCKET 客户端套接字, SOCKET 目标套接字, 端口转发规则* 规则);
     static void 转发数据(SOCKET 来源套接字, SOCKET 目标套接字, 端口转发规则* 规则);
+    static void 单向转发数据(SOCKET 来源套接字, SOCKET 目标套接字, 端口转发规则* 规则);
     static void 定期连接状态检查(端口转发规则* 规则);
-
-    // 线程管理方法
-    void 启动客户端处理(SOCKET 客户端套接字, SOCKET 目标套接字, 端口转发规则* 规则);
-    void 清理所有客户端线程();
 };

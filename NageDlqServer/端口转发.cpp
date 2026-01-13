@@ -5,26 +5,6 @@
 #include <MSTcpIP.h>
 #include <algorithm>
 
-// 端口转发规则析构函数
-端口转发规则::~端口转发规则()
-{
-    // 清理所有活动连接
-    清空所有连接();
-
-    // 停止转发线程
-    if (转发线程 && 转发线程->joinable())
-    {
-        转发线程->join();
-        delete 转发线程;
-    }
-
-    // 关闭监听套接字
-    if (监听套接字 != INVALID_SOCKET)
-    {
-        closesocket(监听套接字);
-    }
-}
-
 // 端口转发管理类构造函数
 端口转发管理类::端口转发管理类()
 {
@@ -52,23 +32,6 @@
         delete 规则;
     }
     转发规则列表.clear();
-
-    // 清理客户端线程
-    清理所有客户端线程();
-}
-
-void 端口转发管理类::启动客户端处理(SOCKET 客户端套接字, SOCKET 目标套接字, 端口转发规则* 规则)
-{
-    auto 线程 = std::make_shared<std::thread>([this, 客户端套接字, 目标套接字, 规则]() {
-        客户端处理线程(客户端套接字, 目标套接字, 规则);
-        });
-
-    {
-        std::lock_guard<std::mutex> 锁(客户端线程列表锁);
-        客户端线程列表.push_back(线程);
-    }
-
-    //线程->detach();
 }
 
 // 启动所有转发规则
@@ -82,15 +45,6 @@ BOOL 端口转发管理类::启动所有转发()
         std::lock_guard<std::mutex> 锁(规则列表锁);
         临时规则列表 = 转发规则列表;
         TRACE(_T("总规则数量: %d\n"), 临时规则列表.size());
-
-        // 详细输出每个规则
-        for (int i = 0; i < 临时规则列表.size(); i++)
-        {
-            auto* 规则 = 临时规则列表[i];
-            TRACE(_T("规则[%d]: 序号=%d, IP=%s:%d -> %s:%d, 运行中=%d\n"),
-                i, 规则->序号, 规则->输入IP, 规则->输入端口,
-                规则->输出IP, 规则->输出端口, 规则->运行中);
-        }
     }
 
     BOOL 全部成功 = TRUE;
@@ -106,116 +60,38 @@ BOOL 端口转发管理类::启动所有转发()
                 TRACE(_T("!!! 规则 %d 启动失败 !!!\n"), 规则->序号);
                 全部成功 = FALSE;
             }
-            else
-            {
-                TRACE(_T("规则 %d 启动成功\n"), 规则->序号);
-            }
-        }
-        else
-        {
-            TRACE(_T("规则 %d 已在运行中，跳过\n"), 规则->序号);
         }
     }
 
-    // 统计结果
-    int 成功数量 = 0;
-    for (auto* 规则 : 临时规则列表)
-    {
-        if (规则->运行中) 成功数量++;
-    }
-
-    TRACE(_T("=== 启动所有转发结束 === 成功: %d/%d, 总体结果: %s\n"),
-        成功数量, 临时规则列表.size(), 全部成功 ? _T("成功") : _T("失败"));
-
+    TRACE(_T("=== 启动所有转发结束 ===\n"));
     return 全部成功;
 }
 
 // 停止所有转发规则
 BOOL 端口转发管理类::停止所有转发()
 {
-    std::lock_guard<std::mutex> 锁(规则列表锁);
+    std::vector<端口转发规则*> 临时规则列表;
 
-    try
     {
-        // 停止所有规则
-        for (auto* 规则 : 转发规则列表)
-        {
-            if (规则->运行中)
-            {
-                // 设置停止标志
-                规则->运行中 = false;
-
-                // 关闭监听套接字
-                if (规则->监听套接字 != INVALID_SOCKET)
-                {
-                    closesocket(规则->监听套接字);
-                    规则->监听套接字 = INVALID_SOCKET;
-                }
-
-                // 清空连接列表
-                规则->清空所有连接();
-            }
-        }
-
-        // 等待所有客户端线程结束
-        清理所有客户端线程();
-
-        return TRUE;
+        std::lock_guard<std::mutex> 锁(规则列表锁);
+        临时规则列表 = 转发规则列表;
     }
-    catch (const std::exception& e)
+
+    for (auto* 规则 : 临时规则列表)
     {
-        TRACE(_T("停止所有转发时发生异常: %s\n"), CString(e.what()));
+        if (规则->运行中)
+        {
+            停止转发规则(规则->序号);
+        }
     }
 
     return TRUE;
-}
-
-// 添加清理客户端线程函数
-void 端口转发管理类::清理所有客户端线程()
-{
-    std::lock_guard<std::mutex> 锁(客户端线程列表锁);
-
-    for (auto& 线程 : 客户端线程列表)
-    {
-        try
-        {
-            if (线程 && 线程->joinable())
-            {
-                // 等待一段时间
-                DWORD 超时 = 2000; // 2秒
-                DWORD 开始等待时间 = GetTickCount();
-
-                while (GetTickCount() - 开始等待时间 < 超时)
-                {
-                    if (WaitForSingleObject(线程->native_handle(), 100) == WAIT_OBJECT_0)
-                    {
-                        break; // 线程已结束
-                    }
-                }
-
-                // 如果线程还在运行，强制终止
-                if (线程->joinable())
-                {
-                    线程->join();
-                    //TerminateThread(线程->native_handle(), 0);
-                }
-            }
-        }
-        catch (...)
-        {
-            // 忽略异常
-        }
-    }
-
-    客户端线程列表.clear();
 }
 
 // 启动单个转发规则
 BOOL 端口转发管理类::启动转发规则(int 规则序号)
 {
     端口转发规则* 目标规则 = nullptr;
-
-    // 先找到规则
     {
         std::lock_guard<std::mutex> 锁(规则列表锁);
         for (auto* 规则 : 转发规则列表)
@@ -365,6 +241,24 @@ BOOL 端口转发管理类::停止转发规则(int 规则序号)
         目标规则->监听套接字 = INVALID_SOCKET;
     }
 
+    // 清理所有活动连接
+    {
+        std::lock_guard<std::mutex> 锁(目标规则->连接列表锁);
+        for (auto& 连接 : 目标规则->活动连接)
+        {
+            if (连接->套接字 != INVALID_SOCKET)
+            {
+                // 先优雅关闭
+                shutdown(连接->套接字, SD_BOTH);
+                closesocket(连接->套接字);
+            }
+        }
+        目标规则->活动连接.clear();
+    }
+
+    // 重置连接数
+    目标规则->设置连接数(0);
+
     // 等待线程结束
     if (目标规则->转发线程 && 目标规则->转发线程->joinable())
     {
@@ -387,9 +281,6 @@ BOOL 端口转发管理类::添加转发规则(const CString& 输入IP, int 输�
 {
     std::lock_guard<std::mutex> 锁(规则列表锁);
 
-    TRACE(_T("=== 添加转发规则开始 ===\n"));
-    TRACE(_T("参数: %s:%d -> %s:%d\n"), 输入IP, 输入端口, 输出IP, 输出端口);
-
     auto* 新规则 = new 端口转发规则();
     新规则->序号 = static_cast<int>(转发规则列表.size()) + 1;
     新规则->输入IP = 输入IP;
@@ -399,10 +290,6 @@ BOOL 端口转发管理类::添加转发规则(const CString& 输入IP, int 输�
     新规则->状态 = _T("已停止");
 
     转发规则列表.push_back(新规则);
-
-    TRACE(_T("添加转发规则成功，新规则序号: %d\n"), 新规则->序号);
-    TRACE(_T("当前规则总数: %d\n"), 转发规则列表.size());
-    TRACE(_T("=== 添加转发规则结束 ===\n"));
 
     return TRUE;
 }
@@ -549,36 +436,15 @@ void 端口转发管理类::转发线程函数(端口转发规则* 规则)
 {
     TRACE(_T("=== 转发线程启动 === 规则: %d\n"), 规则->序号);
 
-    DWORD 上次清理时间 = GetTickCount();
-    const DWORD 清理间隔 = 30000; // 30秒清理一次无效连接
-
-    DWORD 上次状态检查时间 = GetTickCount();
-    const DWORD 状态检查间隔 = 5 * 60 * 1000; // 5分钟检查一次状态
-
     while (规则->运行中)
     {
-        // 定期清理标记为关闭的连接
-        DWORD 当前时间 = GetTickCount();
-        if (当前时间 - 上次清理时间 > 清理间隔)
-        {
-            规则->清理无效连接();
-            上次清理时间 = 当前时间;
-        }
-
-        // 定期记录连接状态（不主动断开）
-        if (当前时间 - 上次状态检查时间 > 状态检查间隔)
-        {
-            定期连接状态检查(规则);
-            上次状态检查时间 = 当前时间;
-        }
-
-        // 使用select等待连接，设置超时以便定期检查运行状态
+        // 使用select等待连接
         fd_set 读集合;
         FD_ZERO(&读集合);
         FD_SET(规则->监听套接字, &读集合);
 
         struct timeval 超时;
-        超时.tv_sec = 1;  // 1秒超时，便于及时响应停止信号
+        超时.tv_sec = 1;
         超时.tv_usec = 0;
 
         int 选择结果 = select(0, &读集合, NULL, NULL, &超时);
@@ -592,32 +458,6 @@ void 端口转发管理类::转发线程函数(端口转发规则* 规则)
 
             if (客户端套接字 != INVALID_SOCKET)
             {
-                // 解析客户端IP
-                char 客户端IP缓冲区[INET_ADDRSTRLEN];
-                inet_ntop(AF_INET, &(客户端地址.sin_addr), 客户端IP缓冲区, sizeof(客户端IP缓冲区));
-
-                TRACE(_T("规则 %d 接受客户端连接: %s\n"), 规则->序号, CString(客户端IP缓冲区));
-
-                // 设置TCP保活机制（让操作系统处理连接维持）
-                int 保持活动 = 1;
-                setsockopt(客户端套接字, SOL_SOCKET, SO_KEEPALIVE, (char*)&保持活动, sizeof(保持活动));
-
-                // 设置TCP保活参数（Windows）
-                tcp_keepalive 保活参数;
-                保活参数.onoff = 1;
-                保活参数.keepalivetime = 2 * 60 * 60 * 1000;  // 2小时后开始检测
-                保活参数.keepaliveinterval = 60 * 1000;       // 1分钟重试间隔
-
-                DWORD 返回字节数 = 0;
-                // 使用WSAIoctl设置TCP保活参数
-                if (WSAIoctl(客户端套接字, SIO_KEEPALIVE_VALS, &保活参数, sizeof(保活参数),
-                    NULL, 0, &返回字节数, NULL, NULL) == SOCKET_ERROR)
-                {
-                    // 如果设置失败，只记录日志，不影响功能
-                    int 错误码 = WSAGetLastError();
-                    TRACE(_T("设置TCP保活参数失败，错误码: %d (不影响功能)\n"), 错误码);
-                }
-
                 // 连接到目标服务器
                 SOCKET 目标套接字 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
                 if (目标套接字 != INVALID_SOCKET)
@@ -627,84 +467,53 @@ void 端口转发管理类::转发线程函数(端口转发规则* 规则)
 
                     USES_CONVERSION;
                     char* 输出IP = T2A(规则->输出IP);
-                    if (inet_pton(AF_INET, 输出IP, &(目标地址.sin_addr)) != 1)
+                    if (inet_pton(AF_INET, 输出IP, &(目标地址.sin_addr)) == 1)
                     {
-                        TRACE(_T("目标IP地址转换失败: %s\n"), 规则->输出IP);
-                        closesocket(目标套接字);
-                        closesocket(客户端套接字);
-                        continue;
-                    }
-                    目标地址.sin_port = htons(规则->输出端口);
+                        目标地址.sin_port = htons(规则->输出端口);
 
-                    // 设置连接超时（仅用于连接阶段）
-                    DWORD 连接超时 = 10000; // 10秒
-                    setsockopt(目标套接字, SOL_SOCKET, SO_RCVTIMEO, (char*)&连接超时, sizeof(连接超时));
-                    setsockopt(目标套接字, SOL_SOCKET, SO_SNDTIMEO, (char*)&连接超时, sizeof(连接超时));
-
-                    if (connect(目标套接字, (sockaddr*)&目标地址, sizeof(目标地址)) == 0)
-                    {
-                        // 连接成功后，移除发送/接收超时设置
-                        DWORD 无超时 = 0;
-                        setsockopt(目标套接字, SOL_SOCKET, SO_RCVTIMEO, (char*)&无超时, sizeof(无超时));
-                        setsockopt(目标套接字, SOL_SOCKET, SO_SNDTIMEO, (char*)&无超时, sizeof(无超时));
-
-                        // 为服务器端套接字也设置保活
-                        保持活动 = 1;
-                        setsockopt(目标套接字, SOL_SOCKET, SO_KEEPALIVE, (char*)&保持活动, sizeof(保持活动));
-
-                        // 设置目标套接字的TCP保活参数
-                        tcp_keepalive 目标保活参数;
-                        目标保活参数.onoff = 1;
-                        目标保活参数.keepalivetime = 2 * 60 * 60 * 1000;  // 2小时后开始检测
-                        目标保活参数.keepaliveinterval = 60 * 1000;       // 1分钟重试间隔
-
-                        if (WSAIoctl(目标套接字, SIO_KEEPALIVE_VALS, &目标保活参数, sizeof(目标保活参数),
-                            NULL, 0, &返回字节数, NULL, NULL) == SOCKET_ERROR)
+                        if (connect(目标套接字, (sockaddr*)&目标地址, sizeof(目标地址)) == 0)
                         {
-                            int 错误码 = WSAGetLastError();
-                            TRACE(_T("设置目标套接字TCP保活参数失败，错误码: %d\n"), 错误码);
+                            // 记录连接信息
+                            规则->添加活动连接(客户端套接字);
+                            规则->添加活动连接(目标套接字);
+
+                            // 启动客户端处理线程
+                            std::thread* 处理线程 = new std::thread(客户端处理线程,
+                                客户端套接字, 目标套接字, 规则);
+                            处理线程->detach();
+
+                            // 增加连接数
+                            规则->增加连接数();
+                            TRACE(_T("规则 %d: 新连接建立，当前连接数: %d\n"),
+                                规则->序号, 规则->获取连接数());
                         }
-
-                        // 记录连接信息
-                        规则->添加活动连接(客户端套接字);
-                        规则->添加活动连接(目标套接字);
-
-                        // 启动客户端处理线程
-                        std::thread* 处理线程 = new std::thread(客户端处理线程, 客户端套接字, 目标套接字, 规则);
-                        处理线程->detach();
-
-                        规则->增加连接数();
-                        TRACE(_T("规则 %d: 新连接建立，当前连接数: %d\n"),
-                            规则->序号, 规则->获取连接数());
+                        else
+                        {
+                            closesocket(目标套接字);
+                            closesocket(客户端套接字);
+                        }
                     }
                     else
                     {
-                        TRACE(_T("规则 %d 连接到目标服务器失败: %s:%d\n"),
-                            规则->序号, 规则->输出IP, 规则->输出端口);
                         closesocket(目标套接字);
                         closesocket(客户端套接字);
                     }
                 }
                 else
                 {
-                    TRACE(_T("规则 %d 创建目标套接字失败\n"), 规则->序号);
                     closesocket(客户端套接字);
                 }
             }
         }
         else if (选择结果 == 0)
         {
-            // select超时，继续循环
+            // 超时，继续循环
             continue;
         }
         else
         {
-            int 错误码 = WSAGetLastError();
-            if (错误码 != WSAEINTR) // 不是被中断的错误
-            {
-                TRACE(_T("规则 %d select错误: %d\n"), 规则->序号, 错误码);
-            }
-            Sleep(100); // 短暂休眠
+            // 错误处理
+            Sleep(100);
         }
     }
 
@@ -714,101 +523,81 @@ void 端口转发管理类::转发线程函数(端口转发规则* 规则)
 // 客户端处理线程
 void 端口转发管理类::客户端处理线程(SOCKET 客户端套接字, SOCKET 目标套接字, 端口转发规则* 规则)
 {
-    TRACE(_T("客户端处理线程开始: 规则 %d\n"), 规则->序号);
+    // 设置套接字为阻塞模式
+    u_long 阻塞模式 = 0;
+    ioctlsocket(客户端套接字, FIONBIO, &阻塞模式);
+    ioctlsocket(目标套接字, FIONBIO, &阻塞模式);
 
-    // 设置为阻塞模式，但使用select控制
-    u_long 非阻塞模式 = 1;
-    ioctlsocket(客户端套接字, FIONBIO, &非阻塞模式);
-    ioctlsocket(目标套接字, FIONBIO, &非阻塞模式);
-
-    // 创建两个线程处理双向转发
+    // 创建两个线程分别处理两个方向的数据转发
     std::thread 客户端到目标线程([客户端套接字, 目标套接字, 规则]() {
-        char 缓冲区[8192];  // 游戏包可能较大
-
-        while (规则->运行中)
-        {
-            fd_set 读集合;
-            FD_ZERO(&读集合);
-            FD_SET(客户端套接字, &读集合);
-
-            // 关键：使用NULL超时，无限等待
-            int 选择结果 = select(0, &读集合, NULL, NULL, NULL);
-
-            if (选择结果 > 0)
-            {
-                int 接收长度 = recv(客户端套接字, 缓冲区, sizeof(缓冲区), 0);
-
-                if (接收长度 > 0)
-                {
-                    // 立即转发，不检查内容
-                    send(目标套接字, 缓冲区, 接收长度, 0);
-                }
-                else if (接收长度 == 0)
-                {
-                    // 游戏客户端主动断开
-                    break;
-                }
-                else if (WSAGetLastError() != WSAEWOULDBLOCK)
-                {
-                    break;
-                }
-            }
-            else
-            {
-                break;
-            }
-        }
+        单向转发数据(客户端套接字, 目标套接字, 规则);
         });
 
     std::thread 目标到客户端线程([客户端套接字, 目标套接字, 规则]() {
-        char 缓冲区[8192];
-
-        while (规则->运行中)
-        {
-            fd_set 读集合;
-            FD_ZERO(&读集合);
-            FD_SET(目标套接字, &读集合);
-
-            // 无限等待
-            int 选择结果 = select(0, &读集合, NULL, NULL, NULL);
-
-            if (选择结果 > 0)
-            {
-                int 接收长度 = recv(目标套接字, 缓冲区, sizeof(缓冲区), 0);
-
-                if (接收长度 > 0)
-                {
-                    send(客户端套接字, 缓冲区, 接收长度, 0);
-                }
-                else if (接收长度 == 0)
-                {
-                    // 游戏服务器断开
-                    break;
-                }
-                else if (WSAGetLastError() != WSAEWOULDBLOCK)
-                {
-                    break;
-                }
-            }
-            else
-            {
-                break;
-            }
-        }
+        单向转发数据(目标套接字, 客户端套接字, 规则);
         });
 
-    // 等待两个线程自然结束（当游戏断开时）
-    if (客户端到目标线程.joinable())
-        客户端到目标线程.join();
-    if (目标到客户端线程.joinable())
-        目标到客户端线程.join();
+    // 等待任意一个线程结束
+    客户端到目标线程.join();
 
-    // 关闭连接
+    // 当客户端到目标线程结束时，两个方向都应该停止
+    // 关闭套接字以唤醒目标到客户端线程
+    shutdown(目标套接字, SD_BOTH);
+    shutdown(客户端套接字, SD_BOTH);
+
+    // 等待第二个线程
+    目标到客户端线程.join();
+
+    // 完全关闭套接字
     closesocket(客户端套接字);
     closesocket(目标套接字);
 
-    // 更新规则
+    // 从活动连接列表中移除
+    规则->移除活动连接(客户端套接字);
+    规则->移除活动连接(目标套接字);
+
+    // 减少连接数
     规则->减少连接数();
+
+    TRACE(_T("规则 %d: 连接处理完成，当前连接数: %d\n"),
+        规则->序号, 规则->获取连接数());
+}
+
+// 单向转发数据
+void 端口转发管理类::单向转发数据(SOCKET 来源套接字, SOCKET 目标套接字, 端口转发规则* 规则)
+{
+    char 缓冲区[8192];
+
+    while (规则->运行中)
+    {
+        int 接收长度 = recv(来源套接字, 缓冲区, sizeof(缓冲区), 0);
+
+        if (接收长度 > 0)
+        {
+            // 更新活动时间
+            规则->更新连接活动时间(来源套接字);
+
+            // 发送数据
+            int 发送长度 = send(目标套接字, 缓冲区, 接收长度, 0);
+            if (发送长度 <= 0)
+            {
+                break; // 发送失败，退出循环
+            }
+        }
+        else if (接收长度 == 0)
+        {
+            // 连接关闭
+            break;
+        }
+        else
+        {
+            int 错误码 = WSAGetLastError();
+            if (错误码 != WSAEWOULDBLOCK)
+            {
+                break; // 错误，退出循环
+            }
+        }
+    }
 }
 
 // 数据转发函数
