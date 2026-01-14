@@ -21,6 +21,7 @@ public:
 
     void 设置当前版本(const CString& 版本号) { 目标版本号 = 版本号; }
     void 设置目标版本号(const CString& 版本号) { 目标版本号 = 版本号; }
+    void 设置更新服务器地址(const CString& 地址) { 更新服务器地址 = 地址; }
 
 protected:
     virtual void DoDataExchange(CDataExchange* pDX);

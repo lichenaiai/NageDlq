@@ -358,7 +358,18 @@ BOOL NageUPDlg::检查远程文件是否存在(const CString& 文件URL)
 
 CString NageUPDlg::构建文件URL(const CString& 文件名)
 {
-    CString 完整URL = 更新服务器地址 + 文件名;
+    CString 完整URL;
+
+    // 如果地址没有协议前缀，加上http://
+    if (更新服务器地址.Find(_T("://")) == -1)
+    {
+        完整URL = _T("http://") + 更新服务器地址 + 文件名;
+    }
+    else
+    {
+        完整URL = 更新服务器地址 + 文件名;
+    }
+
     TRACE(_T("构建文件URL: %s\n"), 完整URL);
     return 完整URL;
 }

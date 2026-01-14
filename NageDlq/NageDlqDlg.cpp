@@ -702,7 +702,8 @@ void NageDlqDlg::启动更新程序(const CString& 目标版本号)
 
 	// 调试：显示实际命令行
 	CString 命令行;
-	命令行.Format(_T("\"%s\" --target-version=%s"), 更新程序路径, 目标版本号);
+	命令行.Format(_T("\"%s\" --target-version=%s --update-server=%s"), 更新程序路径, 目标版本号,
+		_T(UPDATE_SERVER));  // 直接使用宏定义
 
 	CString 调试信息;
 	调试信息.Format(_T("更新程序路径: %s\n目标版本号: %s\n完整命令行:\n%s"),
