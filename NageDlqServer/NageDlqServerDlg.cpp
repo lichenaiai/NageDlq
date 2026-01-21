@@ -1931,8 +1931,8 @@ BOOL NageDlqServerDlg::处理用户注册(const CString& 用户名, const CStrin
 
 		// 插入新用户
 		CString 插入语句;
-		插入语句.Format(_T("INSERT INTO Chr_Log_Info (id_loginid, id_passwd, propid, id_mail, ID_eday) VALUES ('%s', '%s', %d, '%s', %d)"),
-			用户名, 密码, 新的propid, 邮箱, "GETDATE()");
+		插入语句.Format(_T("INSERT INTO Chr_Log_Info (id_loginid, id_passwd, propid, id_mail, ID_eday) VALUES ('%s', '%s', %d, '%s', GETDATE())"),
+			用户名, 密码, 新的propid, 邮箱);
 
 		retcode = SQLExecDirectW(SQL语句句柄, (SQLWCHAR*)插入语句.GetString(), SQL_NTS);
 		if (retcode == SQL_SUCCESS || retcode == SQL_SUCCESS_WITH_INFO)
