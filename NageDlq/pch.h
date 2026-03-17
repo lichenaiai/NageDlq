@@ -13,7 +13,7 @@
 
 #endif //PCH_H
 
-#define CLIENT_VERSION "0.62"				   // 客户端版本号 小于数据库版本号时执行更新
+#define CLIENT_VERSION "0.63"				   // 客户端版本号 小于数据库版本号时执行更新
 #define UPDATE_SERVER "115.190.243.231/nageup/"  // 更新服务器地址
 #define SERVER_IP "124.220.82.87"              // 登录器服务端IP地址
 #define SERVER_PORT 9896                       // 登录器服务端端口号
