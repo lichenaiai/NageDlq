@@ -44,6 +44,10 @@ IMPLEMENT_DYNAMIC(注入页面类, CDialogEx)
     , 初始X坐标(0.0f)
     , 初始Y坐标(0.0f)
     , 上次检查坐标时间(0)
+    , 记录X坐标(0.0f)        
+    , 记录Y坐标(0.0f)          
+    , 记录地图编号(0)         
+    , 有记录坐标(FALSE)      
 {
 }
 
@@ -58,10 +62,15 @@ void 注入页面类::DoDataExchange(CDataExchange* pDX)
     CDialogEx::DoDataExchange(pDX);
     DDX_Control(pDX, IDC_INJE_ATTKMOB, 自动打怪按钮);
     DDX_Control(pDX, IDC_AUTOAM_ID, 状态标签);
+    DDX_Control(pDX, IDC_DT_MOVE_SAVE, 记录坐标按钮);  
+    DDX_Control(pDX, IDC_DT_MOVE_MOVE, 传送按钮);      
+    DDX_Control(pDX, IDC_DT_MOVE_STATIC, 坐标状态标签);
 }
 
 BEGIN_MESSAGE_MAP(注入页面类, CDialogEx)
     ON_BN_CLICKED(IDC_INJE_ATTKMOB, &注入页面类::点击自动打怪按钮)
+    ON_BN_CLICKED(IDC_DT_MOVE_SAVE, &注入页面类::点击记录坐标)    
+    ON_BN_CLICKED(IDC_DT_MOVE_MOVE, &注入页面类::点击传送)       
     ON_WM_TIMER()
     ON_WM_DESTROY()
     ON_MESSAGE(WM_USER + 200, &注入页面类::游戏进程退出消息处理)
@@ -79,6 +88,9 @@ BOOL 注入页面类::OnInitDialog()
 
     // 初始化状态标签显示
     更新目标ID显示(0xFFFFFFFF);
+
+    // 初始化坐标状态标签
+    坐标状态标签.SetWindowText(_T("坐标：0"));
 
     return TRUE;
 }
@@ -992,4 +1004,266 @@ LRESULT 注入页面类::更新目标ID消息处理(WPARAM w参数, LPARAM l参�
     DWORD 目标ID = (DWORD)w参数;
     更新目标ID显示(目标ID);
     return 0;
+}
+
+
+//传送
+//地图名称
+CString 注入页面类::获取地图名称(int 地图编号)
+{
+    switch (地图编号)
+    {
+    case 1: return _T("波本");
+    case 2: return _T("荒废");
+    case 3: return _T("自由");
+    case 4: return _T("大熊");
+    case 5: return _T("遗忘1");
+    case 6: return _T("遗忘2");
+    case 7: return _T("监狱");
+    case 8: return _T("乐透");
+    case 9: return _T("遗忘森林");
+    case 10: return _T("水晶1");
+    case 11: return _T("水晶2");
+    case 12: return _T("罪恶1");
+    case 13: return _T("罪恶2");
+    case 14: return _T("罪恶3");
+    case 15: return _T("大漠");
+    case 16: return _T("要塞1");
+    case 17: return _T("要塞2");
+    case 18: return _T("PVP地图");
+    case 19: return _T("要塞3");
+    case 20: return _T("终结者屋");
+    case 21: return _T("研究所1");
+    case 22: return _T("研究所2");
+    case 23: return _T("研究所3");
+    case 24: return _T("迷雾1");
+    case 25: return _T("迷雾2");
+    case 26: return _T("迷雾3");
+    case 27: return _T("迷雾4");
+    case 28: return _T("迷雾5");
+    case 29: return _T("中央市");
+    case 30: return _T("中央公园");
+    case 31: return _T("中央广场");
+    case 32: return _T("中央营地A");
+    case 33: return _T("中央营地B");
+    case 34: return _T("中央营地C");
+    case 35: return _T("中央管制塔");
+    case 36: return _T("加勒比海");
+    default: return _T("未知地图");
+    }
+}
+
+BOOL 注入页面类::是否允许记录坐标(int 地图编号)
+{
+    // 不允许记录坐标的地图列表
+    switch (地图编号)
+    {
+    case 11:  // 水晶2
+    case 14:  // 罪恶3
+    case 35:  // 中央管制塔
+    case 24:  // 迷雾1
+    case 25:  // 迷雾2
+    case 26:  // 迷雾3
+    case 27:  // 迷雾4
+    case 28:  // 迷雾5
+        return FALSE;
+    default:
+        return TRUE;
+    }
+}
+
+void 注入页面类::点击记录坐标()
+{
+    // 检查游戏进程
+    if (!检查游戏进程())
+    {
+        MessageBox(_T("找不到游戏进程，请先启动游戏！"), _T("错误"), MB_ICONERROR);
+        return;
+    }
+
+    SIZE_T 读取字节数;
+    float 当前X, 当前Y;
+    DWORD 当前地图;
+
+    // 读取当前坐标
+    if (!ReadProcessMemory(游戏进程句柄, (LPCVOID)坐标X地址, &当前X, sizeof(float), &读取字节数))
+    {
+        MessageBox(_T("读取X坐标失败！"), _T("错误"), MB_ICONERROR);
+        return;
+    }
+
+    if (!ReadProcessMemory(游戏进程句柄, (LPCVOID)坐标Y地址, &当前Y, sizeof(float), &读取字节数))
+    {
+        MessageBox(_T("读取Y坐标失败！"), _T("错误"), MB_ICONERROR);
+        return;
+    }
+
+    if (!ReadProcessMemory(游戏进程句柄, (LPCVOID)地图编号地址, &当前地图, sizeof(DWORD), &读取字节数))
+    {
+        MessageBox(_T("读取地图编号失败！"), _T("错误"), MB_ICONERROR);
+        return;
+    }
+
+    // 游戏中的地图编号可能是从0开始的，加1后查表
+    int 显示地图编号 = (int)当前地图 + 1;
+
+    // 检查是否允许记录坐标（使用原始编号）
+    if (!是否允许记录坐标((int)当前地图 + 1))
+    {
+        CString 地图名称 = 获取地图名称(显示地图编号);
+        CString 提示信息;
+        提示信息.Format(_T("当前地图[%s]不允许记录坐标！"), 地图名称);
+        MessageBox(提示信息, _T("提示"), MB_ICONWARNING);
+        return;
+    }
+
+    // 保存坐标
+    记录X坐标 = 当前X;
+    记录Y坐标 = 当前Y;
+    记录地图编号 = (int)当前地图;
+    有记录坐标 = TRUE;
+
+    // 更新显示
+    CString 地图名称 = 获取地图名称(显示地图编号);
+    CString 显示文本;
+    显示文本.Format(_T("%s-%.2f:%.2f"), 地图名称, 当前X, 当前Y);
+    坐标状态标签.SetWindowText(显示文本);
+
+    TRACE(_T("记录坐标: 地图=%s(原始:%d,显示:%d), X=%.2f, Y=%.2f\n"),
+        地图名称, 当前地图, 显示地图编号, 当前X, 当前Y);
+}
+
+void 注入页面类::执行传送(int 目标地图, float 目标X, float 目标Y)
+{
+    // 检查游戏进程
+    if (!检查游戏进程())
+    {
+        MessageBox(_T("找不到游戏进程，请先启动游戏！"), _T("错误"), MB_ICONERROR);
+        return;
+    }
+
+    // 分配远程内存
+    BYTE* 远程内存 = (BYTE*)VirtualAllocEx(游戏进程句柄, NULL, 1024, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (远程内存 == NULL)
+    {
+        MessageBox(_T("分配远程内存失败！"), _T("错误"), MB_ICONERROR);
+        return;
+    }
+
+    // 构建传送代码
+    std::vector<BYTE> 传送代码;
+
+    // pushad
+    传送代码.push_back(0x60);
+    // pushfd
+    传送代码.push_back(0x9C);
+
+    // push 地图编号
+    传送代码.push_back(0x6A);
+    传送代码.push_back((BYTE)目标地图);
+
+    // call 6ADF6E
+    传送代码.push_back(0xE8);
+    // 计算 call 偏移: 目标地址 - (当前指令地址 + 5)
+    // 当前指令地址 = 远程内存 + 传送代码当前大小
+    DWORD 当前代码地址 = (DWORD)远程内存 + 传送代码.size();
+    DWORD call偏移 = 0x6ADF6E - (当前代码地址 + 5);
+    传送代码.push_back(call偏移 & 0xFF);
+    传送代码.push_back((call偏移 >> 8) & 0xFF);
+    传送代码.push_back((call偏移 >> 16) & 0xFF);
+    传送代码.push_back((call偏移 >> 24) & 0xFF);
+
+    // add esp, 4
+    传送代码.push_back(0x83);
+    传送代码.push_back(0xC4);
+    传送代码.push_back(0x04);
+
+    // popfd
+    传送代码.push_back(0x9D);
+    // popad
+    传送代码.push_back(0x61);
+
+    // 直接写入坐标，不等待
+    // mov eax, [目标X]
+    传送代码.push_back(0xB9);  // mov ecx, 目标X (用ecx保存，因为eax会被下面的指令使用)
+    BYTE* xBytes = (BYTE*)&目标X;
+    for (int i = 0; i < 4; i++)
+        传送代码.push_back(xBytes[i]);
+
+    // mov [0319B8A8], ecx
+    传送代码.push_back(0x89);
+    传送代码.push_back(0x0D);
+    DWORD xAddr = 0x0319B8A8;
+    传送代码.push_back(xAddr & 0xFF);
+    传送代码.push_back((xAddr >> 8) & 0xFF);
+    传送代码.push_back((xAddr >> 16) & 0xFF);
+    传送代码.push_back((xAddr >> 24) & 0xFF);
+
+    // mov eax, [目标Y]
+    传送代码.push_back(0xB8);
+    BYTE* yBytes = (BYTE*)&目标Y;
+    for (int i = 0; i < 4; i++)
+        传送代码.push_back(yBytes[i]);
+
+    // mov [0319B8B0], eax
+    传送代码.push_back(0xA3);
+    DWORD yAddr = 0x0319B8B0;
+    传送代码.push_back(yAddr & 0xFF);
+    传送代码.push_back((yAddr >> 8) & 0xFF);
+    传送代码.push_back((yAddr >> 16) & 0xFF);
+    传送代码.push_back((yAddr >> 24) & 0xFF);
+
+    // retn
+    传送代码.push_back(0xC3);
+
+    // 写入远程内存
+    SIZE_T 写入字节数;
+    if (!WriteProcessMemory(游戏进程句柄, 远程内存, 传送代码.data(), 传送代码.size(), &写入字节数))
+    {
+        VirtualFreeEx(游戏进程句柄, 远程内存, 0, MEM_RELEASE);
+        MessageBox(_T("写入传送代码失败！"), _T("错误"), MB_ICONERROR);
+        return;
+    }
+
+    // 创建远程线程
+    HANDLE 远程线程 = CreateRemoteThread(游戏进程句柄, NULL, 0, (LPTHREAD_START_ROUTINE)远程内存, NULL, 0, NULL);
+    if (远程线程 == NULL)
+    {
+        VirtualFreeEx(游戏进程句柄, 远程内存, 0, MEM_RELEASE);
+        MessageBox(_T("创建远程线程失败！"), _T("错误"), MB_ICONERROR);
+        return;
+    }
+
+    // 等待线程完成
+    WaitForSingleObject(远程线程, 5000);
+    CloseHandle(远程线程);
+
+    // 释放内存
+    VirtualFreeEx(游戏进程句柄, 远程内存, 0, MEM_RELEASE);
+
+    TRACE(_T("传送执行完成: 地图=%d, X=%.2f, Y=%.2f\n"), 目标地图, 目标X, 目标Y);
+}
+
+void 注入页面类::点击传送()
+{
+    if (!有记录坐标)
+    {
+        MessageBox(_T("请先记录坐标！"), _T("提示"), MB_ICONINFORMATION);
+        return;
+    }
+
+    // 检查目标地图是否允许传送（同记录限制）
+    if (!是否允许记录坐标(记录地图编号 + 1))
+    {
+        CString 地图名称 = 获取地图名称(记录地图编号 + 1);
+        CString 提示信息;
+        提示信息.Format(_T("目标地图[%s]不允许传送！"), 地图名称);
+        MessageBox(提示信息, _T("提示"), MB_ICONWARNING);
+        return;
+    }
+
+    // 执行传送，传入记录的地图编号和坐标
+    执行传送(记录地图编号, 记录X坐标, 记录Y坐标);
+
+    MessageBox(_T("传送完成！"), _T("提示"), MB_ICONINFORMATION);
 }

@@ -99,4 +99,31 @@ public:
 	DWORD 上次检查坐标时间;
 	BOOL 检查坐标范围();
 	void 记录初始坐标();
+
+//传送功能相关
+public:
+	CButton 记录坐标按钮;
+	CButton 传送按钮;
+	CStatic 坐标状态标签;
+	afx_msg void 点击记录坐标();
+	afx_msg void 点击传送();
+
+private:
+	// 坐标相关地址
+	const DWORD 坐标X地址 = 0x319B8A8;      // X坐标
+	const DWORD 坐标Y地址 = 0x319B8B0;      // Y坐标
+	const DWORD 地图编号地址 = 0x31A2808;    // 当前地图编号
+
+	// 记录坐标相关
+	float 记录X坐标;
+	float 记录Y坐标;
+	int 记录地图编号;
+	BOOL 有记录坐标;
+
+	// 地图名称对照表
+	CString 获取地图名称(int 地图编号);
+	BOOL 是否允许记录坐标(int 地图编号);
+
+	// 传送相关
+	void 执行传送(int 目标地图, float 目标X, float 目标Y);
 };
