@@ -1133,7 +1133,7 @@ void 注入页面类::点击记录坐标()
         地图名称, 当前地图, 显示地图编号, 当前X, 当前Y);
 }
 
-void 注入页面类::执行传送(int 目标地图, float 目标X, float 目标Y)
+void 注入页面类::执行传送(int 目标地图原始编号, float 目标X, float 目标Y)
 {
     // 检查游戏进程
     if (!检查游戏进程())
@@ -1142,106 +1142,118 @@ void 注入页面类::执行传送(int 目标地图, float 目标X, float 目标
         return;
     }
 
-    // 分配远程内存
-    BYTE* 远程内存 = (BYTE*)VirtualAllocEx(游戏进程句柄, NULL, 1024, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-    if (远程内存 == NULL)
+    // 读取当前地图ID（原始编号）
+    DWORD 当前地图原始编号;
+    SIZE_T 读取字节数;
+    if (!ReadProcessMemory(游戏进程句柄, (LPCVOID)地图编号地址, &当前地图原始编号, sizeof(DWORD), &读取字节数))
     {
-        MessageBox(_T("分配远程内存失败！"), _T("错误"), MB_ICONERROR);
+        MessageBox(_T("读取当前地图失败！"), _T("错误"), MB_ICONERROR);
         return;
     }
 
-    // 构建传送代码
-    std::vector<BYTE> 传送代码;
+    // 判断是否需要切换地图（使用原始编号比较）
+    bool needMapChange = ((int)当前地图原始编号 != 目标地图原始编号);
 
-    // pushad
-    传送代码.push_back(0x60);
-    // pushfd
-    传送代码.push_back(0x9C);
-
-    // push 地图编号
-    传送代码.push_back(0x6A);
-    传送代码.push_back((BYTE)目标地图);
-
-    // call 6ADF6E
-    传送代码.push_back(0xE8);
-    // 计算 call 偏移: 目标地址 - (当前指令地址 + 5)
-    // 当前指令地址 = 远程内存 + 传送代码当前大小
-    DWORD 当前代码地址 = (DWORD)远程内存 + 传送代码.size();
-    DWORD call偏移 = 0x6ADF6E - (当前代码地址 + 5);
-    传送代码.push_back(call偏移 & 0xFF);
-    传送代码.push_back((call偏移 >> 8) & 0xFF);
-    传送代码.push_back((call偏移 >> 16) & 0xFF);
-    传送代码.push_back((call偏移 >> 24) & 0xFF);
-
-    // add esp, 4
-    传送代码.push_back(0x83);
-    传送代码.push_back(0xC4);
-    传送代码.push_back(0x04);
-
-    // popfd
-    传送代码.push_back(0x9D);
-    // popad
-    传送代码.push_back(0x61);
-
-    // 直接写入坐标，不等待
-    // mov eax, [目标X]
-    传送代码.push_back(0xB9);  // mov ecx, 目标X (用ecx保存，因为eax会被下面的指令使用)
-    BYTE* xBytes = (BYTE*)&目标X;
-    for (int i = 0; i < 4; i++)
-        传送代码.push_back(xBytes[i]);
-
-    // mov [0319B8A8], ecx
-    传送代码.push_back(0x89);
-    传送代码.push_back(0x0D);
-    DWORD xAddr = 0x0319B8A8;
-    传送代码.push_back(xAddr & 0xFF);
-    传送代码.push_back((xAddr >> 8) & 0xFF);
-    传送代码.push_back((xAddr >> 16) & 0xFF);
-    传送代码.push_back((xAddr >> 24) & 0xFF);
-
-    // mov eax, [目标Y]
-    传送代码.push_back(0xB8);
-    BYTE* yBytes = (BYTE*)&目标Y;
-    for (int i = 0; i < 4; i++)
-        传送代码.push_back(yBytes[i]);
-
-    // mov [0319B8B0], eax
-    传送代码.push_back(0xA3);
-    DWORD yAddr = 0x0319B8B0;
-    传送代码.push_back(yAddr & 0xFF);
-    传送代码.push_back((yAddr >> 8) & 0xFF);
-    传送代码.push_back((yAddr >> 16) & 0xFF);
-    传送代码.push_back((yAddr >> 24) & 0xFF);
-
-    // retn
-    传送代码.push_back(0xC3);
-
-    // 写入远程内存
-    SIZE_T 写入字节数;
-    if (!WriteProcessMemory(游戏进程句柄, 远程内存, 传送代码.data(), 传送代码.size(), &写入字节数))
+    if (needMapChange)
     {
+        TRACE(_T("需要切换地图，当前地图原始编号=%d，目标地图原始编号=%d\n"),
+            当前地图原始编号, 目标地图原始编号);
+
+        // 构建地图切换代码 - 使用显示编号（原始编号+1）
+        int 目标地图显示编号 = 目标地图原始编号 + 1;
+
+        std::vector<BYTE> 切换代码;
+
+        // pushad
+        切换代码.push_back(0x60);
+        // pushfd
+        切换代码.push_back(0x9C);
+        // push 地图编号（使用显示编号）
+        切换代码.push_back(0x6A);
+        切换代码.push_back((BYTE)目标地图显示编号);  // 关键修改：使用显示编号
+
+        // mov eax, 0x006ADF6E
+        切换代码.push_back(0xB8);
+        DWORD funcAddr = 0x006ADF6E;
+        切换代码.push_back(funcAddr & 0xFF);
+        切换代码.push_back((funcAddr >> 8) & 0xFF);
+        切换代码.push_back((funcAddr >> 16) & 0xFF);
+        切换代码.push_back((funcAddr >> 24) & 0xFF);
+        // call eax
+        切换代码.push_back(0xFF);
+        切换代码.push_back(0xD0);
+        // add esp, 4
+        切换代码.push_back(0x83);
+        切换代码.push_back(0xC4);
+        切换代码.push_back(0x04);
+        // popfd
+        切换代码.push_back(0x9D);
+        // popad
+        切换代码.push_back(0x61);
+        // ret
+        切换代码.push_back(0xC3);
+
+        // 分配远程内存
+        BYTE* 远程内存 = (BYTE*)VirtualAllocEx(游戏进程句柄, NULL, 切换代码.size(),
+            MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        if (远程内存 == NULL)
+        {
+            MessageBox(_T("分配远程内存失败！"), _T("错误"), MB_ICONERROR);
+            return;
+        }
+
+        // 写入代码
+        SIZE_T 写入字节数;
+        if (!WriteProcessMemory(游戏进程句柄, 远程内存, 切换代码.data(), 切换代码.size(), &写入字节数))
+        {
+            VirtualFreeEx(游戏进程句柄, 远程内存, 0, MEM_RELEASE);
+            MessageBox(_T("写入代码失败！"), _T("错误"), MB_ICONERROR);
+            return;
+        }
+
+        // 创建远程线程执行
+        HANDLE 远程线程 = CreateRemoteThread(游戏进程句柄, NULL, 0,
+            (LPTHREAD_START_ROUTINE)远程内存, NULL, 0, NULL);
+        if (远程线程 == NULL)
+        {
+            VirtualFreeEx(游戏进程句柄, 远程内存, 0, MEM_RELEASE);
+            MessageBox(_T("创建远程线程失败！"), _T("错误"), MB_ICONERROR);
+            return;
+        }
+
+        // 等待线程完成
+        WaitForSingleObject(远程线程, 5000);
+        CloseHandle(远程线程);
+
+        // 释放内存
         VirtualFreeEx(游戏进程句柄, 远程内存, 0, MEM_RELEASE);
-        MessageBox(_T("写入传送代码失败！"), _T("错误"), MB_ICONERROR);
-        return;
-    }
 
-    // 创建远程线程
-    HANDLE 远程线程 = CreateRemoteThread(游戏进程句柄, NULL, 0, (LPTHREAD_START_ROUTINE)远程内存, NULL, 0, NULL);
-    if (远程线程 == NULL)
+        // 等待地图切换完成
+        TRACE(_T("等待地图切换...\n"));
+        Sleep(1000);
+    }
+    else
     {
-        VirtualFreeEx(游戏进程句柄, 远程内存, 0, MEM_RELEASE);
-        MessageBox(_T("创建远程线程失败！"), _T("错误"), MB_ICONERROR);
-        return;
+        TRACE(_T("已在目标地图，无需切换\n"));
     }
 
-    // 等待线程完成
-    WaitForSingleObject(远程线程, 5000);
-    CloseHandle(远程线程);
+    // 写入坐标
+    TRACE(_T("写入坐标: X=%.2f, Y=%.2f\n"), 目标X, 目标Y);
 
-    // 释放内存
-    VirtualFreeEx(游戏进程句柄, 远程内存, 0, MEM_RELEASE);
+    // 尝试多次写入确保成功
+    for (int i = 0; i < 3; i++)
+    {
+        SIZE_T 写入字节数;
 
-    TRACE(_T("传送执行完成: 地图=%d, X=%.2f, Y=%.2f\n"), 目标地图, 目标X, 目标Y);
+        // 写入X坐标
+        WriteProcessMemory(游戏进程句柄, (LPVOID)坐标X地址, &目标X, sizeof(float), &写入字节数);
+
+        // 写入Y坐标
+        WriteProcessMemory(游戏进程句柄, (LPVOID)坐标Y地址, &目标Y, sizeof(float), &写入字节数);
+
+        Sleep(200);
+    }
+
 }
 
 void 注入页面类::点击传送()
@@ -1265,5 +1277,4 @@ void 注入页面类::点击传送()
     // 执行传送，传入记录的地图编号和坐标
     执行传送(记录地图编号, 记录X坐标, 记录Y坐标);
 
-    MessageBox(_T("传送完成！"), _T("提示"), MB_ICONINFORMATION);
 }
