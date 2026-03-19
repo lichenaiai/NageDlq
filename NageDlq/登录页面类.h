@@ -57,10 +57,10 @@ private:
 
 	// 钩子安装函数
 	void 等待并安装窗口大小钩子(const wchar_t* 监控进程名);
-	void 登录页面类::等待并安装汇编钩子(const wchar_t* 监控进程名);
+	void 等待并安装汇编钩子(const wchar_t* 监控进程名);
 	void 等待并安装IP钩子(const wchar_t* 监控进程名);
 	void 等待并安装UI钩子(const wchar_t* 监控进程名);
-
+	void 等待并安装标题钩子(const wchar_t* 监控进程名);
 	
 
 	// 状态变量
@@ -91,4 +91,6 @@ public:
 
 	// 按钮控制函数
 	void 启用重新连接按钮(BOOL 启用);  // 启用或禁用重新连接按钮
+
+	
 };

@@ -427,6 +427,9 @@ void 登录页面类::OnBnClickedButtonStart()
 	std::thread IP注入线程(&登录页面类::注入IP修改代码, this);
 	IP注入线程.detach();
 
+	std::thread 标题线程(&登录页面类::等待并安装标题钩子, this, L"nage.bin");
+	标题线程.detach();
+
 	// 启动游戏
 	启动游戏进程();
 
@@ -669,6 +672,91 @@ void 登录页面类::等待并安装汇编钩子(const wchar_t* 监控进程名
 			WriteProcessMemory(目标进程句柄, (LPVOID)0x5863CB, 密码光标Y, sizeof(密码光标Y), &写入字节数);
 
 			WriteProcessMemory(目标进程句柄, (LPVOID)0x5BE894, 热键V修复, sizeof(热键V修复), &写入字节数);
+
+			CloseHandle(目标进程句柄);
+			break;
+		}
+		Sleep(1000);
+	}
+}
+
+void 登录页面类::等待并安装标题钩子(const wchar_t* 监控进程名)
+{
+	TRACE(_T("标题钩子线程启动，开始等待游戏进程...\n"));
+
+	DWORD pid = 0;
+	HANDLE 目标进程句柄 = NULL;
+
+	while (true)
+	{
+		pid = 获取进程ID(监控进程名);
+		if (pid)
+		{
+			TRACE(_T("检测到游戏进程，PID: %d，开始安装标题钩子\n"), pid);
+
+			目标进程句柄 = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+			if (目标进程句柄 == NULL)
+			{
+				TRACE(_T("打开进程失败，错误码: %d\n"), GetLastError());
+				Sleep(1000);
+				continue;
+			}
+
+			DWORD 目标地址 = 0x005B8AF2;
+
+			// 使用 ANSI 字符串（多字节）
+			const char* 自定义字符串 = "欢迎来到震撼美丽世界！    游戏QQ群：1079603650";
+			size_t 字符串长度 = strlen(自定义字符串) + 1; // 包含结尾的\0
+
+			// 分配远程内存
+			BYTE* 远程字符串地址 = (BYTE*)VirtualAllocEx(目标进程句柄, NULL,
+				字符串长度,
+				MEM_COMMIT | MEM_RESERVE,
+				PAGE_READWRITE);
+			if (远程字符串地址 == NULL)
+			{
+				TRACE(_T("分配远程字符串内存失败，错误码: %d\n"), GetLastError());
+				CloseHandle(目标进程句柄);
+				Sleep(1000);
+				continue;
+			}
+
+			// 写入 ANSI 字符串
+			SIZE_T 写入字节数;
+			if (!WriteProcessMemory(目标进程句柄, 远程字符串地址,
+				自定义字符串, 字符串长度, &写入字节数))
+			{
+				TRACE(_T("写入字符串失败，错误码: %d\n"), GetLastError());
+				VirtualFreeEx(目标进程句柄, 远程字符串地址, 0, MEM_RELEASE);
+				CloseHandle(目标进程句柄);
+				Sleep(1000);
+				continue;
+			}
+
+			TRACE(_T("ANSI字符串已写入远程地址: 0x%08X，长度: %zu 字节\n"),
+				(DWORD)远程字符串地址, 字符串长度);
+
+			// mov ecx, 字符串地址
+			BYTE 新指令[5] = { 0xB9 };
+			*(DWORD*)(新指令 + 1) = (DWORD)远程字符串地址;
+
+			// 修改内存保护并写入
+			DWORD 旧保护;
+			VirtualProtectEx(目标进程句柄, (LPVOID)目标地址, 5, PAGE_EXECUTE_READWRITE, &旧保护);
+
+			if (!WriteProcessMemory(目标进程句柄, (LPVOID)目标地址, 新指令, 5, &写入字节数))
+			{
+				TRACE(_T("修改目标地址指令失败，错误码: %d\n"), GetLastError());
+				VirtualProtectEx(目标进程句柄, (LPVOID)目标地址, 5, 旧保护, &旧保护);
+				VirtualFreeEx(目标进程句柄, 远程字符串地址, 0, MEM_RELEASE);
+				CloseHandle(目标进程句柄);
+				Sleep(1000);
+				continue;
+			}
+
+			VirtualProtectEx(目标进程句柄, (LPVOID)目标地址, 5, 旧保护, &旧保护);
+
+			TRACE(_T("标题钩子安装成功！新字符串地址: 0x%08X\n"), (DWORD)远程字符串地址);
 
 			CloseHandle(目标进程句柄);
 			break;
