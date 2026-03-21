@@ -1171,7 +1171,7 @@ void 注入页面类::执行传送(int 目标地图原始编号, float 目标X, 
         切换代码.push_back(0x9C);
         // push 地图编号（使用显示编号）
         切换代码.push_back(0x6A);
-        切换代码.push_back((BYTE)目标地图显示编号);  // 关键修改：使用显示编号
+        切换代码.push_back((BYTE)目标地图显示编号);
 
         // mov eax, 0x006ADF6E
         切换代码.push_back(0xB8);
@@ -1229,9 +1229,34 @@ void 注入页面类::执行传送(int 目标地图原始编号, float 目标X, 
         // 释放内存
         VirtualFreeEx(游戏进程句柄, 远程内存, 0, MEM_RELEASE);
 
-        // 等待地图切换完成
-        TRACE(_T("等待地图切换...\n"));
-        Sleep(1000);
+        // ===== 新增：等待地图切换完成 =====
+        TRACE(_T("等待地图切换完成...\n"));
+        BOOL 地图切换成功 = FALSE;
+        for (int 尝试次数 = 0; 尝试次数 < 20; 尝试次数++) // 最多尝试10次，每次500ms，共5秒
+        {
+            Sleep(500); // 等待半秒
+
+            DWORD 当前地图;
+            if (ReadProcessMemory(游戏进程句柄, (LPCVOID)地图编号地址, &当前地图, sizeof(DWORD), &读取字节数))
+            {
+                if ((int)当前地图 == 目标地图原始编号)
+                {
+                    地图切换成功 = TRUE;
+                    TRACE(_T("地图切换成功！当前地图编号=%d\n"), 当前地图);
+                    break;
+                }
+                else
+                {
+                    TRACE(_T("等待地图切换，当前地图=%d，目标地图=%d\n"), 当前地图, 目标地图原始编号);
+                }
+            }
+        }
+
+        if (!地图切换成功)
+        {
+            MessageBox(_T("地图切换超时，传送失败！"), _T("错误"), MB_ICONERROR);
+            return;
+        }
     }
     else
     {
