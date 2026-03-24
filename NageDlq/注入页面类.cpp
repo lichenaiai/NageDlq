@@ -1230,7 +1230,6 @@ void 注入页面类::执行传送(int 目标地图原始编号, float 目标X, 
         VirtualFreeEx(游戏进程句柄, 远程内存, 0, MEM_RELEASE);
 
         // ===== 新增：等待地图切换完成 =====
-        TRACE(_T("等待地图切换完成...\n"));
         BOOL 地图切换成功 = FALSE;
         for (int 尝试次数 = 0; 尝试次数 < 20; 尝试次数++) // 最多尝试10次，每次500ms，共5秒
         {
@@ -1263,6 +1262,8 @@ void 注入页面类::执行传送(int 目标地图原始编号, float 目标X, 
         TRACE(_T("已在目标地图，无需切换\n"));
     }
 
+    Sleep(1000);
+
     // 写入坐标
     TRACE(_T("写入坐标: X=%.2f, Y=%.2f\n"), 目标X, 目标Y);
 
@@ -1277,7 +1278,7 @@ void 注入页面类::执行传送(int 目标地图原始编号, float 目标X, 
         // 写入Y坐标
         WriteProcessMemory(游戏进程句柄, (LPVOID)坐标Y地址, &目标Y, sizeof(float), &写入字节数);
 
-        Sleep(200);
+        Sleep(500);
     }
 
 }
