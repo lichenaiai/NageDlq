@@ -108,6 +108,10 @@ public:
 	afx_msg void 点击记录坐标();
 	afx_msg void 点击传送();
 
+	CButton 加BUFF按钮;
+	afx_msg void 点击加枪手BUFF();
+	void 执行加BUFF();
+
 private:
 	// 坐标相关地址
 	const DWORD 坐标X地址 = 0x319B8A8;      // X坐标

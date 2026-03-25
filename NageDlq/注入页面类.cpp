@@ -65,12 +65,14 @@ void 注入页面类::DoDataExchange(CDataExchange* pDX)
     DDX_Control(pDX, IDC_DT_MOVE_SAVE, 记录坐标按钮);  
     DDX_Control(pDX, IDC_DT_MOVE_MOVE, 传送按钮);      
     DDX_Control(pDX, IDC_DT_MOVE_STATIC, 坐标状态标签);
+    DDX_Control(pDX, IDC_DT_BUFF, 加BUFF按钮);
 }
 
 BEGIN_MESSAGE_MAP(注入页面类, CDialogEx)
     ON_BN_CLICKED(IDC_INJE_ATTKMOB, &注入页面类::点击自动打怪按钮)
     ON_BN_CLICKED(IDC_DT_MOVE_SAVE, &注入页面类::点击记录坐标)    
-    ON_BN_CLICKED(IDC_DT_MOVE_MOVE, &注入页面类::点击传送)       
+    ON_BN_CLICKED(IDC_DT_MOVE_MOVE, &注入页面类::点击传送)  
+    ON_BN_CLICKED(IDC_DT_BUFF, &注入页面类::点击加枪手BUFF)
     ON_WM_TIMER()
     ON_WM_DESTROY()
     ON_MESSAGE(WM_USER + 200, &注入页面类::游戏进程退出消息处理)
@@ -1304,4 +1306,108 @@ void 注入页面类::点击传送()
     // 执行传送，传入记录的地图编号和坐标
     执行传送(记录地图编号, 记录X坐标, 记录Y坐标);
 
+}
+
+//黑商BUFF
+void 注入页面类::执行加BUFF()
+{
+    // 检查游戏进程
+    if (!检查游戏进程())
+    {
+        MessageBox(_T("找不到游戏进程，请先启动游戏！"), _T("错误"), MB_ICONERROR);
+        return;
+    }
+
+    TRACE(_T("开始执行加枪手BUFF...\n"));
+
+    // 构建加BUFF代码
+    std::vector<BYTE> 加BUFF代码;
+
+    // pushad
+    加BUFF代码.push_back(0x60);
+    // pushfd
+    加BUFF代码.push_back(0x9C);
+
+    // push [319B850] - 使用间接寻址
+    // mov eax, [0x0319B850]; push eax
+    加BUFF代码.push_back(0xA1);  // mov eax, [imm32]
+    DWORD 参数地址 = 0x0319B850;
+    加BUFF代码.push_back(参数地址 & 0xFF);
+    加BUFF代码.push_back((参数地址 >> 8) & 0xFF);
+    加BUFF代码.push_back((参数地址 >> 16) & 0xFF);
+    加BUFF代码.push_back((参数地址 >> 24) & 0xFF);
+    加BUFF代码.push_back(0x50);  // push eax
+
+    // mov eax, 0x006B43D8
+    加BUFF代码.push_back(0xB8);
+    DWORD funcAddr = 0x006B43D8;
+    加BUFF代码.push_back(funcAddr & 0xFF);
+    加BUFF代码.push_back((funcAddr >> 8) & 0xFF);
+    加BUFF代码.push_back((funcAddr >> 16) & 0xFF);
+    加BUFF代码.push_back((funcAddr >> 24) & 0xFF);
+    // call eax
+    加BUFF代码.push_back(0xFF);
+    加BUFF代码.push_back(0xD0);
+    // add esp, 4
+    加BUFF代码.push_back(0x83);
+    加BUFF代码.push_back(0xC4);
+    加BUFF代码.push_back(0x04);
+    // popfd
+    加BUFF代码.push_back(0x9D);
+    // popad
+    加BUFF代码.push_back(0x61);
+    // ret
+    加BUFF代码.push_back(0xC3);
+
+    // 分配远程内存
+    BYTE* 远程内存 = (BYTE*)VirtualAllocEx(游戏进程句柄, NULL, 加BUFF代码.size(),
+        MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (远程内存 == NULL)
+    {
+        MessageBox(_T("分配远程内存失败！"), _T("错误"), MB_ICONERROR);
+        return;
+    }
+
+    // 写入代码
+    SIZE_T 写入字节数;
+    if (!WriteProcessMemory(游戏进程句柄, 远程内存, 加BUFF代码.data(), 加BUFF代码.size(), &写入字节数))
+    {
+        VirtualFreeEx(游戏进程句柄, 远程内存, 0, MEM_RELEASE);
+        MessageBox(_T("写入代码失败！"), _T("错误"), MB_ICONERROR);
+        return;
+    }
+
+    TRACE(_T("加BUFF代码已写入远程内存: 0x%08X, 大小: %d 字节\n"),
+        (DWORD)远程内存, 加BUFF代码.size());
+
+    // 创建远程线程执行
+    HANDLE 远程线程 = CreateRemoteThread(游戏进程句柄, NULL, 0,
+        (LPTHREAD_START_ROUTINE)远程内存, NULL, 0, NULL);
+    if (远程线程 == NULL)
+    {
+        VirtualFreeEx(游戏进程句柄, 远程内存, 0, MEM_RELEASE);
+        MessageBox(_T("创建远程线程失败！"), _T("错误"), MB_ICONERROR);
+        return;
+    }
+
+    // 等待线程执行完成
+    WaitForSingleObject(远程线程, 5000);
+    CloseHandle(远程线程);
+
+    // 释放内存
+    VirtualFreeEx(游戏进程句柄, 远程内存, 0, MEM_RELEASE);
+
+}
+
+void 注入页面类::点击加枪手BUFF()
+{
+    // 检查游戏进程
+    if (!检查游戏进程())
+    {
+        MessageBox(_T("找不到游戏进程，请先启动游戏！"), _T("错误"), MB_ICONERROR);
+        return;
+    }
+
+    // 执行加BUFF
+    执行加BUFF();
 }
