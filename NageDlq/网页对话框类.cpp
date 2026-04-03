@@ -10,6 +10,74 @@
 #define new DEBUG_NEW
 #endif
 
+// ========== 检测 WebView2 是否已安装（增强版）==========
+BOOL IsWebView2Installed()
+{
+    // WebView2 的 GUID
+    const wchar_t* clientGuid = L"{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}";
+
+    // 1. 检查系统级安装 (HKLM)
+    std::wstring regPath = L"SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\" + std::wstring(clientGuid);
+    HKEY hKey;
+    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, regPath.c_str(), 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    {
+        RegCloseKey(hKey);
+        TRACE(_T("检测到系统级 WebView2 安装\n"));
+        return TRUE;
+    }
+
+    // 2. 检查用户级安装 (HKCU)
+    if (RegOpenKeyEx(HKEY_CURRENT_USER, regPath.c_str(), 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    {
+        RegCloseKey(hKey);
+        TRACE(_T("检测到用户级 WebView2 安装\n"));
+        return TRUE;
+    }
+
+    // 3. 检查旧版注册表路径（兼容性）
+    regPath = L"SOFTWARE\\WOW6432Node\\Microsoft\\Edge\\WebView";
+    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, regPath.c_str(), 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    {
+        RegCloseKey(hKey);
+        TRACE(_T("检测到旧版 WebView2 安装\n"));
+        return TRUE;
+    }
+
+    // 4. 检查程序是否能在系统路径找到 WebView2Loader.dll
+    if (LoadLibrary(L"WebView2Loader.dll") != NULL)
+    {
+        TRACE(_T("检测到 WebView2Loader.dll\n"));
+        return TRUE;
+    }
+
+    // 5. 检查常见安装路径
+    TCHAR commonPath[MAX_PATH];
+    if (SUCCEEDED(SHGetFolderPath(NULL, CSIDL_PROGRAM_FILESX86, NULL, 0, commonPath)))
+    {
+        PathAppend(commonPath, L"Microsoft\\EdgeWebView\\Application");
+        if (PathFileExists(commonPath))
+        {
+            TRACE(_T("检测到 EdgeWebView 安装目录\n"));
+            return TRUE;
+        }
+    }
+
+    // 6. 检查用户级安装路径
+    if (SUCCEEDED(SHGetFolderPath(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, commonPath)))
+    {
+        PathAppend(commonPath, L"Microsoft\\EdgeWebView\\Application");
+        if (PathFileExists(commonPath))
+        {
+            TRACE(_T("检测到用户级 EdgeWebView 安装目录\n"));
+            return TRUE;
+        }
+    }
+
+    TRACE(_T("未检测到 WebView2 安装\n"));
+    return FALSE;
+}
+// ========== 检测函数结束 ==========
+
 // 定义回调类的结构
 class CCreateEnvironmentHandler : public ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler
 {
@@ -193,17 +261,43 @@ BOOL 网页对话框类::OnInitDialog()
     SetWindowText(_T("兑换商城"));
 
     // 设置关闭按钮文本和样式
-    m_btnClose.SetWindowText(_T("✕"));
+    m_btnClose.SetWindowText(_T("X"));
     m_btnClose.SetFont(GetFont());
 
-    if (!初始化WebView2())
+    // ========== 关键修改：先检测是否已安装，而不是直接尝试初始化 ==========
+    if (!IsWebView2Installed())
     {
+        // 确实没有安装，提示下载
         CString 提示信息;
-        提示信息 = _T("无法加载网页组件，您的系统可能未安装 WebView2 运行时。\n\n")
+        提示信息 = _T("系统未检测到 WebView2 运行时。\n\n")
+            _T("WebView2 是微软提供的网页显示组件，\n")
+            _T("安装后即可正常使用兑换商城功能。\n\n")
             _T("是否现在下载并安装？\n\n")
             _T("（约2MB，仅需安装一次，安装后重启登录器即可）");
 
         if (AfxMessageBox(提示信息, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON1) == IDYES)
+        {
+            ShellExecute(NULL, _T("open"),
+                _T("https://go.microsoft.com/fwlink/p/?LinkId=2124703"),
+                NULL, NULL, SW_SHOWNORMAL);
+        }
+        EndDialog(IDCANCEL);
+        return FALSE;
+    }
+
+    // ========== 已安装，尝试初始化 ==========
+    // 注意：这里不删除原有的初始化代码，但改成不弹出下载提示
+    if (!初始化WebView2())
+    {
+        // 初始化失败，但不一定是没安装，可能是其他原因
+        CString 提示信息;
+        提示信息 = _T("WebView2 初始化失败。\n\n")
+            _T("可能原因：\n")
+            _T("1. WebView2 运行时损坏\n")
+            _T("2. 权限不足\n\n")
+            _T("是否尝试重新下载安装？");
+
+        if (AfxMessageBox(提示信息, MB_YESNO | MB_ICONERROR) == IDYES)
         {
             ShellExecute(NULL, _T("open"),
                 _T("https://go.microsoft.com/fwlink/p/?LinkId=2124703"),
@@ -293,17 +387,56 @@ BOOL 网页对话框类::动态加载WebView2()
     return (pfnCreateEnvironment != NULL);
 }
 
+// ========== 修改初始化WebView2函数，增加用户级安装的支持 ==========
 BOOL 网页对话框类::初始化WebView2()
 {
+    // 1. 先尝试从程序目录加载
     if (!动态加载WebView2())
     {
+        // 2. 尝试从系统路径加载
+        webView2Loader = LoadLibrary(_T("WebView2Loader.dll"));
+        if (!webView2Loader)
+        {
+            TRACE(_T("无法加载 WebView2Loader.dll\n"));
+            // 不要直接返回FALSE，因为可能通过其他方式可用
+        }
+        else
+        {
+            pfnCreateEnvironment = (CreateCoreWebView2EnvironmentWithOptionsFunc)
+                GetProcAddress(webView2Loader, "CreateCoreWebView2EnvironmentWithOptions");
+        }
+    }
+
+    if (!pfnCreateEnvironment)
+    {
+        TRACE(_T("无法获取 CreateCoreWebView2EnvironmentWithOptions 函数\n"));
         return FALSE;
     }
 
+    // 设置用户数据文件夹（避免权限问题）
+    TCHAR userDataFolder[MAX_PATH];
+    SHGetFolderPath(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, userDataFolder);
+    PathAppend(userDataFolder, _T("NageDlq\\WebView2"));
+
+    CString strUserDataFolder = userDataFolder;
+
     CCreateEnvironmentHandler* pHandler = new CCreateEnvironmentHandler(this);
-    HRESULT hr = pfnCreateEnvironment(nullptr, nullptr, nullptr, pHandler);
-    return SUCCEEDED(hr);
+
+    HRESULT hr = pfnCreateEnvironment(
+        nullptr,
+        strUserDataFolder.AllocSysString(),
+        nullptr,
+        pHandler);
+
+    if (FAILED(hr))
+    {
+        TRACE(_T("CreateCoreWebView2EnvironmentWithOptions 失败，HRESULT: 0x%08X\n"), hr);
+        return FALSE;
+    }
+
+    return TRUE;
 }
+// ========== 修改结束 ==========
 
 void 网页对话框类::调整WebView2大小()
 {
