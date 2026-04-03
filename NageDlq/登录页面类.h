@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <tlhelp32.h>
 #include <thread>
+#include "网页对话框类.h"
 
 // 登录页面类 对话框
 class 登录页面类 : public CDialogEx
@@ -31,6 +32,7 @@ public:
 	virtual BOOL OnInitDialog();	//初始化对话框
 	afx_msg void OnBnClickedButtonLogin();		//点击登录按钮
 	afx_msg void OnBnClickedButtonStart();		//点击启动按钮
+	afx_msg void OnBnClickedButtonHtml();		//点击HTML按钮
 
 	// 处理登录响应
 	void 处理登录响应(const CString& 响应数据);
@@ -69,6 +71,8 @@ private:
 
 	void OnTimer(UINT_PTR nIDEvent);
 
+	
+
 public:
 	bool 已登录;
 
@@ -91,6 +95,7 @@ public:
 
 	// 按钮控制函数
 	void 启用重新连接按钮(BOOL 启用);  // 启用或禁用重新连接按钮
-
+	
+	网页对话框类* m_pHtmlDialog;  // 网页对话框指针
 	
 };

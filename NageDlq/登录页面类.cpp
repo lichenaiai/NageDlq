@@ -6,6 +6,7 @@
 #include "afxdialogex.h"
 #include "NageDlqDlg.h"
 #include <vector>
+#include "网页对话框类.h"
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -23,6 +24,7 @@ IMPLEMENT_DYNAMIC(登录页面类, CDialogEx)
 	, 游戏运行中(FALSE)
 	, 客户端重新连接标志(FALSE)     // 初始化客户端重新连接标志
 	, 账号重新连接标志(FALSE)    // 初始化账号重新连接标志
+	, m_pHtmlDialog(nullptr)  // 初始化网页对话框指针
 {
 }
 
@@ -48,6 +50,7 @@ BEGIN_MESSAGE_MAP(登录页面类, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_LOGIN, &登录页面类::OnBnClickedButtonLogin)	//::点击登录按钮
 	ON_BN_CLICKED(IDC_BUTTON_START, &登录页面类::OnBnClickedButtonStart)	//::点击启动按钮
 	ON_BN_CLICKED(IDC_RE_LOGIN, &登录页面类::OnBnClickedButtonRelogin)	//重新连接按钮
+	ON_BN_CLICKED(IDC_BUTTON_HTML, &登录页面类::OnBnClickedButtonHtml)	//点击HTML按钮
 	ON_WM_TIMER()  // 定时器消息处理
 END_MESSAGE_MAP()
 
@@ -1150,4 +1153,22 @@ void 登录页面类::等待并安装UI钩子(const wchar_t* 监控进程名)
 		}
 		Sleep(1000);
 	}
+}
+
+// 点击HTML按钮，打开网页对话框
+void 登录页面类::OnBnClickedButtonHtml()
+{
+	// 如果已经存在且未销毁，则关闭
+	if (m_pHtmlDialog != nullptr && m_pHtmlDialog->GetSafeHwnd() != NULL)
+	{
+		m_pHtmlDialog->DestroyWindow();
+		delete m_pHtmlDialog;
+		m_pHtmlDialog = nullptr;
+		return;
+	}
+
+	m_pHtmlDialog = new 网页对话框类(AfxGetMainWnd());
+	m_pHtmlDialog->设置网页地址(_T("http://124.220.82.87:8080"));
+	m_pHtmlDialog->Create(IDD_DIALOG_HTML, AfxGetMainWnd());
+	m_pHtmlDialog->ShowWindow(SW_SHOW);
 }

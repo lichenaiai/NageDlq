@@ -278,6 +278,9 @@ std::vector<HWND> 注入页面类::获取进程所有窗口(DWORD 目标进程ID
 {
     std::vector<HWND> 窗口列表;
 
+    // 创建一个左值变量，而不是临时对象
+    std::pair<DWORD, std::vector<HWND>*> 数据(目标进程ID, &窗口列表);
+
     EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL
         {
             auto* p数据 = reinterpret_cast<std::pair<DWORD, std::vector<HWND>*>*>(lParam);
@@ -289,7 +292,7 @@ std::vector<HWND> 注入页面类::获取进程所有窗口(DWORD 目标进程ID
                 p数据->second->push_back(hwnd);
             }
             return TRUE;
-        }, reinterpret_cast<LPARAM>(&std::make_pair(目标进程ID, &窗口列表)));
+        }, reinterpret_cast<LPARAM>(&数据));
 
     return 窗口列表;
 }

@@ -14,6 +14,7 @@
 #define IDD_PAGE_INJECTION              139
 #define IDB_LOGIN_MAP                   149
 #define IDB_LOGIN_MAP1                  149
+#define IDD_DIALOG_HTML                 150
 #define IDC_TAB_MAIN                    1003
 #define IDC_STATIC_BG                   1004
 #define IDC_EDIT_USERNAME               1005
@@ -66,14 +67,17 @@
 #define IDC_DT_MOVE_STATIC              1049
 #define IDC_DT_OPENBOX                  1050
 #define IDC_DT_BUFF                     1051
+#define IDC_BUTTON_HTML                 1052
+#define IDC_BUTTON1                     1053
+#define IDC_BTN_CLOSE                   1054
 
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        150
+#define _APS_NEXT_RESOURCE_VALUE        153
 #define _APS_NEXT_COMMAND_VALUE         32771
-#define _APS_NEXT_CONTROL_VALUE         1051
+#define _APS_NEXT_CONTROL_VALUE         1055
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif
