@@ -1385,7 +1385,7 @@ BOOL NageDlqServerDlg::连接数据库()
 
 	// 连接字符串
 	CString 连接字符串;
-	连接字符串.Format(_T("DRIVER={SQL Server};SERVER=124.220.82.87;DATABASE=%s;UID=%s;PWD=%s;"),
+	连接字符串.Format(_T("DRIVER={SQL Server};SERVER=127.0.0.1;DATABASE=%s;UID=%s;PWD=%s;"),
 		数据库名称, 数据库用户名, 数据库密码);
 
 	SQLWCHAR* wszConnStr = (SQLWCHAR*)连接字符串.GetBuffer();
