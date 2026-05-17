@@ -215,7 +215,7 @@ IMPLEMENT_DYNAMIC(网页对话框类, CDialogEx)
     , webView2Loader(NULL)
     , pfnCreateEnvironment(NULL)
 {
-    网页地址 = _T("http://124.220.82.87:8080");
+    网页地址.Format(_T("http://%s:8080"), _T(WEBSERVER_PORT));
 }
 
 网页对话框类::~网页对话框类()

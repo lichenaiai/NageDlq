@@ -48,10 +48,13 @@ public:
 private:
 	
 	bool 窗口1280选中状态;
+	BOOL 使用自定义HookIP;
+	CString 自定义HookIP地址;
 
 	// 注入相关函数
 	void 注入窗口大小修改代码();
 	void 注入IP修改代码();
+	void 注入自定义IP修改代码();
 
 	// 进程操作函数
 	DWORD 获取进程ID(const wchar_t* 进程名);
@@ -61,6 +64,7 @@ private:
 	void 等待并安装窗口大小钩子(const wchar_t* 监控进程名);
 	void 等待并安装汇编钩子(const wchar_t* 监控进程名);
 	void 等待并安装IP钩子(const wchar_t* 监控进程名);
+	void 等待并安装自定义IP钩子(const wchar_t* 监控进程名);
 	void 等待并安装UI钩子(const wchar_t* 监控进程名);
 	void 等待并安装标题钩子(const wchar_t* 监控进程名);
 	
@@ -92,6 +96,7 @@ public:
 	void 退出登录状态();  // 退出当前登录状态
 
 	CString 获取当前用户名();
+	void 设置自定义HookIP(const CString& IP地址);
 
 	// 按钮控制函数
 	void 启用重新连接按钮(BOOL 启用);  // 启用或禁用重新连接按钮

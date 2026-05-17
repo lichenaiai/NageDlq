@@ -5,6 +5,7 @@
 #include "注入页面类.h"
 #include "afxdialogex.h"
 #include "Resource.h"
+#include "NageDlqDlg.h"
 
 // 添加必要的Windows头文件
 #include <windows.h>
@@ -27,6 +28,106 @@
 static BOOL CALLBACK 枚举进程窗口回调(HWND hwnd, LPARAM lParam);
 static BOOL CALLBACK FindMainWindowCallback(HWND hwnd, LPARAM lParam);
 
+namespace
+{
+    struct 自定义IP输入上下文
+    {
+        CString 输入IP;
+    };
+
+    INT_PTR CALLBACK 自定义IP输入对话框过程(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
+    {
+        自定义IP输入上下文* 上下文 = reinterpret_cast<自定义IP输入上下文*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
+
+        switch (message)
+        {
+        case WM_INITDIALOG:
+        {
+            上下文 = reinterpret_cast<自定义IP输入上下文*>(lParam);
+            SetWindowLongPtr(hwnd, GWLP_USERDATA, (LONG_PTR)上下文);
+            SetWindowText(hwnd, _T("设置自定义Hook IP"));
+
+            HFONT 默认字体 = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+
+            HWND 标签 = CreateWindowEx(0, _T("STATIC"), _T("请输入自定义 IP 地址："),
+                WS_CHILD | WS_VISIBLE,
+                12, 12, 160, 18,
+                hwnd, NULL, AfxGetInstanceHandle(), NULL);
+
+            HWND 编辑框 = CreateWindowEx(WS_EX_CLIENTEDGE, _T("EDIT"), 上下文->输入IP,
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+                12, 34, 176, 22,
+                hwnd, (HMENU)10001, AfxGetInstanceHandle(), NULL);
+
+            HWND 确定按钮 = CreateWindowEx(0, _T("BUTTON"), _T("确定"),
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
+                48, 68, 60, 22,
+                hwnd, (HMENU)IDOK, AfxGetInstanceHandle(), NULL);
+
+            HWND 取消按钮 = CreateWindowEx(0, _T("BUTTON"), _T("取消"),
+                WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+                120, 68, 60, 22,
+                hwnd, (HMENU)IDCANCEL, AfxGetInstanceHandle(), NULL);
+
+            SendMessage(标签, WM_SETFONT, (WPARAM)默认字体, TRUE);
+            SendMessage(编辑框, WM_SETFONT, (WPARAM)默认字体, TRUE);
+            SendMessage(确定按钮, WM_SETFONT, (WPARAM)默认字体, TRUE);
+            SendMessage(取消按钮, WM_SETFONT, (WPARAM)默认字体, TRUE);
+
+            SetFocus(编辑框);
+            return FALSE;
+        }
+        case WM_COMMAND:
+            if (LOWORD(wParam) == IDOK && 上下文 != nullptr)
+            {
+                TCHAR 输入缓冲区[64] = { 0 };
+                GetDlgItemText(hwnd, 10001, 输入缓冲区, _countof(输入缓冲区));
+                上下文->输入IP = 输入缓冲区;
+                EndDialog(hwnd, IDOK);
+                return TRUE;
+            }
+            if (LOWORD(wParam) == IDCANCEL)
+            {
+                EndDialog(hwnd, IDCANCEL);
+                return TRUE;
+            }
+            break;
+        }
+
+        return FALSE;
+    }
+
+    BOOL 显示自定义IP输入对话框(CWnd* 父窗口, CString& 输入IP)
+    {
+        struct
+        {
+            DLGTEMPLATE 模板;
+            WORD 菜单;
+            WORD 窗口类;
+            WORD 标题;
+        } 对话框模板 = {};
+
+        对话框模板.模板.style = WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME;
+        对话框模板.模板.dwExtendedStyle = 0;
+        对话框模板.模板.cdit = 0;
+        对话框模板.模板.x = 10;
+        对话框模板.模板.y = 10;
+        对话框模板.模板.cx = 205;
+        对话框模板.模板.cy = 102;
+
+        自定义IP输入上下文 上下文 = { 输入IP };
+        INT_PTR 结果 = DialogBoxIndirectParam(AfxGetInstanceHandle(), &对话框模板.模板,
+            父窗口 ? 父窗口->GetSafeHwnd() : NULL, 自定义IP输入对话框过程, (LPARAM)&上下文);
+        if (结果 == IDOK)
+        {
+            输入IP = 上下文.输入IP;
+            return TRUE;
+        }
+
+        return FALSE;
+    }
+}
+
 // 注入页面类 对话框
 IMPLEMENT_DYNAMIC(注入页面类, CDialogEx)
 
@@ -48,6 +149,7 @@ IMPLEMENT_DYNAMIC(注入页面类, CDialogEx)
     , 记录Y坐标(0.0f)          
     , 记录地图编号(0)         
     , 有记录坐标(FALSE)      
+    , 隐藏入口点击次数(0)
 {
 }
 
@@ -73,6 +175,7 @@ BEGIN_MESSAGE_MAP(注入页面类, CDialogEx)
     ON_BN_CLICKED(IDC_DT_MOVE_SAVE, &注入页面类::点击记录坐标)    
     ON_BN_CLICKED(IDC_DT_MOVE_MOVE, &注入页面类::点击传送)  
     ON_BN_CLICKED(IDC_DT_BUFF, &注入页面类::点击加枪手BUFF)
+    ON_BN_CLICKED(IDC_DT_OPENBOX, &注入页面类::点击隐藏IP入口)
     ON_WM_TIMER()
     ON_WM_DESTROY()
     ON_MESSAGE(WM_USER + 200, &注入页面类::游戏进程退出消息处理)
@@ -95,6 +198,57 @@ BOOL 注入页面类::OnInitDialog()
     坐标状态标签.SetWindowText(_T("坐标：0"));
 
     return TRUE;
+}
+
+BOOL 注入页面类::验证IPv4格式(const CString& IP地址) const
+{
+    unsigned int IP片段1 = 0, IP片段2 = 0, IP片段3 = 0, IP片段4 = 0;
+    TCHAR 额外字符 = 0;
+    if (_stscanf_s(IP地址, _T("%u.%u.%u.%u%c"),
+        &IP片段1, &IP片段2, &IP片段3, &IP片段4, &额外字符, 1) != 4)
+    {
+        return FALSE;
+    }
+
+    return IP片段1 <= 255 && IP片段2 <= 255 && IP片段3 <= 255 && IP片段4 <= 255;
+}
+
+void 注入页面类::处理自定义HookIP设置()
+{
+    CString 输入IP;
+    while (显示自定义IP输入对话框(this, 输入IP))
+    {
+        输入IP.Trim();
+        if (!验证IPv4格式(输入IP))
+        {
+            MessageBox(_T("请输入正确的 IPv4 地址格式，例如 124.220.82.87。"), _T("提示"), MB_ICONWARNING);
+            continue;
+        }
+
+        CWnd* 主窗口 = AfxGetMainWnd();
+        NageDlqDlg* 主对话框 = dynamic_cast<NageDlqDlg*>(主窗口);
+        if (主对话框 == nullptr)
+        {
+            MessageBox(_T("无法获取主窗口，设置失败。"), _T("错误"), MB_ICONERROR);
+            return;
+        }
+
+        主对话框->登录页面.设置自定义HookIP(输入IP);
+        MessageBox(_T("自定义 Hook IP 已保存。返回登录页面后，点击启动游戏即会使用该 Hook IP。"), _T("提示"), MB_ICONINFORMATION);
+        return;
+    }
+}
+
+void 注入页面类::点击隐藏IP入口()
+{
+    隐藏入口点击次数++;
+    if (隐藏入口点击次数 < 10)
+    {
+        return;
+    }
+
+    隐藏入口点击次数 = 0;
+    处理自定义HookIP设置();
 }
 
 // 窗口销毁时调用

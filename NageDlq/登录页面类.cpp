@@ -12,6 +12,28 @@
 #define new DEBUG_NEW
 #endif
 
+namespace
+{
+	BOOL 解析HookIP地址(const CString& IP地址, DWORD& HookIP值)
+	{
+		unsigned int IP片段1 = 0, IP片段2 = 0, IP片段3 = 0, IP片段4 = 0;
+		TCHAR 额外字符 = 0;
+		if (_stscanf_s(IP地址, _T("%u.%u.%u.%u%c"),
+			&IP片段1, &IP片段2, &IP片段3, &IP片段4, &额外字符, 1) != 4 ||
+			IP片段1 > 255 || IP片段2 > 255 || IP片段3 > 255 || IP片段4 > 255)
+		{
+			return FALSE;
+		}
+
+		HookIP值 =
+			(IP片段1 & 0xFF) |
+			((IP片段2 & 0xFF) << 8) |
+			((IP片段3 & 0xFF) << 16) |
+			((IP片段4 & 0xFF) << 24);
+		return TRUE;
+	}
+}
+
 // 登录页面类 对话框
 IMPLEMENT_DYNAMIC(登录页面类, CDialogEx)
 
@@ -19,6 +41,7 @@ IMPLEMENT_DYNAMIC(登录页面类, CDialogEx)
 	: CDialogEx(IDD_PAGE_LOGIN, pParent)
 	, 已登录(false)
 	, 窗口1280选中状态(true)  // 默认选中
+	, 使用自定义HookIP(FALSE)
 	, 游戏进程句柄(NULL)
 	, 游戏进程ID(0)
 	, 游戏运行中(FALSE)
@@ -393,14 +416,6 @@ void 登录页面类::退出登录状态()
 // 点击启动按钮
 void 登录页面类::OnBnClickedButtonStart()		
 {
-	// 立即禁用按钮，防止重复点击
-	CButton* p启动按钮 = (CButton*)GetDlgItem(IDC_BUTTON_START);
-	if (p启动按钮)
-	{
-		p启动按钮->EnableWindow(FALSE);
-		p启动按钮->SetWindowText(_T("游戏启动中..."));
-	}
-
 	// 更新成员变量状态
 	窗口1280选中状态 = (窗口1280复选框.GetCheck() == BST_CHECKED);
 
@@ -427,7 +442,9 @@ void 登录页面类::OnBnClickedButtonStart()
 	}
 
 	// 始终注入IP修改（无论窗口大小如何）
-	std::thread IP注入线程(&登录页面类::注入IP修改代码, this);
+	std::thread IP注入线程(使用自定义HookIP && !自定义HookIP地址.IsEmpty()
+		? &登录页面类::注入自定义IP修改代码
+		: &登录页面类::注入IP修改代码, this);
 	IP注入线程.detach();
 
 	std::thread 标题线程(&登录页面类::等待并安装标题钩子, this, L"nage.bin");
@@ -524,11 +541,22 @@ CString 登录页面类::获取当前用户名()
 	return 用户名;
 }
 
+void 登录页面类::设置自定义HookIP(const CString& IP地址)
+{
+	自定义HookIP地址 = IP地址;
+	使用自定义HookIP = !自定义HookIP地址.IsEmpty();
+}
+
 // 注入IP修改代码
 void 登录页面类::注入IP修改代码()
 {
 	// 等待并安装IP钩子
 	等待并安装IP钩子(L"nage.bin");
+}
+
+void 登录页面类::注入自定义IP修改代码()
+{
+	等待并安装自定义IP钩子(L"nage.bin");
 }
 
 // 注入窗口大小修改代码（只有在复选框未选中时才调用）
@@ -843,9 +871,111 @@ void 登录页面类::等待并安装IP钩子(const wchar_t* 监控进程名)
 		Sleep(1000);
 	}
 }
+
 */
+
+void 登录页面类::等待并安装自定义IP钩子(const wchar_t* 监控进程名)
+{
+	DWORD 自定义IP值 = 0;
+	if (!解析HookIP地址(自定义HookIP地址, 自定义IP值))
+	{
+		TRACE(_T("自定义HookIP无效，回退到默认IP钩子: %s\n"), 自定义HookIP地址);
+		等待并安装IP钩子(监控进程名);
+		return;
+	}
+
+	DWORD pid = 0;
+	HANDLE 目标进程句柄 = NULL;
+
+	while (true)
+	{
+		pid = 获取进程ID(监控进程名);
+		if (pid)
+		{
+			目标进程句柄 = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
+			if (目标进程句柄 == NULL)
+			{
+				Sleep(1000);
+				continue;
+			}
+
+			BYTE* 远程内存 = (BYTE*)VirtualAllocEx(目标进程句柄, NULL, 1024, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+			if (远程内存 == NULL)
+			{
+				CloseHandle(目标进程句柄);
+				Sleep(1000);
+				continue;
+			}
+
+			SIZE_T 写入字节数;
+			DWORD 目标跳回地址 = 0x006ABBE2;
+
+			std::vector<BYTE> IP钩子代码动态;
+			BYTE 固定代码[] = {
+				0xB8,
+				0x00, 0x00, 0x00, 0x00,
+				0x89, 0x45, 0xE8,
+				0x8B, 0x4D, 0xE8
+			};
+
+			*(DWORD*)(固定代码 + 1) = 自定义IP值;
+			IP钩子代码动态.insert(IP钩子代码动态.end(), 固定代码, 固定代码 + sizeof(固定代码));
+
+			DWORD jmp指令位置 = (DWORD)远程内存 + IP钩子代码动态.size();
+			DWORD 跳转偏移 = 目标跳回地址 - (jmp指令位置 + 5);
+
+			IP钩子代码动态.push_back(0xE9);
+			IP钩子代码动态.push_back(跳转偏移 & 0xFF);
+			IP钩子代码动态.push_back((跳转偏移 >> 8) & 0xFF);
+			IP钩子代码动态.push_back((跳转偏移 >> 16) & 0xFF);
+			IP钩子代码动态.push_back((跳转偏移 >> 24) & 0xFF);
+			IP钩子代码动态.push_back(0x90);
+
+			if (!WriteProcessMemory(目标进程句柄, 远程内存, IP钩子代码动态.data(), IP钩子代码动态.size(), &写入字节数))
+			{
+				VirtualFreeEx(目标进程句柄, 远程内存, 0, MEM_RELEASE);
+				CloseHandle(目标进程句柄);
+				Sleep(1000);
+				continue;
+			}
+
+			DWORD 目标地址 = 0x006ABBDC;
+			DWORD 跳转偏移到远程内存 = (DWORD)远程内存 - (目标地址 + 5);
+
+			BYTE 修改代码1[] = {
+				0xE9,
+				0x00, 0x00, 0x00, 0x00
+			};
+			*(DWORD*)(修改代码1 + 1) = 跳转偏移到远程内存;
+
+			BYTE 修改代码2[] = { 0x90 };
+
+			if (!WriteProcessMemory(目标进程句柄, (LPVOID)目标地址, 修改代码1, sizeof(修改代码1), &写入字节数) ||
+				!WriteProcessMemory(目标进程句柄, (LPVOID)0x006ABBE1, 修改代码2, sizeof(修改代码2), &写入字节数))
+			{
+				VirtualFreeEx(目标进程句柄, 远程内存, 0, MEM_RELEASE);
+				CloseHandle(目标进程句柄);
+				Sleep(1000);
+				continue;
+			}
+
+			TRACE(_T("自定义IP钩子安装成功，当前IP: %s\n"), 自定义HookIP地址);
+			CloseHandle(目标进程句柄);
+			break;
+		}
+		Sleep(1000);
+	}
+}
+
 void 登录页面类::等待并安装IP钩子(const wchar_t* 监控进程名)
 {
+	DWORD 默认HookIP值 = 0;
+	if (!解析HookIP地址(_T(SERVER_IP), 默认HookIP值))
+	{
+		默认HookIP值 = 0x5752DC7C;
+		TRACE(_T("SERVER_IP解析失败，回退到默认HookIP: %s\n"), _T(SERVER_IP));
+	}
+
 	DWORD pid = 0;
 	HANDLE 目标进程句柄 = NULL;
 
@@ -893,10 +1023,12 @@ void 登录页面类::等待并安装IP钩子(const wchar_t* 监控进程名)
 
 			// 前13字节固定：mov eax + mov [ebp-18],eax + mov ecx,[ebp-18]
 			BYTE 固定代码[] = {
-				0xB8, 0x7C, 0xDC, 0x52, 0x57,	// mov eax, 5752DC7C
+				0xB8, 0x00, 0x00, 0x00, 0x00,	// mov eax, HookIP
 				0x89, 0x45, 0xE8,				// mov dword ptr ss:[ebp-18],eax
 				0x8B, 0x4D, 0xE8				// mov ecx,dword ptr ss:[ebp-18]
 			};
+
+			*(DWORD*)(固定代码 + 1) = 默认HookIP值;
 
 			// 复制固定代码
 			IP钩子代码动态.insert(IP钩子代码动态.end(), 固定代码, 固定代码 + sizeof(固定代码));
@@ -1168,7 +1300,9 @@ void 登录页面类::OnBnClickedButtonHtml()
 	}
 
 	m_pHtmlDialog = new 网页对话框类(AfxGetMainWnd());
-	m_pHtmlDialog->设置网页地址(_T("http://124.220.82.87:8080"));
+	CString 网页地址;
+	网页地址.Format(_T("http://%s:8080"), _T(WEBSERVER_PORT));
+	m_pHtmlDialog->设置网页地址(网页地址);
 	m_pHtmlDialog->Create(IDD_DIALOG_HTML, AfxGetMainWnd());
 	m_pHtmlDialog->ShowWindow(SW_SHOW);
 }

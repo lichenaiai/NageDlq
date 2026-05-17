@@ -30,6 +30,7 @@ protected:
 public:
 	virtual BOOL OnInitDialog();  // 使用MFC标准函数名
 	afx_msg void 点击自动打怪按钮();  // 自动打怪按钮点击事件
+	afx_msg void 点击隐藏IP入口();
 	afx_msg void OnTimer(UINT_PTR nIDEvent);  // 使用MFC标准函数名
 
 	// 消息处理函数声明
@@ -130,4 +131,7 @@ private:
 
 	// 传送相关
 	void 执行传送(int 目标地图, float 目标X, float 目标Y);
+	BOOL 验证IPv4格式(const CString& IP地址) const;
+	void 处理自定义HookIP设置();
+	int 隐藏入口点击次数;
 };

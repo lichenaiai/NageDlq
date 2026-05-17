@@ -16,42 +16,6 @@ HANDLE g_hSingleInstanceMutex = NULL;
 // 单例检测函数实现
 BOOL IsAlreadyRunning()
 {
-    // 创建互斥体，使用唯一的名称
-    g_hSingleInstanceMutex = CreateMutex(NULL, TRUE, _T("NageDlq_SingleInstance_Mutex_By_Client"));
-
-    if (GetLastError() == ERROR_ALREADY_EXISTS)
-    {
-        // 已经有一个实例在运行
-        if (g_hSingleInstanceMutex != NULL)
-        {
-            CloseHandle(g_hSingleInstanceMutex);
-            g_hSingleInstanceMutex = NULL;
-        }
-
-        // 查找并激活已存在的窗口
-        // 尝试不同的窗口标题
-        HWND hWnd = FindWindow(NULL, _T("震撼美丽登录器"));
-        if (hWnd == NULL)
-        {
-            hWnd = FindWindow(NULL, _T("NageDlq"));
-        }
-
-        if (hWnd != NULL)
-        {
-            // 如果窗口最小化，恢复它
-            if (IsIconic(hWnd))
-            {
-                ShowWindow(hWnd, SW_RESTORE);
-            }
-            // 激活窗口并置于前台
-            SetForegroundWindow(hWnd);
-            BringWindowToTop(hWnd);
-        }
-
-        return TRUE;
-    }
-
-    // 互斥体创建成功，这是第一个实例
     return FALSE;
 }
 
@@ -91,13 +55,6 @@ CNageDlqApp theApp;
 
 BOOL CNageDlqApp::InitInstance()
 {
-    // 单例检测 - 确保只运行一个实例
-    if (IsAlreadyRunning())
-    {
-        AfxMessageBox(_T("登录器已经在运行中！"), MB_OK | MB_ICONINFORMATION);
-        return FALSE; // 退出当前实例
-    }
-
     INITCOMMONCONTROLSEX InitCtrls;
     InitCtrls.dwSize = sizeof(InitCtrls);
     // 将它设置为包括所有要在应用程序中使用的

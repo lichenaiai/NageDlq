@@ -11,15 +11,30 @@
 #include "加点页面类.h"
 #include "排行榜页面类.h"
 #include "注入页面类.h"
+#include <wininet.h>
+#include <string>
+
+#pragma comment(lib, "wininet.lib")
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
 
+namespace
+{
+	static const TCHAR* 主服务端地址 = _T(SERVER_IP);
+	static const TCHAR* 备用服务端地址 = _T("115.190.243.231");
+	static const TCHAR* 备用更新配置地址 = _T("115.190.243.231/nageup/upyn.ini");
+}
+
 // NageDlqDlg 对话框
 
 NageDlqDlg::NageDlqDlg(CWnd* pParent /*=nullptr*/)
 	: CDialogEx(IDD_NAGEDLQ_DIALOG, pParent)
+	, 当前服务端地址(_T(SERVER_IP))
+	, 已尝试备用服务端(FALSE)
+	, 已执行备用更新检查(FALSE)
+	, 正在关闭登录器(FALSE)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -103,7 +118,7 @@ void NageDlqDlg::OnTimer(UINT_PTR nIDEvent)
 		TRACE(_T("重试发送连接请求\n"));
 
 		CString 连接请求;
-		连接请求.Format(_T("CONNECT:%s:%s"), _T(CLIENT_VERSION), _T(SERVER_IP));
+		连接请求.Format(_T("CONNECT:%s:%s"), _T(CLIENT_VERSION), 当前服务端地址);
 
 		if (网络通信.发送数据(连接请求))
 		{
@@ -123,14 +138,7 @@ void NageDlqDlg::OnTimer(UINT_PTR nIDEvent)
 void NageDlqDlg::OnClose()
 {
 	TRACE(_T("=== 开始关闭登录器 ===\n"));
-
-	// 关闭游戏进程
-	if (登录页面.游戏运行中)
-	{
-		TRACE(_T("检测到游戏正在运行，开始关闭游戏...\n"));
-		登录页面.关闭游戏进程();
-		TRACE(_T("游戏关闭完成\n"));
-	}
+	正在关闭登录器 = TRUE;
 
 	// 关闭网络连接
 	if (网络通信.是否已连接())
@@ -146,13 +154,6 @@ void NageDlqDlg::OnClose()
 void NageDlqDlg::OnDestroy()
 {
 	TRACE(_T("=== 开始销毁登录器 ===\n"));
-
-	// 确保游戏进程已关闭
-	if (登录页面.游戏运行中)
-	{
-		TRACE(_T("强制关闭游戏进程\n"));
-		登录页面.关闭游戏进程();
-	}
 
 	CDialogEx::OnDestroy();
 }
@@ -286,6 +287,11 @@ LRESULT NageDlqDlg::OnReconnectMessage(WPARAM wParam, LPARAM lParam)
 // 初始化网络通信
 BOOL NageDlqDlg::初始化网络通信()
 {
+	return 初始化网络通信到指定服务端(当前服务端地址);
+}
+
+BOOL NageDlqDlg::初始化网络通信到指定服务端(const CString& 服务端地址, BOOL 允许故障转移)
+{
 	// 检查是否已经连接
 	if (网络通信.是否已连接())
 	{
@@ -294,16 +300,20 @@ BOOL NageDlqDlg::初始化网络通信()
 	}
 
 	TRACE(_T("开始初始化网络通信\n"));
+	当前服务端地址 = 服务端地址;
+	KillTimer(2);
 
 	// 设置消息回调
 	网络通信.设置消息回调函数(&NageDlqDlg::处理网络消息, this);
 
 	// 更新状态为连接中
-	登录页面.权限状态.SetWindowText(_T("状态：连接中..."));
-	TRACE(_T("设置状态为连接中...\n"));
+	CString 状态文本;
+	状态文本.Format(_T("状态：连接中（%s）..."), 服务端地址);
+	登录页面.权限状态.SetWindowText(状态文本);
+	TRACE(_T("设置状态为连接中: %s\n"), 服务端地址);
 
 	// 尝试连接服务端
-	if (网络通信.连接服务端(_T(SERVER_IP), SERVER_PORT))
+	if (网络通信.连接服务端(服务端地址, SERVER_PORT))
 	{
 		TRACE(_T("连接服务端调用成功\n"));
 
@@ -315,6 +325,10 @@ BOOL NageDlqDlg::初始化网络通信()
 	{
 		TRACE(_T("连接服务端失败\n"));
 		登录页面.权限状态.SetWindowText(_T("状态：连接失败"));
+		if (允许故障转移)
+		{
+			return 处理连接失败并尝试备用服务端(服务端地址);
+		}
 		return FALSE;
 
 		// 如果已登录，显示断开状态
@@ -324,6 +338,103 @@ BOOL NageDlqDlg::初始化网络通信()
 		}
 		return FALSE;
 	}
+}
+
+BOOL NageDlqDlg::处理连接失败并尝试备用服务端(const CString& 失败服务端地址)
+{
+	KillTimer(2);
+
+	if (登录页面.已登录 || 正在关闭登录器)
+	{
+		return FALSE;
+	}
+
+	if (失败服务端地址.CompareNoCase(备用服务端地址) != 0 && !已尝试备用服务端)
+	{
+		TRACE(_T("主服务端连接失败，开始尝试备用服务端\n"));
+		已尝试备用服务端 = TRUE;
+		当前服务端地址 = 备用服务端地址;
+		登录页面.权限状态.SetWindowText(_T("状态：主服务器连接失败，正在连接备用服务器..."));
+		网络通信.关闭连接();
+		return 初始化网络通信到指定服务端(当前服务端地址, FALSE);
+	}
+
+	if (!已执行备用更新检查)
+	{
+		TRACE(_T("备用服务端连接失败，开始检查备用更新配置\n"));
+		已执行备用更新检查 = TRUE;
+		检查备用服务器更新();
+	}
+
+	return FALSE;
+}
+
+CString NageDlqDlg::读取远程配置首行(const CString& 配置地址)
+{
+	CString 完整地址 = 配置地址;
+	if (完整地址.Find(_T("://")) == -1)
+	{
+		完整地址 = _T("http://") + 完整地址;
+	}
+
+	HINTERNET hInternet = InternetOpen(_T("NageDlq/UpdateCheck"), INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+	if (!hInternet)
+	{
+		TRACE(_T("InternetOpen失败，错误码: %d\n"), GetLastError());
+		return CString();
+	}
+
+	DWORD 超时 = 10000;
+	InternetSetOption(hInternet, INTERNET_OPTION_CONNECT_TIMEOUT, &超时, sizeof(超时));
+	InternetSetOption(hInternet, INTERNET_OPTION_RECEIVE_TIMEOUT, &超时, sizeof(超时));
+
+	HINTERNET hUrl = InternetOpenUrl(hInternet, 完整地址, NULL, 0,
+		INTERNET_FLAG_NO_UI | INTERNET_FLAG_RELOAD | INTERNET_FLAG_NO_CACHE_WRITE, 0);
+	if (!hUrl)
+	{
+		TRACE(_T("InternetOpenUrl失败，错误码: %d\n"), GetLastError());
+		InternetCloseHandle(hInternet);
+		return CString();
+	}
+
+	std::string 配置内容;
+	char 缓冲区[256] = {};
+	DWORD 已读取字节数 = 0;
+	while (InternetReadFile(hUrl, 缓冲区, sizeof(缓冲区), &已读取字节数) && 已读取字节数 > 0)
+	{
+		配置内容.append(缓冲区, 已读取字节数);
+	}
+
+	InternetCloseHandle(hUrl);
+	InternetCloseHandle(hInternet);
+
+	if (配置内容.size() >= 3 &&
+		static_cast<unsigned char>(配置内容[0]) == 0xEF &&
+		static_cast<unsigned char>(配置内容[1]) == 0xBB &&
+		static_cast<unsigned char>(配置内容[2]) == 0xBF)
+	{
+		配置内容.erase(0, 3);
+	}
+
+	size_t 换行位置 = 配置内容.find_first_of("\r\n");
+	std::string 首行文本 = (换行位置 == std::string::npos) ? 配置内容 : 配置内容.substr(0, 换行位置);
+	CString 首行(首行文本.c_str());
+	首行.Trim();
+	return 首行;
+}
+
+void NageDlqDlg::检查备用服务器更新()
+{
+	CString 远程版本号 = 读取远程配置首行(备用更新配置地址);
+	if (远程版本号.IsEmpty())
+	{
+		登录页面.权限状态.SetWindowText(_T("状态：备用服务器不可用，更新配置读取失败"));
+		return;
+	}
+
+	TRACE(_T("读取到备用更新版本号: %s\n"), 远程版本号);
+	登录页面.权限状态.SetWindowText(_T("状态：备用服务器不可用，已检查更新配置"));
+	检查版本更新(远程版本号);
 }
 
 // 处理网络消息
@@ -345,6 +456,10 @@ void NageDlqDlg::处理网络消息(CString 消息)
 		if (登录页面.已登录)
 		{
 			登录页面.权限状态.SetWindowText(_T("状态：已登录（连接断开）"));
+		}
+		else
+		{
+			处理连接失败并尝试备用服务端(当前服务端地址);
 		}
 	}
 

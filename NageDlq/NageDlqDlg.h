@@ -68,12 +68,21 @@ public:
 
 private:
     // 各个页面对象
+
+    BOOL 初始化网络通信到指定服务端(const CString& 服务端地址, BOOL 允许故障转移 = TRUE);
+    BOOL 处理连接失败并尝试备用服务端(const CString& 失败服务端地址);
+    void 检查备用服务器更新();
+    CString 读取远程配置首行(const CString& 配置地址);
     
     注册页面类 注册页面;
     转生页面类 转生页面;
     加点页面类 加点页面;
     排行榜页面类 排行榜页面;
     注入页面类 注入页面;
+    CString 当前服务端地址;
+    BOOL 已尝试备用服务端;
+    BOOL 已执行备用更新检查;
+    BOOL 正在关闭登录器;
 
     // 页面初始化函数
     BOOL 初始化分页控件();
