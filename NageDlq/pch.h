@@ -21,4 +21,4 @@
 #define UPDATE_SERVER "127.0.0.2/nageup/"  // 更新服务器地址  80
 #define SERVER_IP "127.0.0.1"              // 登录器服务端IP地址
 #define SERVER_PORT 9896						// 登录器服务端端口号
-#define WEBSERVER_PORT "127.0.0.2"			//web服务器地址 8080
+#define WEBSERVER_PORT "127.0.0.3"			//web服务器地址 8080
