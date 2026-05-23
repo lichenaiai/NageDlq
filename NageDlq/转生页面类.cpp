@@ -10,6 +10,20 @@
 #define new DEBUG_NEW
 #endif
 
+namespace
+{
+    int 计算转生需求等级(int 转生次数)
+    {
+        int 需求等级 = 110 + 转生次数 * 10;
+        if (需求等级 > 300)
+        {
+            需求等级 = 300;
+        }
+
+        return 需求等级;
+    }
+}
+
 // 转生页面类 对话框
 IMPLEMENT_DYNAMIC(转生页面类, CDialogEx)
 
@@ -266,7 +280,7 @@ void 转生页面类::处理转生响应(const CString& 响应数据)
 void 转生页面类::更新角色信息显示(int 职业代码, int 战斗等级, int 累计等级, int 转生次数, int 剩余点数)
 {
     CString 等级信息;
-    int 需求等级 = 110 + 转生次数 * 10;
+    int 需求等级 = 计算转生需求等级(转生次数);
     等级信息.Format(_T("战斗等级: %d\n累计等级: %d\n转生次数: %d\n剩余点数: %d第%d次转生需要: %d级"),
         战斗等级, 累计等级, 转生次数, 剩余点数, 转生次数 + 1, 需求等级);
     等级标签.SetWindowText(等级信息);
