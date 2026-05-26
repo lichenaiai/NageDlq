@@ -18,7 +18,7 @@
 #endif //PCH_H
 
 #define CLIENT_VERSION "0.78"				   // 客户端版本号 小于数据库版本号时执行更新
-#define UPDATE_SERVER "127.0.0.2/nageup/"  // 更新服务器地址  80
-#define SERVER_IP "127.0.0.1"              // 登录器服务端IP地址
+#define UPDATE_SERVER "127.0.0.6/nageup/"  // 更新服务器地址  80
+#define SERVER_IP "127.0.0.5"              // 登录器服务端IP地址
 #define SERVER_PORT 9896						// 登录器服务端端口号
-#define WEBSERVER_PORT "127.0.0.3"			//web服务器地址 8080
+#define WEBSERVER_PORT "127.0.0.7"			//web服务器地址 8080
