@@ -19,6 +19,11 @@
 #define new DEBUG_NEW
 #endif
 
+namespace
+{
+	constexpr int 服务端监听端口 = 9896;
+}
+
 // NageDlqServerDlg 对话框
 IMPLEMENT_DYNAMIC(NageDlqServerDlg, CDialogEx)
 
@@ -228,6 +233,8 @@ void NageDlqServerDlg::OnBnClickedButtonStart()
 {
 	if (!服务器运行状态)
 	{
+		服务器运行状态 = TRUE;
+
 		// 标记为已初始化
 		已初始化显示 = TRUE;
 
@@ -245,6 +252,7 @@ void NageDlqServerDlg::OnBnClickedButtonStart()
 			添加信息显示(_T("数据库连接失败"));
 			权限状态标签.SetWindowText(_T("权限状态: 数据库未连接"));
 			当前版本号标签.SetWindowText(_T("当前版本号: 数据库未连接"));
+			服务器运行状态 = FALSE;
 			return;  // 如果数据库连接失败，不启动服务器
 		}
 
@@ -262,12 +270,15 @@ void NageDlqServerDlg::OnBnClickedButtonStart()
 
 		if (启动服务器())
 		{
-			服务器运行状态 = TRUE;
 			启动服务器按钮.EnableWindow(FALSE);
 			停止服务器按钮.EnableWindow(TRUE);
 			推送登录器更新按钮.EnableWindow(TRUE);
 			推送HOOK更新按钮.EnableWindow(TRUE);
-			添加信息显示(_T("服务器启动成功"));
+			添加信息显示(_T("服务器启动中，等待端口监听结果..."));
+		}
+		else
+		{
+			服务器运行状态 = FALSE;
 		}
 	}
 }
@@ -413,9 +424,16 @@ UINT NageDlqServerDlg::服务器线程函数(LPVOID pParam)
 	对话框指针->监听套接字 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (对话框指针->监听套接字 == INVALID_SOCKET)
 	{
-		对话框指针->添加信息显示(_T("创建socket失败"));
+		int 错误码 = WSAGetLastError();
+		CString 错误信息;
+		错误信息.Format(_T("创建socket失败，错误码: %d"), 错误码);
+		对话框指针->添加信息显示(错误信息);
+		对话框指针->服务器运行状态 = FALSE;
 		return 1;
 	}
+
+	int 重用地址 = 1;
+	setsockopt(对话框指针->监听套接字, SOL_SOCKET, SO_REUSEADDR, (const char*)&重用地址, sizeof(重用地址));
 
 	// 设置socket为非阻塞模式
 	u_long 非阻塞模式 = 1;
@@ -424,25 +442,39 @@ UINT NageDlqServerDlg::服务器线程函数(LPVOID pParam)
 	// 绑定地址
 	sockaddr_in 服务器地址;
 	服务器地址.sin_family = AF_INET;
-	服务器地址.sin_port = htons(9896);
+	服务器地址.sin_port = htons(服务端监听端口);
 	服务器地址.sin_addr.s_addr = INADDR_ANY;
 
 	if (bind(对话框指针->监听套接字, (sockaddr*)&服务器地址, sizeof(服务器地址)) == SOCKET_ERROR)
 	{
-		对话框指针->添加信息显示(_T("绑定端口失败"));
+		int 错误码 = WSAGetLastError();
+		CString 错误信息;
+		错误信息.Format(_T("绑定端口 %d 失败，错误码: %d"), 服务端监听端口, 错误码);
+		对话框指针->添加信息显示(错误信息);
+		if (错误码 == WSAEADDRINUSE)
+		{
+			对话框指针->添加信息显示(_T("端口已被占用，请检查是否有重复启动实例或转发规则占用了该端口"));
+		}
 		closesocket(对话框指针->监听套接字);
+		对话框指针->服务器运行状态 = FALSE;
 		return 1;
 	}
 
 	// 开始监听
 	if (listen(对话框指针->监听套接字, 10) == SOCKET_ERROR)
 	{
-		对话框指针->添加信息显示(_T("监听失败"));
+		int 错误码 = WSAGetLastError();
+		CString 错误信息;
+		错误信息.Format(_T("监听端口 %d 失败，错误码: %d"), 服务端监听端口, 错误码);
+		对话框指针->添加信息显示(错误信息);
 		closesocket(对话框指针->监听套接字);
+		对话框指针->服务器运行状态 = FALSE;
 		return 1;
 	}
 
-	对话框指针->添加信息显示(_T("开始监听端口 9896"));
+	CString 监听信息;
+	监听信息.Format(_T("开始监听端口 %d"), 服务端监听端口);
+	对话框指针->添加信息显示(监听信息);
 
 
 	/*
@@ -603,6 +635,13 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 	{
 		客户端IP = it->second;
 	}
+	CString 预读请求;
+	auto 预读it = 对话框指针->客户端初始请求缓存.find(客户端套接字);
+	if (预读it != 对话框指针->客户端初始请求缓存.end())
+	{
+		预读请求 = 预读it->second;
+		对话框指针->客户端初始请求缓存.erase(预读it);
+	}
 	LeaveCriticalSection(&对话框指针->客户端列表锁);
 
 	// 记录最后活动时间，用于超时检测
@@ -621,8 +660,18 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 			break;
 		}
 
-		// 接收客户端请求
-		CString 客户端请求 = 对话框指针->从客户端接收(客户端套接字);
+		// 优先处理接入阶段预读到的首包，避免首包在连接类型检测中丢失。
+		CString 客户端请求;
+		if (!预读请求.IsEmpty())
+		{
+			客户端请求 = 预读请求;
+			预读请求.Empty();
+			对话框指针->添加信息显示(客户端IP + _T(" 使用缓存首包继续处理"));
+		}
+		else
+		{
+			客户端请求 = 对话框指针->从客户端接收(客户端套接字);
+		}
 
 		//清理发送的字符串防止有回车或者空格
 		if (!客户端请求.IsEmpty())
@@ -1683,6 +1732,7 @@ void NageDlqServerDlg::移除客户端连接(SOCKET 客户端套接字)
 		CString 客户端IP = it->second;
 		添加信息显示(客户端IP + _T(" 已断开连接"));
 		客户端连接列表.erase(it);
+		客户端初始请求缓存.erase(客户端套接字);
 		客户端连接数量 = 客户端连接列表.size();
 	}
 	LeaveCriticalSection(&客户端列表锁);
@@ -2656,6 +2706,55 @@ BOOL NageDlqServerDlg::启动端口转发()
 {
 	try
 	{
+		auto 规则列表 = 端口转发管理器.获取规则列表();
+		for (const auto* 规则 : 规则列表)
+		{
+			if (!规则)
+			{
+				continue;
+			}
+
+			SOCKET 检测套接字 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+			if (检测套接字 == INVALID_SOCKET)
+			{
+				int 错误码 = WSAGetLastError();
+				CString 错误信息;
+				错误信息.Format(_T("端口转发预检查失败: 规则%d 创建socket失败，错误码: %d"), 规则->序号, 错误码);
+				添加信息显示(错误信息);
+				return FALSE;
+			}
+
+			int 允许复用 = 1;
+			setsockopt(检测套接字, SOL_SOCKET, SO_REUSEADDR, (const char*)&允许复用, sizeof(允许复用));
+
+			sockaddr_in 检测地址{};
+			检测地址.sin_family = AF_INET;
+			检测地址.sin_port = htons(规则->输入端口);
+
+			CStringA 输入IPA(规则->输入IP);
+			if (inet_pton(AF_INET, 输入IPA.GetString(), &检测地址.sin_addr) != 1)
+			{
+				CString 错误信息;
+				错误信息.Format(_T("端口转发预检查失败: 规则%d 输入IP无效: %s"), 规则->序号, 规则->输入IP);
+				添加信息显示(错误信息);
+				closesocket(检测套接字);
+				return FALSE;
+			}
+
+			if (bind(检测套接字, (sockaddr*)&检测地址, sizeof(检测地址)) == SOCKET_ERROR)
+			{
+				int 错误码 = WSAGetLastError();
+				CString 错误信息;
+				错误信息.Format(_T("端口转发预检查失败: 规则%d 端口 %s:%d 无法绑定，错误码: %d"),
+					规则->序号, 规则->输入IP, 规则->输入端口, 错误码);
+				添加信息显示(错误信息);
+				closesocket(检测套接字);
+				return FALSE;
+			}
+
+			closesocket(检测套接字);
+		}
+
 		if (端口转发管理器.启动所有转发())
 		{
 			刷新端口转发列表();
@@ -2934,7 +3033,7 @@ void NageDlqServerDlg::添加默认转发规则()
 	}
 
 	// 添加一条默认规则
-	端口转发管理器.添加转发规则(_T("127.0.0.1"), 9896, _T("192.168.100.1"), 9896);
+	端口转发管理器.添加转发规则(_T("127.0.0.1"), 服务端监听端口, _T("192.168.100.1"), 服务端监听端口);
 
 	// 保存配置
 	保存端口转发配置();
@@ -4089,6 +4188,14 @@ void NageDlqServerDlg::接受客户端连接()
 		SOCKET 客户端套接字 = accept(监听套接字, NULL, NULL);
 		if (客户端套接字 == INVALID_SOCKET)
 		{
+			int accept错误码 = WSAGetLastError();
+			if (accept错误码 != WSAEWOULDBLOCK)
+			{
+				CString 错误信息;
+				错误信息.Format(_T("accept失败，错误码: %d"), accept错误码);
+				添加信息显示(错误信息);
+			}
+			Sleep(10);
 			continue;
 		}
 
@@ -4101,11 +4208,11 @@ void NageDlqServerDlg::接受客户端连接()
 		char ipAddress[INET_ADDRSTRLEN];
 		const char* 转换结果 = inet_ntop(AF_INET, &(客户端地址.sin_addr), ipAddress, INET_ADDRSTRLEN);
 		CString 客户端IP;
-		if (ipAddress != NULL)
+		if (转换结果 != NULL)
 		{
 			// 根据项目编码类型进行转换
 			#ifdef _UNICODE
-				客户端IP = CString(CA2T(ipAddress));
+				客户端IP = CString(CA2W(ipAddress));
 			#else
 				客户端IP = CString(ipAddress);
 			#endif
@@ -4116,6 +4223,7 @@ void NageDlqServerDlg::接受客户端连接()
 		}
 
 		TRACE(_T("新客户端连接: %s\n"), 客户端IP);
+		添加信息显示(客户端IP + _T(" 建立连接，开始检测协议"));
 
 		// 首先接收少量数据来判断连接类型
 		char 检测缓冲区[1024];
@@ -4136,24 +4244,34 @@ void NageDlqServerDlg::接受客户端连接()
 		{
 			检测缓冲区[检测长度] = '\0';
 			std::string 检测数据(检测缓冲区, 检测长度);
+			CString 检测日志;
+			检测日志.Format(_T("%s 初始数据长度: %d"), 客户端IP, 检测长度);
+			添加信息显示(检测日志);
 
 			TRACE(_T("收到初始数据: %s\n"), CString(检测数据.c_str()));
 
-			// 检查是否是WebSocket握手请求（使用简化判断）
-			if (检测数据.find("GET /") == 0 &&
-				(检测数据.find("Upgrade: websocket") != std::string::npos ||
-					检测数据.find("Upgrade: WebSocket") != std::string::npos))
+			if (WebSocket处理类::是WebSocket握手请求(检测数据))
 			{
 				TRACE(_T("检测到WebSocket连接，IP: %s\n"), 客户端IP);
+				添加信息显示(客户端IP + _T(" 检测到WebSocket握手请求"));
 
-				// 生成WebSocket握手响应（简化版）
 				std::string 握手响应 = WebSocket处理类::生成握手响应(检测数据);
 
 				if (!握手响应.empty())
 				{
-					// 发送握手响应
-					send(客户端套接字, 握手响应.c_str(), 握手响应.length(), 0);
+					int 发送长度 = send(客户端套接字, 握手响应.c_str(), static_cast<int>(握手响应.length()), 0);
+					if (发送长度 == SOCKET_ERROR)
+					{
+						int ws发送错误码 = WSAGetLastError();
+						CString 错误信息;
+						错误信息.Format(_T("%s WebSocket握手响应发送失败，错误码: %d"), 客户端IP, ws发送错误码);
+						添加信息显示(错误信息);
+						closesocket(客户端套接字);
+						continue;
+					}
+
 					TRACE(_T("已发送WebSocket握手响应\n"));
+					添加信息显示(客户端IP + _T(" WebSocket握手完成"));
 
 					// 转换为ANSI字符串
 					CStringA ipA(客户端IP);
@@ -4162,6 +4280,54 @@ void NageDlqServerDlg::接受客户端连接()
 					WebSocket处理器.处理WebSocket客户端(客户端套接字, ipA.GetString());
 					continue;
 				}
+				else
+				{
+					添加信息显示(客户端IP + _T(" WebSocket握手失败: 缺少或无效Sec-WebSocket-Key"));
+					closesocket(客户端套接字);
+					continue;
+				}
+			}
+
+			// 普通TCP连接：缓存首包，避免首包在协议检测时被吞掉。
+			CString 首包请求;
+			#ifdef _UNICODE
+				int 宽字符长度 = MultiByteToWideChar(CP_UTF8, 0, 检测缓冲区, -1, NULL, 0);
+				if (宽字符长度 > 0)
+				{
+					std::vector<wchar_t> 宽字符缓冲区(宽字符长度);
+					MultiByteToWideChar(CP_UTF8, 0, 检测缓冲区, -1, 宽字符缓冲区.data(), 宽字符长度);
+					首包请求 = 宽字符缓冲区.data();
+				}
+				if (首包请求.IsEmpty())
+				{
+					首包请求 = CString(CA2W(检测缓冲区));
+				}
+			#else
+				首包请求 = CString(检测缓冲区);
+			#endif
+
+			EnterCriticalSection(&客户端列表锁);
+			客户端初始请求缓存[客户端套接字] = 首包请求;
+			LeaveCriticalSection(&客户端列表锁);
+
+			CString 缓存日志;
+			缓存日志.Format(_T("%s 普通TCP首包已缓存，长度: %d"), 客户端IP, 首包请求.GetLength());
+			添加信息显示(缓存日志);
+		}
+		else if (检测长度 == 0)
+		{
+			添加信息显示(客户端IP + _T(" 初始检测时对端关闭连接"));
+			closesocket(客户端套接字);
+			continue;
+		}
+		else
+		{
+			int 检测错误码 = WSAGetLastError();
+			if (检测错误码 != WSAEWOULDBLOCK && 检测错误码 != WSAETIMEDOUT)
+			{
+				CString 错误信息;
+				错误信息.Format(_T("%s 初始检测接收失败，错误码: %d"), 客户端IP, 检测错误码);
+				添加信息显示(错误信息);
 			}
 		}
 

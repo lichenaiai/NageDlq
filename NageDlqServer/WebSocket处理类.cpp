@@ -6,6 +6,7 @@
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
+#include <cctype>
 
 WebSocket处理类::WebSocket处理类()
 	: 消息回调函数(nullptr)
@@ -26,37 +27,138 @@ void WebSocket处理类::设置回调函数(处理消息回调 回调, void* 上
 // 检查是否是WebSocket握手请求
 bool WebSocket处理类::是WebSocket握手请求(const std::string& 请求数据)
 {
-	// 简化检查
-	if (请求数据.find("GET /") == 0)
+	if (请求数据.find("GET ") != 0)
 	{
-		if (请求数据.find("Upgrade: websocket") != std::string::npos ||
-			请求数据.find("Upgrade: WebSocket") != std::string::npos)
-		{
-			return true;
-		}
+		return false;
 	}
-	return false;
+
+	const std::string 升级头 = 提取HTTP头字段(请求数据, "Upgrade");
+	const std::string 连接头 = 提取HTTP头字段(请求数据, "Connection");
+	const std::string 键值 = 提取HTTP头字段(请求数据, "Sec-WebSocket-Key");
+
+	auto 转小写 = [](std::string 文本)
+		{
+			std::transform(文本.begin(), 文本.end(), 文本.begin(),
+				[](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+			return 文本;
+		};
+
+	std::string 升级头小写 = 转小写(升级头);
+	std::string 连接头小写 = 转小写(连接头);
+
+	return !键值.empty() && 升级头小写 == "websocket" &&
+		(连接头小写.find("upgrade") != std::string::npos);
 }
 
 // 生成WebSocket握手响应
 std::string WebSocket处理类::生成握手响应(const std::string& 请求数据)
 {
-	// 简化处理：直接返回标准握手响应
-	// 在实际应用中，应该解析Sec-WebSocket-Key并生成正确的响应
+	const std::string 客户端键值 = 提取HTTP头字段(请求数据, "Sec-WebSocket-Key");
+	if (客户端键值.empty())
+	{
+		return "";
+	}
+
+	const std::string 接受键值 = 生成WebSocketAcceptKey(客户端键值);
+	if (接受键值.empty())
+	{
+		return "";
+	}
 
 	return "HTTP/1.1 101 Switching Protocols\r\n"
 		"Upgrade: websocket\r\n"
 		"Connection: Upgrade\r\n"
-		"Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n"
+		"Sec-WebSocket-Accept: " + 接受键值 + "\r\n"
 		"\r\n";
 }
 
-// 生成WebSocket Accept Key（简化版）
+// 生成WebSocket Accept Key
 std::string WebSocket处理类::生成WebSocketAcceptKey(const std::string& key)
 {
-	// 简化处理：返回固定值
-	// 在实际应用中，应该计算 key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11" 的SHA1哈希，然后Base64编码
-	return "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=";
+	const std::string 输入 = key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+	HCRYPTPROV hProv = 0;
+	HCRYPTHASH hHash = 0;
+	BYTE 哈希值[20] = { 0 };
+	DWORD 哈希长度 = 20;
+
+	if (!CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT))
+	{
+		return "";
+	}
+
+	if (!CryptCreateHash(hProv, CALG_SHA1, 0, 0, &hHash))
+	{
+		CryptReleaseContext(hProv, 0);
+		return "";
+	}
+
+	if (!CryptHashData(hHash, reinterpret_cast<const BYTE*>(输入.c_str()), static_cast<DWORD>(输入.length()), 0) ||
+		!CryptGetHashParam(hHash, HP_HASHVAL, 哈希值, &哈希长度, 0))
+	{
+		CryptDestroyHash(hHash);
+		CryptReleaseContext(hProv, 0);
+		return "";
+	}
+
+	CryptDestroyHash(hHash);
+	CryptReleaseContext(hProv, 0);
+
+	return Base64编码(std::vector<unsigned char>(哈希值, 哈希值 + 哈希长度));
+}
+
+std::string WebSocket处理类::提取HTTP头字段(const std::string& 请求数据, const std::string& 字段名)
+{
+	std::istringstream 请求流(请求数据);
+	std::string 行;
+	const std::string 目标前缀 = 字段名 + ":";
+
+	while (std::getline(请求流, 行))
+	{
+		if (!行.empty() && 行.back() == '\r')
+		{
+			行.pop_back();
+		}
+
+		if (行.length() < 2)
+		{
+			continue;
+		}
+
+		auto 比较不区分大小写 = [](const std::string& a, const std::string& b)
+			{
+				if (a.size() != b.size())
+				{
+					return false;
+				}
+				for (size_t i = 0; i < a.size(); ++i)
+				{
+					if (std::tolower(static_cast<unsigned char>(a[i])) !=
+						std::tolower(static_cast<unsigned char>(b[i])))
+					{
+						return false;
+					}
+				}
+				return true;
+			};
+
+		if (行.size() >= 目标前缀.size() &&
+			比较不区分大小写(行.substr(0, 目标前缀.size()), 目标前缀))
+		{
+			std::string 值 = 行.substr(目标前缀.size());
+			while (!值.empty() && (值.front() == ' ' || 值.front() == '\t'))
+			{
+				值.erase(值.begin());
+			}
+			while (!值.empty() && (值.back() == ' ' || 值.back() == '\t'))
+			{
+				值.pop_back();
+			}
+			return 值;
+		}
+	}
+
+	return "";
 }
 
 void WebSocket处理类::处理客户端消息(SOCKET 客户端套接字, const std::string& 消息, const std::string& 客户端IP)
@@ -115,6 +217,7 @@ void WebSocket处理类::处理WebSocket客户端(SOCKET 客户端套接字, con
 
 		if (接收长度 > 0)
 		{
+			TRACE(_T("WebSocket收到原始字节长度: %d, 来自: %S\n"), 接收长度, 客户端IP);
 			// 更新最后活动时间
 			最后活动时间 = GetTickCount();
 
@@ -139,6 +242,10 @@ void WebSocket处理类::处理WebSocket客户端(SOCKET 客户端套接字, con
 						std::vector<char> 关闭帧 = 创建关闭帧();
 						send(客户端套接字, 关闭帧.data(), 关闭帧.size(), 0);
 						goto 清理退出;
+					}
+					if (!接收缓冲区.empty())
+					{
+						TRACE(_T("WebSocket帧暂不完整或不支持，缓存长度: %u\n"), static_cast<unsigned int>(接收缓冲区.size()));
 					}
 					break;
 				}

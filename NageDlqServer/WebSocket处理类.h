@@ -41,6 +41,8 @@ public:
     void 发送响应(SOCKET 客户端套接字, const std::string& 响应数据);
 
 private:
+	static std::string 提取HTTP头字段(const std::string& 请求数据, const std::string& 字段名);
+
     // WebSocket帧解析辅助函数
     static bool 解析帧头(const std::vector<unsigned char>& 缓冲区,
         size_t& 帧头长度,

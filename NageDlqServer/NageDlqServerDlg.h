@@ -78,6 +78,7 @@ private:
 
 	// 客户端连接管理
 	std::map<SOCKET, CString> 客户端连接列表;
+	std::map<SOCKET, CString> 客户端初始请求缓存;
 	CRITICAL_SECTION 客户端列表锁;
 
 	// 日志文件相关

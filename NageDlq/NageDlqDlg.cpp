@@ -23,8 +23,8 @@
 namespace
 {
 	static const TCHAR* 主服务端地址 = _T(SERVER_IP);
-	static const TCHAR* 备用服务端地址 = _T("115.190.243.231");
-	static const TCHAR* 备用更新配置地址 = _T("115.190.243.231/nageup/upyn.ini");
+	static const TCHAR* 备用服务端地址 = _T("171.80.4.68");
+	static const TCHAR* 备用更新配置地址 = _T("100.77.10.70/nageup/upyn.ini");
 }
 
 // NageDlqDlg 对话框
