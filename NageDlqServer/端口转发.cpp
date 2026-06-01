@@ -281,6 +281,27 @@ BOOL 端口转发管理类::添加转发规则(const CString& 输入IP, int 输�
 {
     std::lock_guard<std::mutex> 锁(规则列表锁);
 
+    if (!验证规则参数(输入IP, 输入端口, 输出IP, 输出端口))
+    {
+        return FALSE;
+    }
+
+    for (const auto* 现有规则 : 转发规则列表)
+    {
+        if (!现有规则)
+        {
+            continue;
+        }
+
+        if (现有规则->输入IP == 输入IP &&
+            现有规则->输入端口 == 输入端口 &&
+            现有规则->输出IP == 输出IP &&
+            现有规则->输出端口 == 输出端口)
+        {
+            return FALSE;
+        }
+    }
+
     auto* 新规则 = new 端口转发规则();
     新规则->序号 = static_cast<int>(转发规则列表.size()) + 1;
     新规则->输入IP = 输入IP;

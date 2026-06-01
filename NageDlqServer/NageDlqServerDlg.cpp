@@ -14,6 +14,8 @@
 #include <sql.h>
 #include <sqlext.h>
 #include <sqltypes.h>
+#include <algorithm>
+#include <set>
 
 #ifdef _DEBUG
 #define new DEBUG_NEW
@@ -154,8 +156,7 @@ BOOL NageDlqServerDlg::OnInitDialog()
 	else
 	{
 		TRACE(_T("配置加载失败，添加默认规则\n"));
-		添加信息显示(_T("使用默认端口转发规则"));
-		添加默认转发规则();
+		添加信息显示(_T("未加载到有效端口转发规则，请按需手动添加"));
 	}
 
 	// 刷新显示
@@ -454,6 +455,10 @@ UINT NageDlqServerDlg::服务器线程函数(LPVOID pParam)
 		if (错误码 == WSAEADDRINUSE)
 		{
 			对话框指针->添加信息显示(_T("端口已被占用，请检查是否有重复启动实例或转发规则占用了该端口"));
+		}
+		else if (错误码 == WSAEACCES)
+		{
+			对话框指针->添加信息显示(_T("端口绑定被拒绝，请检查是否与端口转发规则冲突或被系统策略限制"));
 		}
 		closesocket(对话框指针->监听套接字);
 		对话框指针->服务器运行状态 = FALSE;
@@ -1340,10 +1345,19 @@ UINT NageDlqServerDlg::客户端线程函数(LPVOID pParam)
 
 		else
 		{
-			TRACE(_T("=== weizhiqingqiu ===\n"));
-			// 未知请求
-			对话框指针->发送到客户端(客户端套接字, _T("UNKNOWN_COMMAND"));
-			对话框指针->添加信息显示(客户端IP + _T(" 未知请求: ") + 客户端请求);
+			// 对扫描器/异常协议快速断开，避免长连接持续刷日志。
+			CString 请求摘要 = 客户端请求.Left(80);
+			for (int i = 0; i < 请求摘要.GetLength(); ++i)
+			{
+				TCHAR ch = 请求摘要[i];
+				if (ch < 0x20 || ch == 0x7F)
+				{
+					请求摘要.SetAt(i, _T('.'));
+				}
+			}
+
+			对话框指针->添加信息显示(客户端IP + _T(" 未知请求(已断开): ") + 请求摘要);
+			break;
 		}
 		//处理完请求后短暂休眠，避免过于频繁的循环
 		Sleep(10);
@@ -2714,6 +2728,15 @@ BOOL NageDlqServerDlg::启动端口转发()
 				continue;
 			}
 
+			if (规则->输入端口 == 服务端监听端口)
+			{
+				CString 冲突信息;
+				冲突信息.Format(_T("端口转发预检查失败: 规则%d 使用了服务端监听端口 %d，请修改输入端口"),
+					规则->序号, 服务端监听端口);
+				添加信息显示(冲突信息);
+				return FALSE;
+			}
+
 			SOCKET 检测套接字 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 			if (检测套接字 == INVALID_SOCKET)
 			{
@@ -2844,11 +2867,11 @@ void NageDlqServerDlg::设置空白行默认值(int 行索引)
 	// 设置默认状态
 	端口转发列表控件.SetItemText(行索引, 0, _T("已停止"));
 
-	// 设置默认IP和端口
+	// 仅提供本地回环地址，不再默认写入 9896，避免误生成冲突规则。
 	端口转发列表控件.SetItemText(行索引, 2, _T("127.0.0.1"));
-	端口转发列表控件.SetItemText(行索引, 3, _T("9896"));
-	端口转发列表控件.SetItemText(行索引, 4, _T("192.168.100.1"));
-	端口转发列表控件.SetItemText(行索引, 5, _T("9896"));
+	端口转发列表控件.SetItemText(行索引, 3, _T(""));
+	端口转发列表控件.SetItemText(行索引, 4, _T("127.0.0.1"));
+	端口转发列表控件.SetItemText(行索引, 5, _T(""));
 	端口转发列表控件.SetItemText(行索引, 6, _T("0"));
 }
 
@@ -3025,18 +3048,7 @@ BOOL NageDlqServerDlg::验证IP地址(const CString& IP地址)
 // 添加默认转发规则
 void NageDlqServerDlg::添加默认转发规则()
 {
-	// 先检查是否已经有规则
-	auto 规则列表 = 端口转发管理器.获取规则列表();
-	if (!规则列表.empty())
-	{
-		return;
-	}
-
-	// 添加一条默认规则
-	端口转发管理器.添加转发规则(_T("127.0.0.1"), 服务端监听端口, _T("192.168.100.1"), 服务端监听端口);
-
-	// 保存配置
-	保存端口转发配置();
+	// 端口转发是可选功能，不再自动创建默认规则，避免与服务端监听端口冲突。
 }
 
 // 刷新端口转发列表
@@ -3203,8 +3215,57 @@ BOOL NageDlqServerDlg::加载端口转发配置()
 
 		if (端口转发管理器.加载配置())
 		{
+			auto 规则列表 = 端口转发管理器.获取规则列表();
+			std::set<CString> 已存在规则键;
+			std::vector<int> 待删除规则序号;
+
+			for (const auto* 规则 : 规则列表)
+			{
+				if (!规则)
+				{
+					continue;
+				}
+
+				if (规则->输入端口 == 服务端监听端口)
+				{
+					待删除规则序号.push_back(规则->序号);
+					continue;
+				}
+
+				CString 规则键;
+				规则键.Format(_T("%s|%d|%s|%d"), 规则->输入IP, 规则->输入端口, 规则->输出IP, 规则->输出端口);
+				if (已存在规则键.find(规则键) != 已存在规则键.end())
+				{
+					待删除规则序号.push_back(规则->序号);
+					continue;
+				}
+
+				已存在规则键.insert(规则键);
+			}
+
+			if (!待删除规则序号.empty())
+			{
+				std::sort(待删除规则序号.rbegin(), 待删除规则序号.rend());
+				for (int 规则序号 : 待删除规则序号)
+				{
+					端口转发管理器.删除转发规则(规则序号);
+				}
+
+				保存端口转发配置();
+
+				CString 清理信息;
+				清理信息.Format(_T("已自动清理 %d 条无效端口转发规则"), static_cast<int>(待删除规则序号.size()));
+				添加信息显示(清理信息);
+			}
+
 			int 规则数量 = 端口转发管理器.获取规则列表().size();
 			TRACE(_T("配置加载成功，规则数量: %d\n"), 规则数量);
+
+			if (规则数量 <= 0)
+			{
+				添加信息显示(_T("端口转发配置中没有可用规则"));
+				return FALSE;
+			}
 
 			CString 信息;
 			信息.Format(_T("端口转发配置加载成功，%d 条规则"), 规则数量);
@@ -3380,6 +3441,12 @@ void NageDlqServerDlg::更新规则数据(int 行, int 列, const CString& 新�
 
 	if (更新成功)
 	{
+		if (输入端口 == 服务端监听端口)
+		{
+			添加信息显示(_T("输入端口不能与服务端监听端口 9896 相同"));
+			return;
+		}
+
 		// 检查是更新现有规则还是新增规则
 		auto 规则列表 = 端口转发管理器.获取规则列表();
 		BOOL 是现有规则 = (行 < (int)规则列表.size());
@@ -3396,6 +3463,13 @@ void NageDlqServerDlg::更新规则数据(int 行, int 列, const CString& 新�
 		}
 		else
 		{
+			if (!验证IP地址(输入IP) || !验证IP地址(输出IP) ||
+				输入端口 <= 0 || 输入端口 > 65535 ||
+				输出端口 <= 0 || 输出端口 > 65535)
+			{
+				return;
+			}
+
 			// 新增规则
 			if (端口转发管理器.添加转发规则(输入IP, 输入端口, 输出IP, 输出端口))
 			{
@@ -3405,7 +3479,7 @@ void NageDlqServerDlg::更新规则数据(int 行, int 列, const CString& 新�
 			}
 			else
 			{
-				添加信息显示(_T("新规则添加失败"));
+				添加信息显示(_T("新规则添加失败，规则重复或参数无效"));
 			}
 		}
 
@@ -3469,6 +3543,13 @@ void NageDlqServerDlg::处理新增规则(int 行)
 		添加信息显示(_T("新增规则数据无效，请检查IP和端口"));
 
 		// 删除无效行
+		端口转发列表控件.DeleteItem(行);
+		return;
+	}
+
+	if (输入端口 == 服务端监听端口)
+	{
+		添加信息显示(_T("新增规则失败：输入端口不能与服务端监听端口 9896 相同"));
 		端口转发列表控件.DeleteItem(行);
 		return;
 	}
@@ -4225,20 +4306,44 @@ void NageDlqServerDlg::接受客户端连接()
 		TRACE(_T("新客户端连接: %s\n"), 客户端IP);
 		添加信息显示(客户端IP + _T(" 建立连接，开始检测协议"));
 
+		if (!检查IP权限(客户端IP))
+		{
+			添加信息显示(客户端IP + _T(" 连接已拒绝(IP权限限制)"));
+			closesocket(客户端套接字);
+			continue;
+		}
+
 		// 首先接收少量数据来判断连接类型
 		char 检测缓冲区[1024];
 		memset(检测缓冲区, 0, sizeof(检测缓冲区));
 
-		// 设置接收超时（1秒）
+		fd_set 读集合;
+		FD_ZERO(&读集合);
+		FD_SET(客户端套接字, &读集合);
+
 		struct timeval 超时;
 		超时.tv_sec = 1;
 		超时.tv_usec = 0;
-		setsockopt(客户端套接字, SOL_SOCKET, SO_RCVTIMEO, (char*)&超时, sizeof(超时));
+
+		int 选择结果 = select(0, &读集合, NULL, NULL, &超时);
+		if (选择结果 == SOCKET_ERROR)
+		{
+			int 选择错误码 = WSAGetLastError();
+			CString 错误信息;
+			错误信息.Format(_T("%s 初始检测select失败，错误码: %d"), 客户端IP, 选择错误码);
+			添加信息显示(错误信息);
+			closesocket(客户端套接字);
+			continue;
+		}
+
+		if (选择结果 == 0)
+		{
+			添加信息显示(客户端IP + _T(" 初始检测超时，已关闭空闲连接"));
+			closesocket(客户端套接字);
+			continue;
+		}
 
 		int 检测长度 = recv(客户端套接字, 检测缓冲区, sizeof(检测缓冲区) - 1, 0);
-
-		// 移除超时设置
-		setsockopt(客户端套接字, SOL_SOCKET, SO_RCVTIMEO, NULL, 0);
 
 		if (检测长度 > 0)
 		{
@@ -4329,6 +4434,9 @@ void NageDlqServerDlg::接受客户端连接()
 				错误信息.Format(_T("%s 初始检测接收失败，错误码: %d"), 客户端IP, 检测错误码);
 				添加信息显示(错误信息);
 			}
+
+			closesocket(客户端套接字);
+			continue;
 		}
 
 		// 普通TCP连接，添加到客户端列表
