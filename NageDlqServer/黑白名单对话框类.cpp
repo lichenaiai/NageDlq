@@ -65,6 +65,9 @@ IMPLEMENT_DYNAMIC(黑白名单对话框类, CDialogEx)
 
 黑白名单对话框类::黑白名单对话框类(CWnd* pParent /*=nullptr*/)
     : CDialogEx(IDD_BWLIST_DIALOG, pParent)
+    , 自动拉黑启用(FALSE)
+    , 自动拉黑阈值(5)
+    , 自动拉黑窗口秒(60)
 {
 }
 
@@ -77,6 +80,9 @@ void 黑白名单对话框类::DoDataExchange(CDataExchange* pDX)
     CDialogEx::DoDataExchange(pDX);
     DDX_Control(pDX, IDC_BLIST_BWLIST, 黑名单列表框);
     DDX_Control(pDX, IDC_WLIST_BWLIST, 白名单列表框);
+    DDX_Control(pDX, IDC_AUTO_BLACKLIST_ENABLE, 自动拉黑复选框);
+    DDX_Control(pDX, IDC_AUTO_BLACKLIST_THRESHOLD, 阈值编辑框);
+    DDX_Control(pDX, IDC_AUTO_BLACKLIST_WINDOW, 窗口编辑框);
 }
 
 BEGIN_MESSAGE_MAP(黑白名单对话框类, CDialogEx)
@@ -84,6 +90,7 @@ BEGIN_MESSAGE_MAP(黑白名单对话框类, CDialogEx)
     ON_BN_CLICKED(ID_CLOSE_BW, &黑白名单对话框类::OnBnClickedCloseBw)
     ON_LBN_DBLCLK(IDC_BLIST_BWLIST, &黑白名单对话框类::OnLbnDblclkBlistBwlist)
     ON_LBN_DBLCLK(IDC_WLIST_BWLIST, &黑白名单对话框类::OnLbnDblclkWlistBwlist)
+    ON_BN_CLICKED(IDC_AUTO_BLACKLIST_ENABLE, &黑白名单对话框类::OnBnClickedAutoBlacklist)
 END_MESSAGE_MAP()
 
 // 黑白名单对话框类 消息处理程序
@@ -95,6 +102,9 @@ BOOL 黑白名单对话框类::OnInitDialog()
 
     // 加载IP列表
     加载IP列表();
+
+    // 加载自动拉黑配置
+    加载自动拉黑配置();
 
     return TRUE;
 }
@@ -114,9 +124,9 @@ void 黑白名单对话框类::加载IP列表()
         值大小 = sizeof(值数据);
         if (RegQueryValueEx(注册表键, _T("BlackList"), NULL, &值类型, (LPBYTE)值数据, &值大小) == ERROR_SUCCESS)
         {
-            CString 黑名单数据(值数据);
+            CString 黑名单字符串(值数据);
             int 位置 = 0;
-            CString IP地址 = 黑名单数据.Tokenize(_T(";"), 位置);
+            CString IP地址 = 黑名单字符串.Tokenize(_T(";"), 位置);
             int 序号 = 1;
             while (!IP地址.IsEmpty())
             {
@@ -127,7 +137,7 @@ void 黑白名单对话框类::加载IP列表()
                     显示文本.Format(_T("%d. %s"), 序号++, IP地址);
                     黑名单列表框.AddString(显示文本);
                 }
-                IP地址 = 黑名单数据.Tokenize(_T(";"), 位置);
+                IP地址 = 黑名单字符串.Tokenize(_T(";"), 位置);
             }
         }
 
@@ -135,9 +145,9 @@ void 黑白名单对话框类::加载IP列表()
         值大小 = sizeof(值数据);
         if (RegQueryValueEx(注册表键, _T("WhiteList"), NULL, &值类型, (LPBYTE)值数据, &值大小) == ERROR_SUCCESS)
         {
-            CString 白名单数据(值数据);
+            CString 白名单字符串(值数据);
             int 位置 = 0;
-            CString IP地址 = 白名单数据.Tokenize(_T(";"), 位置);
+            CString IP地址 = 白名单字符串.Tokenize(_T(";"), 位置);
             int 序号 = 1;
             while (!IP地址.IsEmpty())
             {
@@ -148,7 +158,7 @@ void 黑白名单对话框类::加载IP列表()
                     显示文本.Format(_T("%d. %s"), 序号++, IP地址);
                     白名单列表框.AddString(显示文本);
                 }
-                IP地址 = 白名单数据.Tokenize(_T(";"), 位置);
+                IP地址 = 白名单字符串.Tokenize(_T(";"), 位置);
             }
         }
 
@@ -158,15 +168,15 @@ void 黑白名单对话框类::加载IP列表()
 
 void 黑白名单对话框类::保存IP列表()
 {
-    CString 黑名单数据, 白名单数据;
+    CString 黑名单字符串, 白名单字符串;
 
-    // 构建黑名单数据
+    // 收集黑名单字符串
     for (int i = 0; i < 黑名单列表框.GetCount(); i++)
     {
         CString 项文本;
         黑名单列表框.GetText(i, 项文本);
 
-        // 提取IP地址（去掉序号）
+        // 获取IP地址（去掉序号）
         int 点位置 = 项文本.Find(_T(". "));
         if (点位置 != -1)
         {
@@ -174,20 +184,20 @@ void 黑白名单对话框类::保存IP列表()
             IP地址.Trim();
             if (!IP地址.IsEmpty())
             {
-                if (!黑名单数据.IsEmpty())
-                    黑名单数据 += _T(";");
-                黑名单数据 += IP地址;
+                if (!黑名单字符串.IsEmpty())
+                    黑名单字符串 += _T(";");
+                黑名单字符串 += IP地址;
             }
         }
     }
 
-    // 构建白名单数据
+    // 收集白名单字符串
     for (int i = 0; i < 白名单列表框.GetCount(); i++)
     {
         CString 项文本;
         白名单列表框.GetText(i, 项文本);
 
-        // 提取IP地址（去掉序号）
+        // 获取IP地址（去掉序号）
         int 点位置 = 项文本.Find(_T(". "));
         if (点位置 != -1)
         {
@@ -195,9 +205,9 @@ void 黑白名单对话框类::保存IP列表()
             IP地址.Trim();
             if (!IP地址.IsEmpty())
             {
-                if (!白名单数据.IsEmpty())
-                    白名单数据 += _T(";");
-                白名单数据 += IP地址;
+                if (!白名单字符串.IsEmpty())
+                    白名单字符串 += _T(";");
+                白名单字符串 += IP地址;
             }
         }
     }
@@ -206,8 +216,8 @@ void 黑白名单对话框类::保存IP列表()
     HKEY 注册表键;
     if (RegCreateKeyEx(HKEY_CURRENT_USER, _T("Software\\NageServer\\IPLists"), 0, NULL, 0, KEY_WRITE, NULL, &注册表键, NULL) == ERROR_SUCCESS)
     {
-        RegSetValueEx(注册表键, _T("BlackList"), 0, REG_SZ, (const BYTE*)(LPCTSTR)黑名单数据, (黑名单数据.GetLength() + 1) * sizeof(TCHAR));
-        RegSetValueEx(注册表键, _T("WhiteList"), 0, REG_SZ, (const BYTE*)(LPCTSTR)白名单数据, (白名单数据.GetLength() + 1) * sizeof(TCHAR));
+        RegSetValueEx(注册表键, _T("BlackList"), 0, REG_SZ, (const BYTE*)(LPCTSTR)黑名单字符串, (黑名单字符串.GetLength() + 1) * sizeof(TCHAR));
+        RegSetValueEx(注册表键, _T("WhiteList"), 0, REG_SZ, (const BYTE*)(LPCTSTR)白名单字符串, (白名单字符串.GetLength() + 1) * sizeof(TCHAR));
         RegCloseKey(注册表键);
     }
 
@@ -217,51 +227,62 @@ void 黑白名单对话框类::保存IP列表()
 void 黑白名单对话框类::OnBnClickedSaveBw()
 {
     保存IP列表();
+    保存自动拉黑配置();
 }
 
 void 黑白名单对话框类::OnBnClickedCloseBw()
 {
+    // 关闭时也保存自动拉黑配置
+    保存自动拉黑配置();
     EndDialog(IDOK);
+}
+
+void 黑白名单对话框类::OnBnClickedAutoBlacklist()
+{
+    自动拉黑启用 = (自动拉黑复选框.GetCheck() == BST_CHECKED);
+    // 启用/禁用阈值编辑框
+    阈值编辑框.EnableWindow(自动拉黑启用);
+    窗口编辑框.EnableWindow(自动拉黑启用);
 }
 
 void 黑白名单对话框类::OnLbnDblclkBlistBwlist()
 {
-    int 选中索引 = 黑名单列表框.GetCurSel();
-    if (选中索引 != LB_ERR)
+    int 选择索引 = 黑名单列表框.GetCurSel();
+    if (选择索引 != LB_ERR)
     {
-        编辑列表框项(黑名单列表框, 选中索引);
+        编辑列表项目(黑名单列表框, 选择索引);
     }
 }
 
 void 黑白名单对话框类::OnLbnDblclkWlistBwlist()
 {
-    int 选中索引 = 白名单列表框.GetCurSel();
-    if (选中索引 != LB_ERR)
+    int 选择索引 = 白名单列表框.GetCurSel();
+    if (选择索引 != LB_ERR)
     {
-        编辑列表框项(白名单列表框, 选中索引);
+        编辑列表项目(白名单列表框, 选择索引);
     }
 }
 
-BOOL 黑白名单对话框类::编辑列表框项(CListBox& 列表框, int 项索引)
+BOOL 黑白名单对话框类::编辑列表项目(CListBox& 列表框, int 项目索引)
 {
-    CString 旧文本;
-    列表框.GetText(项索引, 旧文本);
+    CString 项文本;
+    列表框.GetText(项目索引, 项文本);
 
-    // 提取原始IP（去掉序号）
+    // 获取原始IP（去掉序号）
     CString 旧IP;
-    int 点位置 = 旧文本.Find(_T(". "));
+    int 点位置 = 项文本.Find(_T(". "));
     if (点位置 != -1)
     {
-        旧IP = 旧文本.Mid(点位置 + 2);
+        旧IP = 项文本.Mid(点位置 + 2);
     }
     else
     {
-        旧IP = 旧文本;
+        旧IP = 项文本;
     }
 
     CString 新IP = 旧IP;
 
-    // 弹出编辑对话框
+    // 创建编辑对话框
     CString 提示信息;
     if (&列表框 == &黑名单列表框)
         提示信息 = _T("编辑黑名单IP地址:");
@@ -284,10 +305,10 @@ BOOL 黑白名单对话框类::编辑列表框项(CListBox& 列表框, int 项索引)
 
         // 更新列表项
         CString 新文本;
-        新文本.Format(_T("%d. %s"), 项索引 + 1, 验证后的IP);
-        列表框.DeleteString(项索引);
-        列表框.InsertString(项索引, 新文本);
-        列表框.SetCurSel(项索引);
+        新文本.Format(_T("%d. %s"), 项目索引 + 1, 验证后的IP);
+        列表框.DeleteString(项目索引);
+        列表框.InsertString(项目索引, 新文本);
+        列表框.SetCurSel(项目索引);
 
         return TRUE;
     }
@@ -304,20 +325,20 @@ CString 黑白名单对话框类::验证IP地址(const CString& IP地址)
     if (验证后的IP.IsEmpty())
         return _T("");
 
-    // 检查IP地址格式 (简单验证)
+    // 检查IP地址格式（简单验证）
     CStringArray 部分数组;
     int 位置 = 0;
     CString 部分 = 验证后的IP.Tokenize(_T("."), 位置);
-    int 部分数量 = 0;
+    int 部分计数 = 0;
 
     while (!部分.IsEmpty())
     {
         部分数组.Add(部分);
         部分 = 验证后的IP.Tokenize(_T("."), 位置);
-        部分数量++;
+        部分计数++;
     }
 
-    if (部分数量 != 4)
+    if (部分计数 != 4)
         return _T("");
 
     for (int i = 0; i < 部分数组.GetSize(); i++)
@@ -328,4 +349,83 @@ CString 黑白名单对话框类::验证IP地址(const CString& IP地址)
     }
 
     return 验证后的IP;
+}
+
+// ============================================================
+// 自动拉黑配置：加载/保存
+// ============================================================
+void 黑白名单对话框类::加载自动拉黑配置()
+{
+    HKEY hKey;
+    if (RegOpenKeyEx(HKEY_CURRENT_USER, _T("Software\\NageServer\\IPLists"), 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+    {
+        DWORD dwType, dwSize, dwValue;
+
+        // 读取自动拉黑启用状态
+        dwSize = sizeof(DWORD);
+        if (RegQueryValueEx(hKey, _T("AutoBlacklistEnable"), NULL, &dwType, (LPBYTE)&dwValue, &dwSize) == ERROR_SUCCESS)
+        {
+            自动拉黑启用 = (dwValue != 0);
+        }
+
+        // 读取触发阈值
+        dwSize = sizeof(DWORD);
+        if (RegQueryValueEx(hKey, _T("AutoBlacklistThreshold"), NULL, &dwType, (LPBYTE)&dwValue, &dwSize) == ERROR_SUCCESS)
+        {
+            自动拉黑阈值 = (int)dwValue;
+        }
+
+        // 读取时间窗口
+        dwSize = sizeof(DWORD);
+        if (RegQueryValueEx(hKey, _T("AutoBlacklistWindow"), NULL, &dwType, (LPBYTE)&dwValue, &dwSize) == ERROR_SUCCESS)
+        {
+            自动拉黑窗口秒 = (int)dwValue;
+        }
+
+        RegCloseKey(hKey);
+    }
+
+    // 更新UI
+    自动拉黑复选框.SetCheck(自动拉黑启用 ? BST_CHECKED : BST_UNCHECKED);
+
+    CString 阈值文本;
+    阈值文本.Format(_T("%d"), 自动拉黑阈值);
+    阈值编辑框.SetWindowText(阈值文本);
+
+    CString 窗口文本;
+    窗口文本.Format(_T("%d"), 自动拉黑窗口秒);
+    窗口编辑框.SetWindowText(窗口文本);
+
+    // 根据启用状态设置编辑框可用性
+    阈值编辑框.EnableWindow(自动拉黑启用);
+    窗口编辑框.EnableWindow(自动拉黑启用);
+}
+
+void 黑白名单对话框类::保存自动拉黑配置()
+{
+    // 从编辑框读取当前值
+    CString 阈值文本, 窗口文本;
+    阈值编辑框.GetWindowText(阈值文本);
+    窗口编辑框.GetWindowText(窗口文本);
+
+    int 新阈值 = _ttoi(阈值文本);
+    int 新窗口 = _ttoi(窗口文本);
+
+    if (新阈值 > 0 && 新阈值 <= 100) 自动拉黑阈值 = 新阈值;
+    if (新窗口 > 0 && 新窗口 <= 3600) 自动拉黑窗口秒 = 新窗口;
+
+    HKEY hKey;
+    if (RegCreateKeyEx(HKEY_CURRENT_USER, _T("Software\\NageServer\\IPLists"), 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS)
+    {
+        DWORD dwEnable = 自动拉黑启用 ? 1 : 0;
+        RegSetValueEx(hKey, _T("AutoBlacklistEnable"), 0, REG_DWORD, (const BYTE*)&dwEnable, sizeof(DWORD));
+
+        DWORD dwThreshold = (DWORD)自动拉黑阈值;
+        RegSetValueEx(hKey, _T("AutoBlacklistThreshold"), 0, REG_DWORD, (const BYTE*)&dwThreshold, sizeof(DWORD));
+
+        DWORD dwWindow = (DWORD)自动拉黑窗口秒;
+        RegSetValueEx(hKey, _T("AutoBlacklistWindow"), 0, REG_DWORD, (const BYTE*)&dwWindow, sizeof(DWORD));
+
+        RegCloseKey(hKey);
+    }
 }

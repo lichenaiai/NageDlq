@@ -39,6 +39,9 @@
 #define IDC_LIST1                       1041
 #define IDC_EDIT_CONTROL				1042
 #define ID_MENU_DELETE_RULE				1043
+#define IDC_AUTO_BLACKLIST_ENABLE       1044
+#define IDC_AUTO_BLACKLIST_THRESHOLD    1045
+#define IDC_AUTO_BLACKLIST_WINDOW       1046
 
 // Next default values for new objects
 // 

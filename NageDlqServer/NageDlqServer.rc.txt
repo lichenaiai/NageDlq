@@ -1,0 +1,285 @@
+﻿// Microsoft Visual C++ generated resource script.
+//
+#include "resource.h"
+
+#define APSTUDIO_READONLY_SYMBOLS
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 2 resource.
+//
+#ifndef APSTUDIO_INVOKED
+#include "targetver.h"
+#endif
+#include "afxres.h"
+#include "verrsrc.h"
+
+/////////////////////////////////////////////////////////////////////////////
+#undef APSTUDIO_READONLY_SYMBOLS
+
+/////////////////////////////////////////////////////////////////////////////
+// 中文(简体，中国) resources
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
+LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED
+
+#ifdef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE
+//
+
+1 TEXTINCLUDE 
+BEGIN
+    "resource.h\0"
+END
+
+2 TEXTINCLUDE 
+BEGIN
+    "#ifndef APSTUDIO_INVOKED\r\n"
+    "#include ""targetver.h""\r\n"
+    "#endif\r\n"
+    "#include ""afxres.h""\r\n"
+    "#include ""verrsrc.h""\r\n"
+    "\0"
+END
+
+3 TEXTINCLUDE 
+BEGIN
+    "#define _AFX_NO_SPLITTER_RESOURCES\r\n"
+    "#define _AFX_NO_OLE_RESOURCES\r\n"
+    "#define _AFX_NO_TRACKER_RESOURCES\r\n"
+    "#define _AFX_NO_PROPERTY_RESOURCES\r\n"
+    "\r\n"
+    "#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)\r\n"
+    "LANGUAGE 4, 2\r\n"
+    "#include ""res\\NageDlqServer.rc2""  // 非 Microsoft Visual C++ 编辑的资源\r\n"
+    "#include ""l.CHS\\afxres.rc""      // 标准组件\r\n"
+    "#if !defined(_AFXDLL)\r\n"
+    "#include ""l.CHS\\afxribbon.rc""   // MFC 功能区和控制条资源\r\n"
+    "#endif\r\n"
+    "#endif\r\n"
+    "\0"
+END
+
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Icon
+//
+
+// Icon with lowest ID value placed first to ensure application icon
+// remains consistent on all systems.
+IDR_MAINFRAME           ICON                    "res\\NageDlqServer.ico"
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Dialog
+//
+
+IDD_ABOUTBOX DIALOGEX 0, 0, 170, 62
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "关于 NageDlqServer"
+FONT 9, "MS Shell Dlg", 0, 0, 0x1
+BEGIN
+    ICON            IDR_MAINFRAME,IDC_STATIC,14,14,21,20
+    LTEXT           "NageDlqServer，版本 1.0",IDC_STATIC,42,14,114,8,SS_NOPREFIX
+    LTEXT           "版权所有 (C) 2025",IDC_STATIC,42,26,114,8
+    DEFPUSHBUTTON   "确定",IDOK,113,41,50,14,WS_GROUP
+END
+
+IDD_NAGEDLQSERVER_DIALOG DIALOGEX 0, 0, 453, 276
+STYLE DS_SETFONT | DS_FIXEDSYS | WS_MINIMIZEBOX | WS_POPUP | WS_VISIBLE | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
+EXSTYLE WS_EX_APPWINDOW
+CAPTION "震撼美丽登录器服务端"
+FONT 9, "MS Shell Dlg", 0, 0, 0x1
+BEGIN
+    LTEXT           "权限状态：",IDC_STATIC_KEY,13,255,77,8,SS_NOTIFY
+    LTEXT           "连接数量：",IDC_STATIC_CONNECTIONS,185,255,66,8,SS_NOTIFY
+    LTEXT           "当前版本号：",IDC_STATIC_VERSION,93,255,88,8,SS_NOTIFY
+    CONTROL         "",IDC_LIST_FORWARD,"SysListView32",LVS_REPORT | LVS_SINGLESEL | WS_BORDER | WS_VSCROLL | WS_TABSTOP,211,107,235,118
+    PUSHBUTTON      "停止转发",IDC_BUTTON_STOP_FORWARD,352,233,50,14
+    PUSHBUTTON      "启用转发",IDC_BUTTON_START_FORWARD,248,232,50,14
+    PUSHBUTTON      "断开低版本",IDC_BUTTON_UPDATE_CLIENT,138,225,61,20
+    PUSHBUTTON      "推送HOOK更新",IDC_BUTTON_UPDATE_HOOK,73,187,61,20
+    PUSHBUTTON      "启动",IDC_BUTTON_START,22,162,45,42
+    PUSHBUTTON      "停止",IDC_BUTTON_STOP,140,162,45,42
+    PUSHBUTTON      "设置",IDC_BUTTON_SETTINGS,80,231,50,14
+    LISTBOX         IDC_EDIT_INFO,7,15,201,141,LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "黑白名单",IDC_BUTTON_BWLIST,21,231,50,14
+    LISTBOX         IDC_LIST1,211,15,235,88,LBS_SORT | LBS_NOINTEGRALHEIGHT | WS_VSCROLL | WS_TABSTOP
+END
+
+IDD_SETTINGS_DIALOG DIALOGEX 0, 0, 309, 176
+STYLE DS_SETFONT | DS_FIXEDSYS | WS_POPUP | WS_SYSMENU
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    DEFPUSHBUTTON   "保存",IDOK,109,145,50,14
+    PUSHBUTTON      "取消",IDCANCEL,163,145,50,14
+    LTEXT           "数据库用户：",IDC_STATIC,20,28,49,8
+    LTEXT           "数据库密码：",IDC_STATIC,20,59,49,8
+    LTEXT           "数据库名称：",IDC_STATIC,20,92,49,8
+    LTEXT           "连接状态：",IDC_STATIC_CONNECTION_STATUS,172,56,69,8,SS_NOTIFY
+    EDITTEXT        IDC_EDIT_DB_USER,75,23,73,14,ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_DB_PASSWORD,75,54,73,14,ES_PASSWORD | ES_AUTOHSCROLL
+    EDITTEXT        IDC_EDIT_DB_NAME,75,86,73,14,ES_AUTOHSCROLL
+    PUSHBUTTON      "测试连接",IDC_BUTTON_TEST_CONNECTION,198,85,50,14
+END
+
+IDD_BWLIST_DIALOG DIALOGEX 0, 0, 309, 176
+STYLE DS_SETFONT | DS_FIXEDSYS | WS_POPUP | WS_SYSMENU
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    DEFPUSHBUTTON   "保存",ID_SAVE_BW,71,147,50,14
+    PUSHBUTTON      "关闭",ID_CLOSE_BW,189,147,50,14
+    LISTBOX         IDC_BLIST_BWLIST,14,26,140,111,LBS_SORT | LBS_NOINTEGRALHEIGHT | LBS_MULTICOLUMN | WS_VSCROLL | WS_TABSTOP
+    LISTBOX         IDC_WLIST_BWLIST,156,26,140,111,LBS_SORT | LBS_NOINTEGRALHEIGHT | LBS_MULTICOLUMN | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "黑名单",IDC_STATIC,73,14,25,8
+    LTEXT           "白名单",IDC_STATIC,213,14,25,8
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Version
+//
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,1
+ PRODUCTVERSION 1,0,0,1
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404B0"
+        BEGIN
+            VALUE "CompanyName", "TODO: <公司名>"
+            VALUE "FileDescription", "NageDlqServer"
+            VALUE "FileVersion", "1.0.0.1"
+            VALUE "InternalName", "NageDlqServer.exe"
+            VALUE "LegalCopyright", "TODO:  (C) <公司名>。  保留所有权利。"
+            VALUE "OriginalFilename", "NageDlqServer.exe"
+            VALUE "ProductName", "TODO: <产品名>"
+            VALUE "ProductVersion", "1.0.0.1"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// DESIGNINFO
+//
+
+#ifdef APSTUDIO_INVOKED
+GUIDELINES DESIGNINFO
+BEGIN
+    IDD_ABOUTBOX, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 163
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 55
+    END
+
+    IDD_NAGEDLQSERVER_DIALOG, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 446
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 269
+    END
+
+    IDD_SETTINGS_DIALOG, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 302
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 169
+    END
+
+    IDD_BWLIST_DIALOG, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 302
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 169
+    END
+END
+#endif    // APSTUDIO_INVOKED
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// AFX_DIALOG_LAYOUT
+//
+
+IDD_NAGEDLQSERVER_DIALOG AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
+IDD_SETTINGS_DIALOG AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
+IDD_BWLIST_DIALOG AFX_DIALOG_LAYOUT
+BEGIN
+    0
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// String Table
+//
+
+STRINGTABLE
+BEGIN
+    IDS_ABOUTBOX            "关于 NageDlqServer(&A)..."
+    IDP_SOCKETS_INIT_FAILED "Windows 套接字初始化失败。"
+END
+
+#endif    // 中文(简体，中国) resources
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+#ifndef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// Generated from the TEXTINCLUDE 3 resource.
+//
+#define _AFX_NO_SPLITTER_RESOURCES
+#define _AFX_NO_OLE_RESOURCES
+#define _AFX_NO_TRACKER_RESOURCES
+#define _AFX_NO_PROPERTY_RESOURCES
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_CHS)
+LANGUAGE 4, 2
+#include "res\NageDlqServer.rc2"  // 非 Microsoft Visual C++ 编辑的资源
+#include "l.CHS\afxres.rc"      // 标准组件
+#if !defined(_AFXDLL)
+#include "l.CHS\afxribbon.rc"   // MFC 功能区和控制条资源
+#endif
+#endif
+
+/////////////////////////////////////////////////////////////////////////////
+#endif    // not APSTUDIO_INVOKED
+
+

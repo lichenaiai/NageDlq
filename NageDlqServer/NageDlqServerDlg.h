@@ -81,6 +81,20 @@ private:
 	std::map<SOCKET, CString> 客户端初始请求缓存;
 	CRITICAL_SECTION 客户端列表锁;
 
+	// IP速率限制：记录最近因初始超时被拒绝的IP及时间，防止扫描器刷屏
+	std::map<CString, DWORD> 最近拒绝IP记录;
+	CRITICAL_SECTION 拒绝IP锁;
+	static constexpr DWORD 拒绝冷却毫秒 = 10000;   // 拒绝后冷却10秒
+	static constexpr DWORD 初始检测超时秒 = 5;       // 初始协议检测超时（秒）
+	static constexpr DWORD 拒绝记录清理间隔 = 60000; // 每60秒清理一次过期记录
+
+	// 自动拉黑：跟踪IP的连接超时次数和时间戳
+	BOOL 自动拉黑启用;
+	int 自动拉黑阈值;    // 触发自动拉黑的超时次数
+	int 自动拉黑窗口秒;  // 统计时间窗口（秒）
+	std::map<CString, std::vector<DWORD>> 连接超时记录;  // IP -> 超时时间戳列表
+	CRITICAL_SECTION 连接超时记录锁;
+
 	// 日志文件相关
 	CStdioFile 日志文件;
 	CString 当前日志文件名;
@@ -180,6 +194,9 @@ public:
 	int 比较版本号(const CString& 版本1, const CString& 版本2);
 	BOOL 检查IP权限(const CString& IP地址);
 	void 加载黑白名单();
+	void 加载自动拉黑配置();                         // 从注册表加载自动拉黑设置
+	void 检查并自动拉黑(const CString& IP地址);       // 记录超时并可能触发拉黑
+	void 添加到黑名单并保存(const CString& IP地址);   // 将IP加入黑名单并持久化
 
 	CButton 黑白名单按钮;
 

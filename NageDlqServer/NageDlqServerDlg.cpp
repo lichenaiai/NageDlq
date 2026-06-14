@@ -43,6 +43,9 @@ NageDlqServerDlg::NageDlqServerDlg(CWnd* pParent /*=nullptr*/)
 	, 客户端连接数量(0)
 	, 已初始化显示(FALSE)		// 添加初始化标志
 	, 日志文件已打开(FALSE)
+	, 自动拉黑启用(FALSE)
+	, 自动拉黑阈值(5)
+	, 自动拉黑窗口秒(60)
 {
 	// 数据库配置 - 使用SQL Server默认设置
 	数据库用户名 = _T("sa");           // SQL Server默认管理员
@@ -50,6 +53,8 @@ NageDlqServerDlg::NageDlqServerDlg(CWnd* pParent /*=nullptr*/)
 	数据库名称 = _T("nagelogin");      // 您的数据库名
 
 	InitializeCriticalSection(&客户端列表锁);
+	InitializeCriticalSection(&拒绝IP锁);
+	InitializeCriticalSection(&连接超时记录锁);
 	
 	初始化日志文件();
 }
@@ -69,6 +74,8 @@ NageDlqServerDlg::~NageDlqServerDlg()
 	关闭日志文件();
 
 	DeleteCriticalSection(&客户端列表锁);
+	DeleteCriticalSection(&拒绝IP锁);
+	DeleteCriticalSection(&连接超时记录锁);
 	
 	安全停止端口转发();
 
@@ -176,6 +183,9 @@ BOOL NageDlqServerDlg::OnInitDialog()
 
 	// 设置WebSocket回调函数
 	WebSocket处理器.设置回调函数(WebSocket消息处理函数, this);
+
+	// 加载自动拉黑配置
+	加载自动拉黑配置();
 
 	// 启动定时器，每1秒刷新一次连接数
 	端口转发刷新定时器 = SetTimer(1000, 1000, NULL); // ID=1000, 间隔1秒
@@ -466,7 +476,7 @@ UINT NageDlqServerDlg::服务器线程函数(LPVOID pParam)
 	}
 
 	// 开始监听
-	if (listen(对话框指针->监听套接字, 10) == SOCKET_ERROR)
+	if (listen(对话框指针->监听套接字, SOMAXCONN) == SOCKET_ERROR)
 	{
 		int 错误码 = WSAGetLastError();
 		CString 错误信息;
@@ -4264,187 +4274,336 @@ CString NageDlqServerDlg::获取物品游戏代码(int 物品ID)
 
 void NageDlqServerDlg::接受客户端连接()
 {
-	while (服务器运行状态)
-	{
-		SOCKET 客户端套接字 = accept(监听套接字, NULL, NULL);
-		if (客户端套接字 == INVALID_SOCKET)
-		{
-			int accept错误码 = WSAGetLastError();
-			if (accept错误码 != WSAEWOULDBLOCK)
-			{
-				CString 错误信息;
-				错误信息.Format(_T("accept失败，错误码: %d"), accept错误码);
-				添加信息显示(错误信息);
-			}
-			Sleep(10);
-			continue;
-		}
+DWORD 上次清理拒绝记录时间 = GetTickCount();
 
-		// 获取客户端IP
-		sockaddr_in 客户端地址;
-		int 地址长度 = sizeof(客户端地址);
-		getpeername(客户端套接字, (sockaddr*)&客户端地址, &地址长度);
+while (服务器运行状态)
+{
+// 定期清理过期的拒绝IP记录
+DWORD 当前Tick = GetTickCount();
+if (当前Tick - 上次清理拒绝记录时间 > 拒绝记录清理间隔)
+{
+EnterCriticalSection(&拒绝IP锁);
+std::vector<CString> 待删除;
+for (const auto& 条目 : 最近拒绝IP记录)
+{
+if (当前Tick - 条目.second > 拒绝冷却毫秒 * 2)
+{
+待删除.push_back(条目.first);
+}
+}
+for (const auto& ip : 待删除)
+{
+最近拒绝IP记录.erase(ip);
+}
+上次清理拒绝记录时间 = 当前Tick;
+LeaveCriticalSection(&拒绝IP锁);
+}
 
-		// 转换IP地址
-		char ipAddress[INET_ADDRSTRLEN];
-		const char* 转换结果 = inet_ntop(AF_INET, &(客户端地址.sin_addr), ipAddress, INET_ADDRSTRLEN);
-		CString 客户端IP;
-		if (转换结果 != NULL)
-		{
-			// 根据项目编码类型进行转换
-			#ifdef _UNICODE
-				客户端IP = CString(CA2W(ipAddress));
-			#else
-				客户端IP = CString(ipAddress);
-			#endif
-		}
-		else
-		{
-			客户端IP = _T("未知IP");
-		}
+sockaddr_in 客户端地址;
+int 地址长度 = sizeof(客户端地址);
+SOCKET 客户端套接字 = accept(监听套接字, (sockaddr*)&客户端地址, &地址长度);
+if (客户端套接字 == INVALID_SOCKET)
+{
+int accept错误码 = WSAGetLastError();
+if (accept错误码 != WSAEWOULDBLOCK)
+{
+CString 错误信息;
+错误信息.Format(_T("accept失败，错误码: %d"), accept错误码);
+添加信息显示(错误信息);
+}
+Sleep(100);
+continue;
+}
 
-		TRACE(_T("新客户端连接: %s\n"), 客户端IP);
-		添加信息显示(客户端IP + _T(" 建立连接，开始检测协议"));
+// 获取客户端IP
+char ipAddress[INET_ADDRSTRLEN];
+const char* 转换结果 = inet_ntop(AF_INET, &(客户端地址.sin_addr), ipAddress, INET_ADDRSTRLEN);
+CString 客户端IP;
+if (转换结果 != NULL)
+{
+#ifdef _UNICODE
+客户端IP = CString(CA2W(ipAddress));
+#else
+客户端IP = CString(ipAddress);
+#endif
+}
+else
+{
+客户端IP = _T("未知IP");
+}
 
-		if (!检查IP权限(客户端IP))
-		{
-			添加信息显示(客户端IP + _T(" 连接已拒绝(IP权限限制)"));
-			closesocket(客户端套接字);
-			continue;
-		}
+// 检查IP是否因初始超时刚被拒绝过（速率限制，防扫描器刷屏）
+bool 被限制 = false;
+EnterCriticalSection(&拒绝IP锁);
+auto 拒绝记录 = 最近拒绝IP记录.find(客户端IP);
+if (拒绝记录 != 最近拒绝IP记录.end())
+{
+DWORD 经过时间 = 当前Tick - 拒绝记录->second;
+if (经过时间 < 拒绝冷却毫秒)
+{
+被限制 = true;
+}
+else
+{
+最近拒绝IP记录.erase(拒绝记录);
+}
+}
+LeaveCriticalSection(&拒绝IP锁);
 
-		// 首先接收少量数据来判断连接类型
-		char 检测缓冲区[1024];
-		memset(检测缓冲区, 0, sizeof(检测缓冲区));
+if (被限制)
+{
+closesocket(客户端套接字);
+continue;
+}
 
-		fd_set 读集合;
-		FD_ZERO(&读集合);
-		FD_SET(客户端套接字, &读集合);
+TRACE(_T("新客户端连接: %s\n"), 客户端IP);
+添加信息显示(客户端IP + _T(" 建立连接，开始检测协议"));
 
-		struct timeval 超时;
-		超时.tv_sec = 1;
-		超时.tv_usec = 0;
+if (!检查IP权限(客户端IP))
+{
+添加信息显示(客户端IP + _T(" 连接已拒绝(IP权限限制)"));
+closesocket(客户端套接字);
+continue;
+}
 
-		int 选择结果 = select(0, &读集合, NULL, NULL, &超时);
-		if (选择结果 == SOCKET_ERROR)
-		{
-			int 选择错误码 = WSAGetLastError();
-			CString 错误信息;
-			错误信息.Format(_T("%s 初始检测select失败，错误码: %d"), 客户端IP, 选择错误码);
-			添加信息显示(错误信息);
-			closesocket(客户端套接字);
-			continue;
-		}
+// 首先接收少量数据来判断连接类型
+char 检测缓冲区[1024];
+memset(检测缓冲区, 0, sizeof(检测缓冲区));
 
-		if (选择结果 == 0)
-		{
-			添加信息显示(客户端IP + _T(" 初始检测超时，已关闭空闲连接"));
-			closesocket(客户端套接字);
-			continue;
-		}
+fd_set 读集合;
+FD_ZERO(&读集合);
+FD_SET(客户端套接字, &读集合);
 
-		int 检测长度 = recv(客户端套接字, 检测缓冲区, sizeof(检测缓冲区) - 1, 0);
+struct timeval 超时;
+超时.tv_sec = 初始检测超时秒;
+超时.tv_usec = 0;
 
-		if (检测长度 > 0)
-		{
-			检测缓冲区[检测长度] = '\0';
-			std::string 检测数据(检测缓冲区, 检测长度);
-			CString 检测日志;
-			检测日志.Format(_T("%s 初始数据长度: %d"), 客户端IP, 检测长度);
-			添加信息显示(检测日志);
+int 选择结果 = select(0, &读集合, NULL, NULL, &超时);
+if (选择结果 == SOCKET_ERROR)
+{
+int 选择错误码 = WSAGetLastError();
+CString 错误信息;
+错误信息.Format(_T("%s 初始检测select失败，错误码: %d"), 客户端IP, 选择错误码);
+添加信息显示(错误信息);
+closesocket(客户端套接字);
+continue;
+}
 
-			TRACE(_T("收到初始数据: %s\n"), CString(检测数据.c_str()));
+if (选择结果 == 0)
+{
+添加信息显示(客户端IP + _T(" 初始检测超时，已关闭空闲连接"));
 
-			if (WebSocket处理类::是WebSocket握手请求(检测数据))
-			{
-				TRACE(_T("检测到WebSocket连接，IP: %s\n"), 客户端IP);
-				添加信息显示(客户端IP + _T(" 检测到WebSocket握手请求"));
+EnterCriticalSection(&拒绝IP锁);
+最近拒绝IP记录[客户端IP] = GetTickCount();
+LeaveCriticalSection(&拒绝IP锁);
 
-				std::string 握手响应 = WebSocket处理类::生成握手响应(检测数据);
+// 自动拉黑检查
+检查并自动拉黑(客户端IP);
 
-				if (!握手响应.empty())
-				{
-					int 发送长度 = send(客户端套接字, 握手响应.c_str(), static_cast<int>(握手响应.length()), 0);
-					if (发送长度 == SOCKET_ERROR)
-					{
-						int ws发送错误码 = WSAGetLastError();
-						CString 错误信息;
-						错误信息.Format(_T("%s WebSocket握手响应发送失败，错误码: %d"), 客户端IP, ws发送错误码);
-						添加信息显示(错误信息);
-						closesocket(客户端套接字);
-						continue;
-					}
+closesocket(客户端套接字);
+continue;
+}
 
-					TRACE(_T("已发送WebSocket握手响应\n"));
-					添加信息显示(客户端IP + _T(" WebSocket握手完成"));
+int 检测长度 = recv(客户端套接字, 检测缓冲区, sizeof(检测缓冲区) - 1, 0);
 
-					// 转换为ANSI字符串
-					CStringA ipA(客户端IP);
+if (检测长度 > 0)
+{
+检测缓冲区[检测长度] = '\0';
+std::string 检测数据(检测缓冲区, 检测长度);
+CString 检测日志;
+检测日志.Format(_T("%s 初始数据长度: %d"), 客户端IP, 检测长度);
+添加信息显示(检测日志);
 
-					// 处理WebSocket连接
-					WebSocket处理器.处理WebSocket客户端(客户端套接字, ipA.GetString());
-					continue;
-				}
-				else
-				{
-					添加信息显示(客户端IP + _T(" WebSocket握手失败: 缺少或无效Sec-WebSocket-Key"));
-					closesocket(客户端套接字);
-					continue;
-				}
-			}
+TRACE(_T("收到初始数据: %s\n"), CString(检测数据.c_str()));
 
-			// 普通TCP连接：缓存首包，避免首包在协议检测时被吞掉。
-			CString 首包请求;
-			#ifdef _UNICODE
-				int 宽字符长度 = MultiByteToWideChar(CP_UTF8, 0, 检测缓冲区, -1, NULL, 0);
-				if (宽字符长度 > 0)
-				{
-					std::vector<wchar_t> 宽字符缓冲区(宽字符长度);
-					MultiByteToWideChar(CP_UTF8, 0, 检测缓冲区, -1, 宽字符缓冲区.data(), 宽字符长度);
-					首包请求 = 宽字符缓冲区.data();
-				}
-				if (首包请求.IsEmpty())
-				{
-					首包请求 = CString(CA2W(检测缓冲区));
-				}
-			#else
-				首包请求 = CString(检测缓冲区);
-			#endif
+if (WebSocket处理类::是WebSocket握手请求(检测数据))
+{
+TRACE(_T("检测到WebSocket连接，IP: %s\n"), 客户端IP);
+添加信息显示(客户端IP + _T(" 检测到WebSocket握手请求"));
 
-			EnterCriticalSection(&客户端列表锁);
-			客户端初始请求缓存[客户端套接字] = 首包请求;
-			LeaveCriticalSection(&客户端列表锁);
+std::string 握手响应 = WebSocket处理类::生成握手响应(检测数据);
 
-			CString 缓存日志;
-			缓存日志.Format(_T("%s 普通TCP首包已缓存，长度: %d"), 客户端IP, 首包请求.GetLength());
-			添加信息显示(缓存日志);
-		}
-		else if (检测长度 == 0)
-		{
-			添加信息显示(客户端IP + _T(" 初始检测时对端关闭连接"));
-			closesocket(客户端套接字);
-			continue;
-		}
-		else
-		{
-			int 检测错误码 = WSAGetLastError();
-			if (检测错误码 != WSAEWOULDBLOCK && 检测错误码 != WSAETIMEDOUT)
-			{
-				CString 错误信息;
-				错误信息.Format(_T("%s 初始检测接收失败，错误码: %d"), 客户端IP, 检测错误码);
-				添加信息显示(错误信息);
-			}
+if (!握手响应.empty())
+{
+int 发送长度 = send(客户端套接字, 握手响应.c_str(), static_cast<int>(握手响应.length()), 0);
+if (发送长度 == SOCKET_ERROR)
+{
+int ws发送错误码 = WSAGetLastError();
+CString 错误信息;
+错误信息.Format(_T("%s WebSocket握手响应发送失败，错误码: %d"), 客户端IP, ws发送错误码);
+添加信息显示(错误信息);
+closesocket(客户端套接字);
+continue;
+}
 
-			closesocket(客户端套接字);
-			continue;
-		}
+TRACE(_T("已发送WebSocket握手响应\n"));
+添加信息显示(客户端IP + _T(" WebSocket握手完成"));
 
-		// 普通TCP连接，添加到客户端列表
-		EnterCriticalSection(&客户端列表锁);
-		客户端连接列表[客户端套接字] = 客户端IP;
-		LeaveCriticalSection(&客户端列表锁);
+CStringA ipA(客户端IP);
+WebSocket处理器.处理WebSocket客户端(客户端套接字, ipA.GetString());
+continue;
+}
+else
+{
+添加信息显示(客户端IP + _T(" WebSocket握手失败: 缺少或无效Sec-WebSocket-Key"));
+closesocket(客户端套接字);
+continue;
+}
+}
 
-		// 创建TCP客户端线程
-		AfxBeginThread(客户端线程函数, (LPVOID)客户端套接字);
-	}
+// 普通TCP连接：缓存首包，避免首包在协议检测时被吞掉。
+CString 首包请求;
+#ifdef _UNICODE
+int 宽字符长度 = MultiByteToWideChar(CP_UTF8, 0, 检测缓冲区, -1, NULL, 0);
+if (宽字符长度 > 0)
+{
+std::vector<wchar_t> 宽字符缓冲区(宽字符长度);
+MultiByteToWideChar(CP_UTF8, 0, 检测缓冲区, -1, 宽字符缓冲区.data(), 宽字符长度);
+首包请求 = 宽字符缓冲区.data();
+}
+if (首包请求.IsEmpty())
+{
+首包请求 = CString(CA2W(检测缓冲区));
+}
+#else
+首包请求 = CString(检测缓冲区);
+#endif
+
+EnterCriticalSection(&客户端列表锁);
+客户端初始请求缓存[客户端套接字] = 首包请求;
+LeaveCriticalSection(&客户端列表锁);
+
+CString 缓存日志;
+缓存日志.Format(_T("%s 普通TCP首包已缓存，长度: %d"), 客户端IP, 首包请求.GetLength());
+添加信息显示(缓存日志);
+}
+else if (检测长度 == 0)
+{
+添加信息显示(客户端IP + _T(" 初始检测时对端关闭连接"));
+closesocket(客户端套接字);
+continue;
+}
+else
+{
+int 检测错误码 = WSAGetLastError();
+if (检测错误码 != WSAEWOULDBLOCK && 检测错误码 != WSAETIMEDOUT)
+{
+CString 错误信息;
+错误信息.Format(_T("%s 初始检测接收失败，错误码: %d"), 客户端IP, 检测错误码);
+添加信息显示(错误信息);
+}
+
+closesocket(客户端套接字);
+continue;
+}
+
+// 普通TCP连接，添加到客户端列表
+EnterCriticalSection(&客户端列表锁);
+客户端连接列表[客户端套接字] = 客户端IP;
+LeaveCriticalSection(&客户端列表锁);
+
+// 创建TCP客户端线程
+AfxBeginThread(客户端线程函数, (LPVOID)客户端套接字);
+}
+}
+
+// ============================================================
+// 自动拉黑功能
+// ============================================================
+
+void NageDlqServerDlg::加载自动拉黑配置()
+{
+HKEY hKey;
+if (RegOpenKeyEx(HKEY_CURRENT_USER, _T("Software\\NageServer\\IPLists"), 0, KEY_READ, &hKey) == ERROR_SUCCESS)
+{
+DWORD dwType, dwSize, dwValue;
+
+dwSize = sizeof(DWORD);
+if (RegQueryValueEx(hKey, _T("AutoBlacklistEnable"), NULL, &dwType, (LPBYTE)&dwValue, &dwSize) == ERROR_SUCCESS)
+{
+自动拉黑启用 = (dwValue != 0);
+}
+
+dwSize = sizeof(DWORD);
+if (RegQueryValueEx(hKey, _T("AutoBlacklistThreshold"), NULL, &dwType, (LPBYTE)&dwValue, &dwSize) == ERROR_SUCCESS)
+{
+自动拉黑阈值 = (int)dwValue;
+if (自动拉黑阈值 <= 0) 自动拉黑阈值 = 5;
+}
+
+dwSize = sizeof(DWORD);
+if (RegQueryValueEx(hKey, _T("AutoBlacklistWindow"), NULL, &dwType, (LPBYTE)&dwValue, &dwSize) == ERROR_SUCCESS)
+{
+自动拉黑窗口秒 = (int)dwValue;
+if (自动拉黑窗口秒 <= 0) 自动拉黑窗口秒 = 60;
+}
+
+RegCloseKey(hKey);
+}
+}
+
+void NageDlqServerDlg::检查并自动拉黑(const CString& IP地址)
+{
+if (!自动拉黑启用) return;
+
+DWORD 当前时间 = GetTickCount();
+DWORD 窗口毫秒 = (DWORD)自动拉黑窗口秒 * 1000;
+
+EnterCriticalSection(&连接超时记录锁);
+
+auto& 时间戳列表 = 连接超时记录[IP地址];
+时间戳列表.push_back(当前时间);
+
+// 清除超出时间窗口的旧记录
+时间戳列表.erase(
+std::remove_if(时间戳列表.begin(), 时间戳列表.end(),
+[当前时间, 窗口毫秒](DWORD ts) {
+return (当前时间 - ts) > 窗口毫秒;
+}),
+时间戳列表.end()
+);
+
+int 超时次数 = (int)时间戳列表.size();
+bool 应拉黑 = (超时次数 >= 自动拉黑阈值);
+
+LeaveCriticalSection(&连接超时记录锁);
+
+if (应拉黑)
+{
+TRACE(_T("自动拉黑: IP %s 在%d秒内触发%d次超时，自动加入黑名单\n"),
+  IP地址, 自动拉黑窗口秒, 超时次数);
+添加到黑名单并保存(IP地址);
+
+EnterCriticalSection(&连接超时记录锁);
+连接超时记录.erase(IP地址);
+LeaveCriticalSection(&连接超时记录锁);
+
+添加信息显示(IP地址 + _T(" 已被自动拉黑！"));
+}
+}
+
+void NageDlqServerDlg::添加到黑名单并保存(const CString& IP地址)
+{
+for (const auto& 黑名单IP : 黑名单列表)
+{
+if (黑名单IP == IP地址) return;
+}
+
+黑名单列表.push_back(IP地址);
+
+CString 黑名单数据;
+for (size_t i = 0; i < 黑名单列表.size(); i++)
+{
+if (i > 0) 黑名单数据 += _T(";");
+黑名单数据 += 黑名单列表[i];
+}
+
+HKEY hKey;
+if (RegCreateKeyEx(HKEY_CURRENT_USER, _T("Software\\NageServer\\IPLists"), 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS)
+{
+RegSetValueEx(hKey, _T("BlackList"), 0, REG_SZ,
+(const BYTE*)(LPCTSTR)黑名单数据,
+(黑名单数据.GetLength() + 1) * sizeof(TCHAR));
+RegCloseKey(hKey);
+}
 }

@@ -156,7 +156,7 @@ BOOL 端口转发管理类::启动转发规则(int 规则序号)
         }
 
         // 开始监听
-        if (listen(目标规则->监听套接字, 10) == SOCKET_ERROR)
+        if (listen(目标规则->监听套接字, SOMAXCONN) == SOCKET_ERROR)
         {
             TRACE(_T("监听失败，错误码: %d\n"), WSAGetLastError());
             closesocket(目标规则->监听套接字);
