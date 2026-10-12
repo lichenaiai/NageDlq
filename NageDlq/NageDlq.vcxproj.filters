@@ -108,9 +108,6 @@
     <Image Include="res\NageDlq.ico">
       <Filter>资源文件</Filter>
     </Image>
-    <Image Include="res\bitmap1.bmp">
-      <Filter>资源文件</Filter>
-    </Image>
     <Image Include="res\map06.bmp">
       <Filter>资源文件</Filter>
     </Image>
@@ -123,5 +120,15 @@
     <Image Include="res\map01.bmp">
       <Filter>资源文件</Filter>
     </Image>
+    <Image Include="C:\Users\Administrator\Pictures\logo.png">
+      <Filter>资源文件</Filter>
+    </Image>
+    <Image Include="res\nage_icon.ico">
+      <Filter>资源文件</Filter>
+    </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <Natvis Include="$(MSBuildThisFileDirectory)..\..\natvis\wil.natvis" />
+    <Natvis Include="$(MSBuildThisFileDirectory)..\..\natvis\wil.natstepfilter" />
   </ItemGroup>
 </Project>

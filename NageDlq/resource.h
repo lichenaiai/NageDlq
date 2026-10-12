@@ -3,6 +3,7 @@
 // 供 NageDlq.rc 使用
 //
 #define SS_REALSIZECONTROL              0x00000040
+#define IDI_APP_ICON					101
 #define IDD_NAGEDLQ_DIALOG              102
 #define IDP_SOCKETS_INIT_FAILED         103
 #define IDR_MAINFRAME                   128
@@ -68,14 +69,13 @@
 #define IDC_DT_OPENBOX                  1050
 #define IDC_DT_BUFF                     1051
 #define IDC_BUTTON_HTML                 1052
-#define IDC_BUTTON1                     1053
 #define IDC_BTN_CLOSE                   1054
 
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        153
+#define _APS_NEXT_RESOURCE_VALUE        156
 #define _APS_NEXT_COMMAND_VALUE         32771
 #define _APS_NEXT_CONTROL_VALUE         1055
 #define _APS_NEXT_SYMED_VALUE           101
